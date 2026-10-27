@@ -1,4 +1,4 @@
-import { mkdirSync, openSync, writeSync, closeSync, readFileSync, unlinkSync, existsSync, renameSync, statSync } from "node:fs";
+import { mkdirSync, openSync, writeSync, closeSync, readFileSync, unlinkSync, existsSync, renameSync, statSync, linkSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fail } from "./errors.mjs";
@@ -29,7 +29,11 @@ function inspect(path, staleMs) {
   return { corrupt: true, stale: mtimeAge(path, now) > GRACE_MS };
 }
 
+const guardPath = (path) => path + ".takeover";
+function guardFresh(path) { try { return Date.now() - statSync(guardPath(path)).mtimeMs <= GRACE_MS; } catch { return false; } }
+
 export function status(c, name, { staleMs = c.limits?.lockStaleMs ?? 3_600_000 } = {}) {
+  if (guardFresh(lockPath(c, name))) return { held: true, holder: "<taking over>", takeover: true };
   const s = inspect(lockPath(c, name), staleMs);
   if (s.none) return { held: false };
   if (s.corrupt) return { held: true, holder: "unknown", corrupt: true, stale: s.stale };
@@ -44,40 +48,57 @@ function tryCreate(path, body) {
   return true;
 }
 
-/** Atomically remove a stale lock by renaming it away. Returns the removed holder's name, or null if another process got there first. */
-function takeOver(path, judged) {
-  const moved = `${path}.stale-${randomUUID()}`;
-  try { renameSync(path, moved); } catch (e) { if (e.code === "ENOENT") return null; throw e; }
-  const now = parse(moved);
-  const same = judged.corrupt ? now === null : now !== null && now.since === judged.body.since && now.token === judged.body.token;
-  if (!same) { try { renameSync(moved, path); } catch { /* a newer lock is already in place */ } return null; }
+function writeNew(path, body) { return tryCreate(path, body); }
+
+/** Clear a guard left by a crashed taker: rename it aside, then unlink. */
+function clearOldGuard(gp) {
+  const moved = `${gp}.${randomUUID()}`;
+  try { renameSync(gp, moved); } catch (e) { if (e.code === "ENOENT") return; throw e; }
   try { unlinkSync(moved); } catch { /* already gone */ }
-  return judged.corrupt ? "unknown" : judged.body.holder;
 }
+
+const sameJudged = (judged, now) => now.stale && (judged.corrupt ? now.corrupt === true : now.body !== undefined && now.body.since === judged.body.since && now.body.token === judged.body.token);
 
 const heldMessage = (name, cur) => `${name} is held by ${cur.body?.holder ?? "unknown"} since ${cur.body?.since ?? "?"}`;
 
-/** One attempt, shared by acquire and acquireSync: returns the Lock, or null when the lock is held. */
+/** One attempt, shared by acquire and acquireSync: returns the Lock, or null when the lock is held or a takeover is busy. */
 function tryAcquireOnce(c, name, { holder, staleMs, pid, durable }) {
   const path = lockPath(c, name);
-  let tookOverFrom;
-  for (let i = 0; i < 3; i++) {
-    const s = inspect(path, staleMs);
-    if (!s.none && s.stale) {
-      const from = takeOver(path, s);
-      if (from !== null) tookOverFrom = from;
-    }
-    if (!s.none && !s.stale) return null;
+  const gp = guardPath(path);
+  const make = (tookOverFrom) => {
     const token = randomUUID();
     const body = { name, holder, token, pid: durable ? null : pid, since: new Date().toISOString() };
     if (durable) body.durable = true;
-    if (tryCreate(path, body)) {
-      const out = { ...body, path, release: () => release(c, name, { holder, token }) };
-      if (tookOverFrom !== undefined) out.tookOverFrom = tookOverFrom;
-      return out;
+    if (tookOverFrom !== undefined) body.tookOverFrom = tookOverFrom;
+    return body;
+  };
+  const lockOf = (body) => ({ ...body, path, release: () => release(c, name, { holder, token: body.token }) });
+  for (let i = 0; i < 4; i++) {
+    const s = inspect(path, staleMs);
+    if (s.none) {
+      if (guardFresh(path)) return null;
+      const body = make();
+      if (writeNew(path, body)) return lockOf(body);
+      continue;
     }
-    if (inspect(path, staleMs).none) continue;
-    return null;
+    if (!s.stale) return null;
+    // Stale: serialise the takeover through the guard file; nothing ever renames onto the lock path.
+    if (!tryCreate(gp, { by: holder, token: randomUUID(), since: new Date().toISOString() })) {
+      if (guardFresh(path)) return null;
+      try { clearOldGuard(gp); } catch (e) { if (e.code === "ENOENT") continue; return null; }
+      continue;
+    }
+    try {
+      const again = inspect(path, staleMs);
+      if (!again.none) {
+        if (!sameJudged(s, again)) return null;
+        try { unlinkSync(path); } catch (e) { if (e.code !== "ENOENT") return null; }
+      }
+      const body = make(s.corrupt ? "unknown" : s.body.holder);
+      return writeNew(path, body) ? lockOf(body) : null;
+    } finally {
+      try { unlinkSync(gp); } catch { /* already gone */ }
+    }
   }
   return null;
 }
@@ -108,17 +129,21 @@ export async function acquire(c, name, { holder, waitMs = 0, pollMs = 500, stale
 
 export function release(c, name, { holder, token } = {}) {
   const path = lockPath(c, name);
+  if (!existsSync(path)) return false;
+  const cur = parse(path);
+  // A body with no token predates token ownership: holder alone matches it.
+  const ok = cur !== null && cur.holder === holder && (cur.token === undefined || cur.token === token);
+  if (!ok) fail("NOT_HOLDER", `${name} is held by ${cur?.holder ?? "unknown"}, not ${holder}`);
   const moved = `${path}.rel-${randomUUID()}`;
   try { renameSync(path, moved); } catch (e) { if (e.code === "ENOENT") return false; throw e; }
-  const cur = parse(moved);
-  // A body with no token predates token ownership (worktree.mjs writes one): holder alone matches it.
-  const ok = cur !== null && cur.holder === holder && (cur.token === undefined || cur.token === token);
-  if (!ok) {
-    try { renameSync(moved, path); } catch { /* a newer lock is already in place */ }
-    fail("NOT_HOLDER", `${name} is held by ${cur?.holder ?? "unknown"}, not ${holder}`);
+  const got = parse(moved);
+  if (got !== null && got.holder === holder && got.token === cur.token) { unlinkSync(moved); return true; }
+  // We moved someone else's lock (a takeover landed between our read and our rename): put it back without overwriting.
+  try { linkSync(moved, path); unlinkSync(moved); } catch (e) {
+    if (e.code !== "EEXIST") throw e;
+    console.error(`lock ${name}: could not restore a lock moved by mistake; left at ${moved}`);
   }
-  unlinkSync(moved);
-  return true;
+  return false;
 }
 
 export async function withLock(c, name, opts, fn) {

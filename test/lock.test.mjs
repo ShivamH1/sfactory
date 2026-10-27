@@ -49,21 +49,27 @@ test("lock: release by a non-holder is NOT_HOLDER; withLock releases on throw", 
 });
 
 const child = fileURLToPath(new URL("./fixtures/lock-child.mjs", import.meta.url));
-const run = (stateDir, holder) => new Promise((resolve, reject) => {
-  const p = spawn(process.execPath, [child, stateDir, holder], { stdio: ["ignore", "pipe", "inherit"] });
+const run = (stateDir, holder, start, mode) => new Promise((resolve, reject) => {
+  const p = spawn(process.execPath, [child, stateDir, holder, String(start), ...(mode ? [mode] : [])], { stdio: ["ignore", "pipe", "inherit"] });
   let out = "";
   const timer = setTimeout(() => { p.kill(); reject(new Error("child timed out")); }, 10_000);
   p.stdout.on("data", (d) => { out += d; });
   p.on("close", () => { clearTimeout(timer); resolve(out.trim()); });
 });
-
-test("lock: (a) six processes racing for a dead pid lock produce exactly one winner", async () => {
-  const c = cfg();
+const stale = (c, name, extra = {}) => {
   mkdirSync(join(c.stateDir, "locks"), { recursive: true });
-  writeFileSync(join(c.stateDir, "locks", "race.lock"), JSON.stringify({ holder: "ghost", token: "t", pid: 999999, since: new Date().toISOString() }));
-  const results = await Promise.all([1, 2, 3, 4, 5, 6].map((i) => run(c.stateDir, `p-${i}`)));
-  assert.ok(results.every((r) => r === "GOT" || r === "HELD"), results.join(","));
-  assert.equal(results.filter((r) => r === "GOT").length, 1, results.join(","));
+  writeFileSync(join(c.stateDir, "locks", name + ".lock"), JSON.stringify({ holder: "ghost", token: "t", pid: 999999, since: new Date().toISOString(), ...extra }));
+};
+
+test("lock: (a) eight aligned processes racing for a dead pid lock produce exactly one winner, three times", async () => {
+  for (let round = 0; round < 3; round++) {
+    const c = cfg();
+    stale(c, "race");
+    const start = Date.now() + 2500;
+    const results = await Promise.all([1, 2, 3, 4, 5, 6, 7, 8].map((i) => run(c.stateDir, "p-" + i, start)));
+    assert.ok(results.every((r) => r === "GOT" || r === "HELD"), results.join(","));
+    assert.equal(results.filter((r) => r === "GOT").length, 1, results.join(","));
+  }
 });
 
 test("lock: (b) right holder with the wrong token is NOT_HOLDER and the file stays", async () => {
@@ -137,4 +143,32 @@ test("lock: (i) acquireSync takes a free name, refuses a held one, takes over a 
   const l2 = acquireSync(c, "s", { holder: "b" });
   assert.equal(l2.tookOverFrom, "ghost");
   l2.release();
+});
+
+test("lock: (j) wrong-token releases racing four acquirers never yield two holders", async () => {
+  const c = cfg();
+  const start = Date.now() + 1500;
+  const kids = [1, 2, 3, 4].map((i) => run(c.stateDir, "q-" + i, start, "loop"));
+  await new Promise((r) => setTimeout(r, start - Date.now()));
+  while (Date.now() < start + 1500) {
+    try { release(c, "race", { holder: "q-1", token: "wrong" }); } catch (e) { assert.equal(e.code, "NOT_HOLDER"); }
+    await new Promise((r) => setTimeout(r, 1));
+  }
+  const results = await Promise.all(kids);
+  for (const r of results) assert.match(r, /^GOT [0-9]+ OVERLAP 0$/, results.join(" | "));
+});
+
+test("lock: (k) a fresh takeover guard is busy and shown by status; an old guard is cleared", () => {
+  const c = cfg();
+  stale(c, "g");
+  const guard = join(c.stateDir, "locks", "g.lock.takeover");
+  writeFileSync(guard, "{}");
+  assert.throws(() => acquireSync(c, "g", { holder: "b" }), (e) => e.code === "LOCK_HELD");
+  assert.equal(status(c, "g").takeover, true);
+  const old = new Date(Date.now() - 60_000);
+  utimesSync(guard, old, old);
+  const l = acquireSync(c, "g", { holder: "b" });
+  assert.equal(l.tookOverFrom, "ghost");
+  assert.equal(existsSync(guard), false);
+  l.release();
 });

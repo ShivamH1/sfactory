@@ -1,7 +1,33 @@
-// Acquires with pid null like the CLI (a winner that exits must not look dead to the others). Plain script, not a test: `node lock-child.mjs <stateDir> <holder>` prints GOT or HELD. With no arguments it exits at once.
+// Plain script, not a test (it exits at once with no arguments).
+//   node lock-child.mjs <stateDir> <holder> <startMs> [loop]
+// Waits for startMs so children race together, acquires with its own pid, holds 1.5 s, prints GOT or HELD.
+// With "loop": acquires and releases repeatedly for 1.5 s, checking that no other holder is inside at the same time,
+// and prints "GOT <n> OVERLAP <m>".
+import { mkdirSync, writeFileSync, readdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { acquire } from "../../src/lock.mjs";
-const [stateDir, holder] = process.argv.slice(2);
+const [stateDir, holder, start, mode] = process.argv.slice(2);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 if (stateDir) {
-  try { await acquire({ stateDir, limits: { lockStaleMs: 3_600_000 } }, "race", { holder, waitMs: 0, pid: null }); console.log("GOT"); }
-  catch (e) { console.log(e.code === "LOCK_HELD" ? "HELD" : `ERR ${e.code} ${e.message}`); }
+  const c = { stateDir, limits: { lockStaleMs: 3_600_000 } };
+  while (Date.now() < Number(start)) await sleep(1);
+  if (mode === "loop") {
+    const dir = join(stateDir, "inside");
+    mkdirSync(dir, { recursive: true });
+    let got = 0, overlap = 0;
+    while (Date.now() < Number(start) + 1500) {
+      let l;
+      try { l = await acquire(c, "race", { holder, waitMs: 0 }); } catch (e) { if (e.code !== "LOCK_HELD") throw e; await sleep(1); continue; }
+      got++;
+      writeFileSync(join(dir, holder), "");
+      await sleep(5);
+      if (readdirSync(dir).length > 1) overlap++;
+      rmSync(join(dir, holder));
+      l.release();
+    }
+    console.log(`GOT ${got} OVERLAP ${overlap}`);
+  } else {
+    try { await acquire(c, "race", { holder, waitMs: 0 }); await sleep(1500); console.log("GOT"); }
+    catch (e) { console.log(e.code === "LOCK_HELD" ? "HELD" : `ERR ${e.code} ${e.message}`); }
+  }
 }
