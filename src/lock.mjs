@@ -13,9 +13,13 @@ function parse(path) {
 }
 function mtimeAge(path, now) { try { return now - statSync(path).mtimeMs; } catch { return 0; } }
 
+/**
+ * Durable: never stale. A named pid: stale only when that process is gone, however old the lock
+ * (a live suite may run for hours). No pid (a CLI-held lock): stale once older than staleMs.
+ */
 export function isStale(body, now, staleMs) {
   if (body.durable === true) return false;
-  if (body.pid != null && !alive(body.pid)) return true;
+  if (body.pid != null) return !alive(body.pid);
   return now - Date.parse(body.since) > staleMs;
 }
 

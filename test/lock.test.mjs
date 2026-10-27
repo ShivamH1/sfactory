@@ -186,3 +186,16 @@ test("lock: (l) an old guard is never auto-cleared; clearGuard (lock clear --gua
   assert.equal(l.tookOverFrom, "ghost");
   l.release();
 });
+
+test("lock: (m) a live-pid lock a year old is not taken over; a pid-null one that old is", async () => {
+  const c = cfg();
+  mkdirSync(join(c.stateDir, "locks"), { recursive: true });
+  const year = new Date(Date.now() - 365 * 86_400_000).toISOString();
+  writeFileSync(join(c.stateDir, "locks", "live.lock"), JSON.stringify({ holder: "running-suite", token: "t", pid: process.pid, since: year }));
+  await assert.rejects(acquire(c, "live", { holder: "b" }), (e) => e.code === "LOCK_HELD" && /running-suite/.test(e.message));
+  assert.equal(status(c, "live").stale, false);
+  writeFileSync(join(c.stateDir, "locks", "cli.lock"), JSON.stringify({ holder: "old-cli", token: "t", pid: null, since: year }));
+  const l = await acquire(c, "cli", { holder: "b" });
+  assert.equal(l.tookOverFrom, "old-cli");
+  l.release();
+});
