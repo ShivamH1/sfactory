@@ -1,6 +1,7 @@
 import { register } from "../registry.mjs";
 import { findRepoRoot, loadConfig } from "../config.mjs";
 import { addCost, readCost } from "../cost.mjs";
+import { readJob } from "../store.mjs";
 import { fail } from "../errors.mjs";
 
 const int = (v, flag, required) => {
@@ -13,6 +14,7 @@ const int = (v, flag, required) => {
 register("cost", async ({ positional: [verb, id], flags }, io) => {
   if (!id) fail("BAD_ARGS", "usage: sfactory cost <add|show> <id> [--stage s --agent claude|codex --model m --in n --out n [--cache-read n] [--usd x]]");
   const c = loadConfig(findRepoRoot(io.cwd));
+  readJob(c, id);
   if (verb === "show") { io.stdout(JSON.stringify(readCost(c, id), null, 2) + "\n"); return 0; }
   if (verb === "add") {
     if (flags.agent !== "claude" && flags.agent !== "codex") fail("BAD_ARGS", "--agent must be claude or codex");
@@ -22,7 +24,7 @@ register("cost", async ({ positional: [verb, id], flags }, io) => {
     const cacheReadTokens = int(flags["cache-read"], "cache-read", false);
     let usd = null;
     if (flags.usd !== undefined) {
-      usd = typeof flags.usd === "string" && flags.usd.trim() !== "" ? Number(flags.usd) : NaN;
+      usd = typeof flags.usd === "string" && /^d+(.d+)?$/.test(flags.usd) ? Number(flags.usd) : NaN;
       if (!Number.isFinite(usd) || usd < 0) fail("BAD_ARGS", "--usd must be a non-negative number");
     }
     const e = addCost(c, id, { stage: flags.stage, agent: flags.agent, model: flags.model, inputTokens, outputTokens, cacheReadTokens, usd });

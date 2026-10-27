@@ -1,3 +1,6 @@
+import { writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { jobDir } from "../src/store.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tmpDir, tmpRepo, writeConfig } from "./helpers.mjs";
@@ -34,4 +37,24 @@ test("cost: CLI add prints a priced figure; bad agent is BAD_ARGS", async () => 
   const bad = await run(["cost", "add", "m-1", "--stage", "building", "--agent", "nobody", "--model", "x", "--in", "1", "--out", "1"]);
   assert.equal(bad.code, 2);
   assert.match(bad.err, /BAD_ARGS/);
+});
+
+test("cost: corrupt cost.json is COST_CORRUPT", () => {
+  const c = cfg();
+  mkdirSync(jobDir(c, "m-1"), { recursive: true });
+  writeFileSync(join(jobDir(c, "m-1"), "cost.json"), "{bad");
+  assert.throws(() => readCost(c, "m-1"), (e) => e.code === "COST_CORRUPT");
+});
+
+test("cost: CLI refuses an unknown job and a loose --usd", async () => {
+  const repo = tmpRepo();
+  const state = tmpDir("sf-state-");
+  writeConfig(repo, { project: "p", agents: { mode: "claude" }, commands: { suite: "x" }, stateDir: state, worktrees: { dir: tmpDir() } });
+  const run = async (argv) => { let err = ""; const code = await main(argv, { stdout() {}, stderr: (s) => (err += s), cwd: repo }); return { code, err }; };
+  const r = await run(["cost", "add", "m-99", "--stage", "building", "--agent", "claude", "--model", "x", "--in", "1", "--out", "1"]);
+  assert.equal(r.code, 2); assert.match(r.err, /JOB_NOT_FOUND/);
+  assert.equal(existsSync(join(state, "jobs", "m-99")), false);
+  assert.equal((await run(["job", "add", "milestone", "x"])).code, 0);
+  const u = await run(["cost", "add", "m-1", "--stage", "building", "--agent", "claude", "--model", "x", "--in", "1", "--out", "1", "--usd", "1e3"]);
+  assert.equal(u.code, 2); assert.match(u.err, /BAD_ARGS/);
 });
