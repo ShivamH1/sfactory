@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpRepo, tmpDir } from "./helpers.mjs";
 import { hasTrailers, assertNamedPaths, commit } from "../src/commit.mjs";
@@ -29,4 +29,27 @@ test("commit: commits named paths only, refuses trailers, leaves other changes u
   assert.equal(isClean(r), false);   // b.txt is still untracked
   await commit(cfg(true), { cwd: r, paths: ["b.txt"], message: "feat: b\n\nCo-Authored-By: X <x@y>", holder: "t" });
   assert.match(git(["log", "-1", "--format=%B"], { cwd: r }), /Co-Authored-By/);
+});
+
+test("commit: trailers as git parses them are refused", async () => {
+  const r = tmpRepo();
+  writeFileSync(join(r, "a.txt"), "a");
+  const rows = [
+    "feat: a\n\nCo-Authored-By: X <x@y>\n# a comment",
+    "feat: a\n\nSome prose here\nSigned-off-by: me <a@b>",
+    "feat: a\n\nCo-Authored-By: X <x@y>\n  continued here",
+    "feat: a\n\nCo-Authored-By:X <x@y>",
+    "feat: a\n\nCo-Authored-By : X",
+    "feat: a\n\nX2-Ref: 123",
+  ];
+  for (const m of rows) await assert.rejects(commit(cfg(), { cwd: r, paths: ["a.txt"], message: m, holder: "t" }), (e) => e.code === "TRAILER_REFUSED", m);
+  await assert.rejects(commit(cfg(), { cwd: r, paths: ["a.txt"], message: 5, holder: "t" }), (e) => e.code === "BAD_ARGS");
+});
+
+test("commit: strict path guard", async () => {
+  const r = tmpRepo();
+  mkdirSync(join(r, "src")); writeFileSync(join(r, "src", "a.mjs"), "a");
+  for (const bad of ["./", ":/", "src/", "[ab].txt", "", "..", ":(top)", process.platform === "win32" ? "C:/x" : "/etc/x"]) assert.throws(() => assertNamedPaths([bad], { cwd: r }), (e) => e.code === "UNNAMED_PATHS", JSON.stringify(bad));
+  assert.throws(() => assertNamedPaths(["src"], { cwd: r }), (e) => e.code === "NOT_A_FILE");
+  await assert.rejects(commit(cfg(), { cwd: r, paths: [":/"], message: "feat: a", holder: "t" }), (e) => e.code === "UNNAMED_PATHS");
 });

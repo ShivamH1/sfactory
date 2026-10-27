@@ -2,8 +2,8 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fail } from "./errors.mjs";
 
-export function git(args, { cwd, allowFail = false } = {}) {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8" });
+export function git(args, { cwd, allowFail = false, input } = {}) {
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", ...(input !== undefined ? { input } : {}) });
   if (r.error) fail("GIT_FAILED", `git not runnable: ${r.error.message}`);
   if (r.status !== 0 && !allowFail) fail("GIT_FAILED", `git ${args.join(" ")} (in ${cwd}): ${r.stderr.trim() || r.stdout.trim()}`);
   return r.stdout.trim();
