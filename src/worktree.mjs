@@ -27,6 +27,7 @@ function integration(c) {
  * `afterAdd` is a TEST-ONLY callback invoked between the worktree add and the base re-read.
  */
 export function cut(c, job, { slug, afterAdd } = {}) {
+  if (job.worktree) fail("WORKTREE_EXISTS", `${job.id} already has a worktree (${job.worktree}); remove it first`);
   const s = slugify(slug ?? job.title.replace(/^M\d+\s+/i, ""));
   const dir = resolve(c.worktrees.dir, s || "x");
   if (dir === resolve(c.repoRoot) || resolve(c.worktrees.dir) === resolve(c.repoRoot)) fail("WORKTREE_IS_MAIN_CHECKOUT", `worktrees.dir must not be the main checkout (${c.repoRoot})`);

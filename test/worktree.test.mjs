@@ -90,3 +90,54 @@ test("worktree: --slug is sanitised and an empty one refused", () => {
   remove(c, job);
   assert.throws(() => cut(c, newJob({ id: "m-2", kind: "milestone", title: "t" }), { slug: "!!!" }), (e) => e.code === "BAD_ARGS");
 });
+
+test("worktree cli: a second cut of one job is WORKTREE_EXISTS; the printed line names the lock token", async () => {
+  const { root, c } = setup();
+  const { main } = await import("../src/cli.mjs");
+  const { writeJob, readJob } = await import("../src/store.mjs");
+  writeJob(c, newJob({ id: "m-1", kind: "milestone", title: "Twice" }));
+  const out = [], err = [];
+  const io = { cwd: root, stdout: (s) => out.push(s), stderr: (s) => err.push(s) };
+  assert.equal(await main(["worktree", "cut", "m-1"], io), 0, err.join(""));
+  const j = readJob(c, "m-1");
+  assert.match(out.join(""), new RegExp(`lock token ${j.lockToken}`));
+  assert.equal(await main(["worktree", "cut", "m-1", "--slug", "other"], io), 2);
+  assert.match(err.join(""), /WORKTREE_EXISTS/);
+  assert.equal(branchExists(root, "feature/other"), false);
+  assert.equal(readJob(c, "m-1").worktree, j.worktree);
+  assert.equal(await main(["worktree", "remove", "m-1", "--force"], io), 0, err.join(""));
+  const after = readJob(c, "m-1");
+  assert.equal(after.worktree, null);
+  assert.equal("lockToken" in after, false);
+});
+
+test("worktree cli: a stage change made during the cut survives the write", async () => {
+  const { c } = setup();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { writeJob, readJob } = await import("../src/store.mjs");
+  const { transition } = await import("../src/job.mjs");
+  writeJob(c, newJob({ id: "m-1", kind: "milestone", title: "Racing" }));
+  const afterAdd = () => writeJob(c, transition(readJob(c, "m-1"), "planning", { by: "other-session" }));
+  const j = cutJob(c, "m-1", { afterAdd });
+  const saved = readJob(c, "m-1");
+  assert.equal(saved.stage, "planning");
+  assert.equal(saved.history.at(-1).by, "other-session");
+  assert.equal(saved.worktree, j.worktree);
+  assert.equal(saved.branch, "feature/racing");
+  assert.match(saved.lockToken, /^[0-9a-f-]{36}$/);
+  assert.equal(status(c, "worktree:racing").holder, "m-1");
+  remove(c, saved, { force: true });
+});
+
+test("worktree cli: a cut that finds another cut recorded meanwhile undoes itself", async () => {
+  const { root, c } = setup();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { writeJob, readJob } = await import("../src/store.mjs");
+  writeJob(c, newJob({ id: "m-1", kind: "milestone", title: "Late" }));
+  const afterAdd = () => writeJob(c, { ...readJob(c, "m-1"), worktree: "elsewhere" });
+  assert.throws(() => cutJob(c, "m-1", { afterAdd }), (e) => e.code === "WORKTREE_EXISTS");
+  assert.equal(readJob(c, "m-1").worktree, "elsewhere");
+  assert.equal(existsSync(join(c.worktrees.dir, "late")), false);
+  assert.equal(branchExists(root, "feature/late"), false);
+  assert.equal(status(c, "worktree:late").held, false);
+});
