@@ -61,6 +61,7 @@ export async function main(argv, io = {}) {
 await Promise.all([
   import("./commands/job.mjs"),
   import("./commands/lock.mjs"),
+  import("./commands/ports.mjs"),
   import("./commands/worktree.mjs"),
 ]);
 
