@@ -199,3 +199,20 @@ test("lock: (m) a live-pid lock a year old is not taken over; a pid-null one tha
   assert.equal(l.tookOverFrom, "old-cli");
   l.release();
 });
+
+test("lock: (n) a lock that cannot be created names the path and the errno, not an unknown holder", { skip: process.platform !== "win32" && process.getuid?.() === 0 ? "root ignores permissions" : false }, async () => {
+  const { spawnSync } = await import("node:child_process");
+  const { chmodSync } = await import("node:fs");
+  const c = cfg();
+  const dir = join(c.stateDir, "locks");
+  mkdirSync(dir, { recursive: true });
+  const deny = () => process.platform === "win32" ? spawnSync("icacls", [dir, "/deny", "*S-1-1-0:(W)"], { stdio: "ignore" }) : chmodSync(dir, 0o555);
+  const allow = () => process.platform === "win32" ? spawnSync("icacls", [dir, "/remove:d", "*S-1-1-0"], { stdio: "ignore" }) : chmodSync(dir, 0o755);
+  deny();
+  try {
+    assert.throws(() => acquireSync(c, "p", { holder: "a" }), (e) => e.code === "LOCK_HELD" && /could not create .*p\.lock \((EPERM|EACCES)\); check permissions/.test(e.message) && !/unknown/.test(e.message));
+    await assert.rejects(acquire(c, "p", { holder: "a" }), (e) => e.code === "LOCK_HELD" && /check permissions/.test(e.message));
+  } finally { allow(); }
+  const l = acquireSync(c, "p", { holder: "a" });
+  l.release();
+});

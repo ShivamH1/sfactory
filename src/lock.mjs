@@ -52,27 +52,34 @@ export function status(c, name, { staleMs = c.limits?.lockStaleMs ?? 3_600_000 }
   return { held: true, ...rest, stale: s.stale };
 }
 
-function tryCreate(path, body) {
-  let fd;
-  try { fd = openSync(path, "wx"); } catch (e) { if (["EEXIST", "EPERM", "EBUSY", "EACCES"].includes(e.code)) return false; throw e; }
+const BUSY = ["EEXIST", "EPERM", "EBUSY", "EACCES"];
+/** Exclusive create: the open fd, or null when the path is busy (its errno noted in `note.code`). */
+function openNew(path, note) {
+  try { return openSync(path, "wx"); } catch (e) { if (BUSY.includes(e.code)) { if (note) note.code = e.code; return null; } throw e; }
+}
+function tryCreate(path, body, note) {
+  const fd = openNew(path, note);
+  if (fd === null) return false;
   try { writeSync(fd, JSON.stringify(body, null, 2)); } finally { closeSync(fd); }
   return true;
 }
 
-function writeNew(path, body) { return tryCreate(path, body); }
+function writeNew(path, body, note) { return tryCreate(path, body, note); }
 
 const sameJudged = (judged, now) => now.stale && (judged.corrupt ? now.corrupt === true : now.body !== undefined && now.body.since === judged.body.since && now.body.token === judged.body.token);
 
-const heldMessage = (c, name, staleMs) => {
+const heldMessage = (c, name, staleMs, note = {}) => {
   const path = lockPath(c, name);
   const age = guardAge(path);
   if (age !== null) return `${name}: takeover guard present (${guardPath(path)}, ${Math.round(age / 1000)} s old); if no taker is running, remove it with: sfactory lock clear ${name} --guard`;
   const cur = inspect(path, staleMs);
+  // Nothing there, yet every create failed: not a holder but a filesystem refusal.
+  if (cur.none) return note.code && note.code !== "EEXIST" ? `${name}: could not create ${path} (${note.code}); check permissions` : `${name} was released while acquiring; retry`;
   return `${name} is held by ${cur.body?.holder ?? "unknown"} since ${cur.body?.since ?? "?"}`;
 };
 
 /** One attempt, shared by acquire and acquireSync: returns the Lock, or null when the lock is held or a takeover is busy. */
-function tryAcquireOnce(c, name, { holder, staleMs, pid, durable }) {
+function tryAcquireOnce(c, name, { holder, staleMs, pid, durable }, note = {}) {
   const path = lockPath(c, name);
   const gp = guardPath(path);
   const make = (tookOverFrom) => {
@@ -88,24 +95,33 @@ function tryAcquireOnce(c, name, { holder, staleMs, pid, durable }) {
     if (s.none) {
       if (guardAge(path) !== null) return null;
       const body = make();
-      if (writeNew(path, body)) return lockOf(body);
+      if (writeNew(path, body, note)) return lockOf(body);
       continue;
     }
     if (!s.stale) return null;
     // Stale: serialise the takeover through the guard file; nothing ever renames onto the lock path.
     const guard = { by: holder, token: randomUUID(), since: new Date().toISOString() };
-    if (!tryCreate(gp, guard)) return null; // another taker, or a guard left behind: busy either way
+    const gfd = openNew(gp, note);
+    if (gfd === null) return null; // another taker, or a guard left behind: busy either way
+    let wrote = false;
     try {
+      // The body is written inside the try so a failed write still reaches the cleanup below.
+      try { writeSync(gfd, JSON.stringify(guard, null, 2)); wrote = true; } finally { closeSync(gfd); }
       const again = inspect(path, staleMs);
       if (!again.none) {
         if (!sameJudged(s, again)) return null;
         try { unlinkSync(path); } catch (e) { if (e.code !== "ENOENT") return null; }
       }
       const body = make(s.corrupt ? "unknown" : s.body.holder);
-      return writeNew(path, body) ? lockOf(body) : null;
+      return writeNew(path, body, note) ? lockOf(body) : null;
     } finally {
-      // Remove the guard only if it is still ours; on any mismatch or read error leave it.
-      try { if (JSON.parse(readFileSync(gp, "utf8")).token === guard.token) unlinkSync(gp); } catch { /* not ours, or gone */ }
+      // Remove the guard only if it is still ours: our token, or unparseable after our own write failed.
+      try {
+        const text = readFileSync(gp, "utf8");
+        let mine;
+        try { mine = JSON.parse(text).token === guard.token; } catch { mine = !wrote; }
+        if (mine) unlinkSync(gp);
+      } catch { /* gone, or unreadable: leave it */ }
     }
   }
   return null;
@@ -119,8 +135,9 @@ function checkArgs(c, holder, waitMs) {
 
 export function acquireSync(c, name, { holder, staleMs = c.limits?.lockStaleMs ?? 3_600_000, pid = process.pid, durable = false } = {}) {
   checkArgs(c, holder, 0);
-  const l = tryAcquireOnce(c, name, { holder, staleMs, pid, durable });
-  if (!l) fail("LOCK_HELD", heldMessage(c, name, staleMs));
+  const note = {};
+  const l = tryAcquireOnce(c, name, { holder, staleMs, pid, durable }, note);
+  if (!l) fail("LOCK_HELD", heldMessage(c, name, staleMs, note));
   return l;
 }
 
@@ -128,9 +145,10 @@ export async function acquire(c, name, { holder, waitMs = 0, pollMs = 500, stale
   checkArgs(c, holder, waitMs);
   const deadline = Date.now() + waitMs;
   for (;;) {
-    const l = tryAcquireOnce(c, name, { holder, staleMs, pid, durable });
+    const note = {};
+    const l = tryAcquireOnce(c, name, { holder, staleMs, pid, durable }, note);
     if (l) return l;
-    if (Date.now() >= deadline) fail("LOCK_HELD", heldMessage(c, name, staleMs));
+    if (Date.now() >= deadline) fail("LOCK_HELD", heldMessage(c, name, staleMs, note));
     await sleep(Math.max(1, Math.min(pollMs, deadline - Date.now())));
   }
 }
