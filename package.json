@@ -8,7 +8,7 @@
   "type": "module",
   "engines": { "node": ">=20" },
   "bin": { "sfactory": "./src/cli.mjs" },
-  "files": ["src", "bin", "board", "skills", "agents", "prompts", "schema", "docs/DESIGN.md", "INSTALL.md", "README.md", "LICENSE"],
+  "files": ["examples", "src", "bin", "board", "skills", "agents", "prompts", "schema", "docs/DESIGN.md", "INSTALL.md", "README.md", "LICENSE"],
   "scripts": { "test": "node --test" },
   "dependencies": {}
 }

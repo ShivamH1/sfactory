@@ -1,0 +1,6 @@
+{
+  "$schema": "https://raw.githubusercontent.com/ShivamH1/sfactory/main/schema/config.json",
+  "project": "my-app",
+  "agents": { "mode": "claude" },
+  "commands": { "suite": "npm test", "build": "npm run build" }
+}

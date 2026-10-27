@@ -1,0 +1,6 @@
+{
+  "$schema": "https://raw.githubusercontent.com/ShivamH1/sfactory/main/schema/config.json",
+  "project": "my-py-app",
+  "agents": { "mode": "claude" },
+  "commands": { "suite": "uv run pytest" }
+}
