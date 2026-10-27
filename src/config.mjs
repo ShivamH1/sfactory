@@ -34,9 +34,20 @@ export const DEFAULTS = Object.freeze({
   prices: DEFAULT_PRICES,
 });
 
+/**
+ * The main checkout's root, also from inside a linked worktree: the config and a relative stateDir
+ * live there, so every worktree of the repo shares one config, one set of locks and one job store.
+ * The common git dir of a normal repo is "<main>/.git"; anything else (a bare repo, a submodule's
+ * "modules/<name>", a git too old for --path-format) falls back to the current worktree's top level.
+ */
 export function findRepoRoot(cwd = process.cwd()) {
   const r = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8" });
   if (r.status !== 0) fail("NOT_A_REPO", `${cwd} is not inside a git repository`);
+  const common = spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd, encoding: "utf8" });
+  if (common.status === 0) {
+    const dir = resolve(common.stdout.trim());
+    if (basename(dir) === ".git") return dirname(dir);
+  }
   return resolve(r.stdout.trim());
 }
 

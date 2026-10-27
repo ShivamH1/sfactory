@@ -78,3 +78,20 @@ test("config: a UTF-8 BOM does not break loading", () => {
   writeFileSync(join(root, "sfactory.config.json"), "\uFEFF" + JSON.stringify({ project: "p", agents: { mode: "claude" }, commands: { suite: "x" } }));
   assert.equal(loadConfig(root).project, "p");
 });
+
+test("config: findRepoRoot from a linked worktree is the main checkout, so jobs and config are shared", async () => {
+  const { tmpRepo, sh } = await import("./helpers.mjs");
+  const { findRepoRoot } = await import("../src/config.mjs");
+  const { main } = await import("../src/cli.mjs");
+  const root = tmpRepo();
+  writeConfig(root, { project: "p", agents: { mode: "claude" }, commands: { suite: "x" } }); // untracked: absent from the worktree
+  const wt = join(tmpDir("sf-wt-"), "one");
+  sh("git", ["worktree", "add", "-q", "-b", "feature/one", wt], root);
+  assert.equal(findRepoRoot(wt), findRepoRoot(root));
+  const io = (cwd) => { const out = [], err = []; return { out, err, io: { cwd, stdout: (s) => out.push(s), stderr: (s) => err.push(s) } }; };
+  const a = io(root);
+  assert.equal(await main(["job", "add", "milestone", "Shared"], a.io), 0, a.err.join(""));
+  const b = io(wt);
+  assert.equal(await main(["job", "show", "m-1"], b.io), 0, b.err.join(""));
+  assert.equal(JSON.parse(b.out.join("")).title, "Shared");
+});
