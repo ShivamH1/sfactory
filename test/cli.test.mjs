@@ -25,6 +25,12 @@ test("parseArgs: booleans, values, and -- rest", () => {
   assert.deepEqual(flags.rest, ["a.txt", "b.txt"]);
 });
 
+test("parseArgs: force is a boolean and never consumes the next token", () => {
+  const { positional, flags } = parseArgs(["remove", "m-1", "--force", "x"]);
+  assert.deepEqual(positional, ["remove", "m-1", "x"]);
+  assert.equal(flags.force, true);
+});
+
 test("cli: SfactoryError from a handler exits 2 with its code", async () => {
   register("boom", () => { throw new SfactoryError("BOOM", "it broke"); });
   const err = [];
