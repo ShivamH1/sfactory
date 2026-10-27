@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/ShivamH1/sfactory/main/schema/config.json",
+  "title": "sfactory.config.json",
+  "description": "Configuration for the sfactory pipeline, committed in the adopting repository's root.",
+  "type": "object",
+  "required": ["project", "agents", "commands"],
+  "additionalProperties": false,
+  "$defs": {
+    "stringList": { "type": "array", "items": { "type": "string" } },
+    "price": {
+      "type": "object",
+      "properties": { "input": { "type": "number" }, "output": { "type": "number" }, "cacheRead": { "type": "number" } },
+      "additionalProperties": true
+    }
+  },
+  "properties": {
+    "$schema": { "type": "string", "description": "URL of this schema, for editor completion." },
+    "project": { "type": "string", "minLength": 1, "description": "The project's name, shown on the board and used to keep two projects' state apart on one machine." },
+    "agents": {
+      "type": "object",
+      "description": "Which agent runs each role.",
+      "required": ["mode"],
+      "properties": {
+        "mode": { "enum": ["claude", "codex", "mixed"], "description": "Which agents the factory uses: claude only, codex only, or both." },
+        "claude": {
+          "type": "object",
+          "description": "Model and effort per role for Claude.",
+          "properties": {
+            "plan": { "type": "string", "description": "Model and effort that write briefs and plans." },
+            "review": { "type": "string", "description": "Model and effort that review work." },
+            "judge": { "type": "string", "description": "Model and effort that judge disputed findings." },
+            "implement": { "type": "string", "description": "Model that implements tasks." },
+            "triage": { "type": "string", "description": "Model that sorts and summarises cheaply." }
+          },
+          "additionalProperties": true
+        },
+        "codex": {
+          "type": "object",
+          "description": "Codex profile names per role, as defined in ~/.codex/config.toml.",
+          "properties": {
+            "implement": { "type": "string", "description": "Codex profile that implements tasks." },
+            "review": { "type": "string", "description": "Codex profile that reviews work." }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "stateDir": { "type": "string", "description": "Where the factory keeps its state; relative to the repo root unless absolute, default .sfactory." },
+    "worktrees": {
+      "type": "object",
+      "description": "How worktrees are placed and cut.",
+      "properties": {
+        "dir": { "type": "string", "description": "Directory holding the worktrees; default a sibling of the repo named <repo>-worktrees." },
+        "branchPrefix": { "type": "string", "description": "Prefix of every branch the factory creates, default feature/." },
+        "baseRule": { "type": "string", "description": "What a new branch is cut from: newest-feature-branch, integration-branch or a branch name." },
+        "integrationBranch": { "type": ["string", "null"], "description": "The integration branch name, used by the integration-branch rule." },
+        "afterCut": { "$ref": "#/$defs/stringList", "description": "Commands run in a fresh worktree after it is cut." },
+        "copyFromBase": { "$ref": "#/$defs/stringList", "description": "Untracked files copied from the base checkout into a fresh worktree." }
+      },
+      "additionalProperties": true
+    },
+    "commands": {
+      "type": "object",
+      "description": "The project's own commands.",
+      "required": ["suite"],
+      "properties": {
+        "suite": { "type": "string", "description": "The command that runs the full test suite." },
+        "suiteSerial": { "type": "boolean", "description": "Whether only one suite run may be live at a time, default true." },
+        "build": { "type": ["string", "null"], "description": "The build command, or null." },
+        "typecheck": { "$ref": "#/$defs/stringList", "description": "Type-check commands run as evidence." },
+        "migrate": { "type": ["string", "null"], "description": "The command that applies migrations, or null." },
+        "services": {
+          "type": "array",
+          "description": "Services started for a live verification run.",
+          "items": {
+            "type": "object",
+            "required": ["name", "cmd"],
+            "properties": {
+              "name": { "type": "string", "description": "The service's name." },
+              "cmd": { "type": "string", "description": "The command that starts it." },
+              "port": { "type": "string", "description": "The name of the port it listens on, from ports.names." },
+              "env": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Environment for the service; {port.<name>} is substituted." },
+              "live": { "type": "boolean", "description": "Whether the service is only started for live runs." }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "ports": {
+      "type": "object",
+      "description": "Port allocation per job.",
+      "properties": {
+        "base": { "type": "integer", "minimum": 1025, "maximum": 64999, "description": "First port handed out." },
+        "step": { "type": "integer", "minimum": 2, "description": "Gap between one job's block of ports and the next." },
+        "names": { "$ref": "#/$defs/stringList", "description": "Names of the ports each job gets, in order." }
+      },
+      "additionalProperties": false
+    },
+    "record": {
+      "type": "object",
+      "description": "Where the written record of each job lives.",
+      "properties": {
+        "style": { "enum": ["docs-folder", "spec-tree"], "description": "Layout of the record: one folder per job, or a spec tree." },
+        "brief": { "type": "string", "description": "Path template of a brief." },
+        "plan": { "type": "string", "description": "Path template of a plan." },
+        "log": { "type": "string", "description": "Path template of a decisions log." },
+        "stories": { "type": ["string", "null"], "description": "Glob of product stories files, or null." },
+        "carriedForward": { "type": ["string", "null"], "description": "Path of the carried-forward obligations file, or null." },
+        "postCloseHeading": { "type": "string", "description": "Heading under which post-close work is appended to a log." },
+        "numbering": { "type": "string", "description": "How a job's number is chosen, e.g. job-id or next-milestone-number." }
+      },
+      "additionalProperties": true
+    },
+    "rules": { "$ref": "#/$defs/stringList", "description": "Files every agent reads before working." },
+    "hotspots": { "$ref": "#/$defs/stringList", "description": "Paths where parallel branches tend to conflict and changes are kept small." },
+    "migrations": {
+      "type": ["object", "null"],
+      "description": "Where database migrations live, or null when there are none.",
+      "properties": {
+        "dir": { "type": "string", "description": "Migrations directory, relative to the repo root unless absolute." },
+        "appliedTo": { "type": "string", "description": "A note on which database the migrations are applied to." }
+      },
+      "additionalProperties": true
+    },
+    "fixCardRefusals": { "$ref": "#/$defs/stringList", "description": "Globs a fix card is refused from touching." },
+    "stops": {
+      "type": "array",
+      "description": "Stages at which the pipeline stops and waits for a person.",
+      "items": { "enum": ["awaiting-approval", "decision-needed", "verifying", "pushing"] }
+    },
+    "limits": {
+      "type": "object",
+      "description": "Concurrency and retry limits.",
+      "properties": {
+        "parallelMilestones": { "type": "integer", "minimum": 1, "maximum": 3, "description": "Milestones worked at once." },
+        "parallelTasks": { "type": "integer", "minimum": 1, "maximum": 4, "description": "Tasks worked at once within a milestone." },
+        "fixRounds": { "type": "integer", "minimum": 1, "description": "Fix rounds allowed after a review." },
+        "taskRounds": { "type": "integer", "minimum": 1, "description": "Attempts allowed on one task." },
+        "suiteWaitMs": { "type": "integer", "minimum": 0, "description": "Longest wait, in milliseconds, for the suite lock." },
+        "lockStaleMs": { "type": "integer", "minimum": 0, "description": "Age, in milliseconds, after which a lock is treated as stale." }
+      },
+      "additionalProperties": false
+    },
+    "git": {
+      "type": "object",
+      "description": "Git behaviour.",
+      "properties": {
+        "trailers": { "type": "boolean", "description": "Whether commits carry attribution trailers." },
+        "namedPathsOnly": { "type": "boolean", "description": "Whether commits stage named paths only." },
+        "push": { "type": "boolean", "description": "Whether the factory pushes branches." },
+        "merge": { "const": false, "description": "The factory never merges; this must be false or absent." }
+      },
+      "additionalProperties": false
+    },
+    "secrets": {
+      "type": "object",
+      "description": "Secret handling.",
+      "properties": {
+        "neverHandToAgents": { "$ref": "#/$defs/stringList", "description": "Files whose contents are never given to an agent." }
+      },
+      "additionalProperties": false
+    },
+    "board": {
+      "type": "object",
+      "description": "The status board.",
+      "properties": {
+        "port": { "type": "integer", "description": "Port the board listens on." },
+        "pollMs": { "type": "integer", "minimum": 1, "description": "How often the board refreshes, in milliseconds." }
+      },
+      "additionalProperties": false
+    },
+    "prices": {
+      "type": "object",
+      "description": "USD per million tokens by model id, overriding the built-in estimates for the board's cost figure.",
+      "additionalProperties": { "$ref": "#/$defs/price" }
+    }
+  }
+}
