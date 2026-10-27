@@ -63,3 +63,14 @@ test("independence: a file-less task touches nothing", () => {
   const r = checkMilestones({ hotspots: [], migrations: null, repoRoot: "/repo", record: {} }, plan, { tasks: [tk(1, [], "c.ts"), { n: 2, title: "", files: [], dependsOn: [] }] });
   assert.equal(r.ok, true);
 });
+
+test("independence: read lines never conflict", () => {
+  const a = parsePlan("### Task 1: A\n- Read: `CLAUDE.md`\n- Create: `a.ts`\n### Task 2: B\n- Read: `CLAUDE.md`\n- Create: `b.ts`\n");
+  const b = parsePlan("### Task 1: X\n- Read: `CLAUDE.md`\n- Create: `x.ts`\n");
+  assert.deepEqual(a.tasks[0].files[0], { op: "read", path: "CLAUDE.md" });
+  const r = checkMilestones({ hotspots: ["CLAUDE.md"], migrations: null, repoRoot: "/repo", record: {} }, a, b);
+  assert.deepEqual(r.checks.filter((c) => ["disjoint-files", "hotspots"].includes(c.name)).map((c) => c.ok), [true, true]);
+  assert.deepEqual(taskBatches(a, 4), [[1, 2]]);
+  const w = parsePlan("### Task 1: X\n- Modify: `CLAUDE.md`\n");
+  assert.equal(checkMilestones({ hotspots: ["CLAUDE.md"], migrations: null, repoRoot: "/repo", record: {} }, w, w).ok, false);
+});

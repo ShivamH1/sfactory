@@ -48,9 +48,16 @@ function checkProse(rest, where) {
   }
 }
 
+/**
+ * A backticked item is a path only if it is path-like ("." and ".." included);
+ * an identifier (`register`), code, or an item that opens with a quote (a
+ * route string such as `"/me/wallet"`) is prose and ignored.
+ */
+const tickedIsPath = (s) => { const t = s.trim(); return !/^["']/.test(t) && (t === "." || t === ".." || pathLike(t)); };
+
 function tickedItems(rest, where) {
   checkProse(rest, where);
-  return [...rest.matchAll(TICKED)].map((m) => {
+  return [...rest.matchAll(TICKED)].filter((m) => tickedIsPath(m[1])).map((m) => {
     const p = norm(m[1]);
     if (!p) fail("PLAN_BAD_FILE_LINE", `${where}: an empty backticked file item`);
     return p;
@@ -126,8 +133,11 @@ export function parsePlan(md) {
     // "- add:" with nothing after it introduces a step's code block; it is a
     // Files line only if indented items follow it (a nested list).
     if (!rest) { cont = { op, comma: false }; return; }
-    declared.add(cur);
-    for (const p of pathsOf(rest, where)) cur.files.push({ op, path: p });
+    // A line whose backticked items are all prose contributes no files and
+    // declares nothing; an explicit "none" declares a file-less task.
+    const ps = pathsOf(rest, where);
+    if (ps.length || /^none\b/i.test(rest)) declared.add(cur);
+    for (const p of ps) cur.files.push({ op, path: p });
     cont = { op, comma: /,\s*$/.test(rest) };
   };
   const lines = String(md).split(/\r?\n/);

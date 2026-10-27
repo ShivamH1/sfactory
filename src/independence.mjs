@@ -2,7 +2,9 @@ import { relative, isAbsolute } from "node:path";
 import { fail } from "./errors.mjs";
 
 const norm = (p) => String(p).replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
-const paths = (plan) => new Set(plan.tasks.flatMap((t) => t.files.map((f) => norm(f.path))));
+/** Files a task touches: a "read" line touches nothing, so it never conflicts. */
+const touched = (t) => t.files.filter((f) => f.op !== "read");
+const paths = (plan) => new Set(plan.tasks.flatMap((t) => touched(t).map((f) => norm(f.path))));
 const under = (p, dir) => p === dir || p.startsWith(dir.replace(/\/$/, "") + "/");
 const overlaps = (x, y) => under(x, y) || under(y, x);
 const toRel = (c, dir) => norm(isAbsolute(dir) ? relative(c.repoRoot, dir) : dir);
@@ -56,7 +58,7 @@ export function taskBatches(plan, max = 4) {
     for (; ; i++) {
       if (!batches[i]) batches[i] = [];
       const b = batches[i];
-      const disjoint = b.every((n) => !byN.get(n).files.some((f) => t.files.some((g) => overlaps(norm(f.path), norm(g.path)))));
+      const disjoint = b.every((n) => !touched(byN.get(n)).some((f) => touched(t).some((g) => overlaps(norm(f.path), norm(g.path)))));
       if (b.length < max && disjoint) { b.push(t.n); placed.set(t.n, i); break; }
     }
   }

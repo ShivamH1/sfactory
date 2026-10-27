@@ -76,8 +76,19 @@ test("plan round 4: trailing prose that names no path is allowed", () => {
   assert.deepEqual(files(one1("- Modify: `z.ts` (the controller call), Tier 3)")), [{ op: "modify", path: "z.ts" }]);
   assert.deepEqual(files(one1("- Test: `t.ts`.")), [{ op: "test", path: "t.ts" }]);
   assert.deepEqual(files(one1("- Modify: `a.ts` / `b.ts` (route)")).map((f) => f.path), ["a.ts", "b.ts"]);
-  assert.deepEqual(files(one1("- Modify: `a.ts` (`Foo` at :80-87)")).map((f) => f.path), ["a.ts", "Foo"]);
+  // Round 5 changed this expectation: `Foo` is an identifier, so it is prose, not a path.
+  assert.deepEqual(files(one1("- Modify: `a.ts` (`Foo` at :80-87)")).map((f) => f.path), ["a.ts"]);
   assert.deepEqual(files(one1("- Modify: `a.ts` (see M44.1 and 19.1 entry 7)")).map((f) => f.path), ["a.ts"]);
+});
+
+test("plan round 5: backticked items that are not path-like are prose", () => {
+  assert.deepEqual(files(one1("- Modify: `apps/api/src/app.ts` (`register`, `describe`, `RewardProgram`)")).map((f) => f.path), ["apps/api/src/app.ts"]);
+  assert.deepEqual(files(one1("- Modify: `web/api.ts` (the `\"/me/wallet\"` route, `'/x'`)")).map((f) => f.path), ["web/api.ts"]);
+  assert.deepEqual(files(one1("- Modify: `.env`, `.`, `Makefile.am`")).map((f) => f.path), [".env", ".", "Makefile.am"]);
+  // A Files line made only of identifiers contributes no files; the task then falls under ruling 4.
+  const p = parsePlan("### Task 1: A\n- Modify: `createSession` and `adminUserId`\nThen run it.\n### Task 2: B\n- Create: `b.ts`\n");
+  assert.deepEqual(p.tasks[0].files, []);
+  assert.equal(code("### Task 1: A\n- Modify: `createSession`\nSee `src/auth.ts`.\n### Task 2: B\n- Create: `b.ts`\n"), "PLAN_TASK_NO_FILES");
 });
 
 test("plan round 4: a path-like token beside a backticked item is refused", () => {
