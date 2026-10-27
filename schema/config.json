@@ -96,8 +96,7 @@
         "base": { "type": "integer", "minimum": 1025, "maximum": 64999, "description": "First port handed out." },
         "step": { "type": "integer", "minimum": 2, "description": "Gap between one job's block of ports and the next." },
         "names": { "$ref": "#/$defs/stringList", "description": "Names of the ports each job gets, in order." }
-      },
-      "additionalProperties": false
+      }
     },
     "record": {
       "type": "object",
@@ -141,8 +140,7 @@
         "taskRounds": { "type": "integer", "minimum": 1, "description": "Attempts allowed on one task." },
         "suiteWaitMs": { "type": "integer", "minimum": 0, "description": "Longest wait, in milliseconds, for the suite lock." },
         "lockStaleMs": { "type": "integer", "minimum": 0, "description": "Age, in milliseconds, after which a lock is treated as stale." }
-      },
-      "additionalProperties": false
+      }
     },
     "git": {
       "type": "object",
@@ -152,16 +150,14 @@
         "namedPathsOnly": { "type": "boolean", "description": "Whether commits stage named paths only." },
         "push": { "type": "boolean", "description": "Whether the factory pushes branches." },
         "merge": { "const": false, "description": "The factory never merges; this must be false or absent." }
-      },
-      "additionalProperties": false
+      }
     },
     "secrets": {
       "type": "object",
       "description": "Secret handling.",
       "properties": {
         "neverHandToAgents": { "$ref": "#/$defs/stringList", "description": "Files whose contents are never given to an agent." }
-      },
-      "additionalProperties": false
+      }
     },
     "board": {
       "type": "object",
@@ -169,8 +165,7 @@
       "properties": {
         "port": { "type": "integer", "description": "Port the board listens on." },
         "pollMs": { "type": "integer", "minimum": 1, "description": "How often the board refreshes, in milliseconds." }
-      },
-      "additionalProperties": false
+      }
     },
     "prices": {
       "type": "object",

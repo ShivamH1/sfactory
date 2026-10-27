@@ -5,6 +5,7 @@ import { fail } from "./errors.mjs";
 import { DEFAULT_PRICES } from "./prices.mjs";
 
 export const STOP_STAGES = ["awaiting-approval", "decision-needed", "verifying", "pushing"];
+const SECTIONS = ["agents", "worktrees", "commands", "ports", "record", "limits", "git", "secrets", "board"];
 export const MODES = ["claude", "codex", "mixed"];
 export const BASE_RULES = ["newest-feature-branch", "integration-branch"];
 
@@ -55,6 +56,9 @@ export function validateConfig(raw) {
     if (!Array.isArray(raw.stops)) errs.push("stops: must be an array");
     else for (const s of raw.stops) if (!STOP_STAGES.includes(s)) errs.push(`stops: "${s}" is not a stoppable stage (${STOP_STAGES.join(", ")})`);
   }
+  for (const k of SECTIONS) {
+    if (k in raw && (raw[k] === null || typeof raw[k] !== "object" || Array.isArray(raw[k]))) errs.push(`${k}: must be an object`);
+  }
   if (raw.git?.merge === true) errs.push("git.merge: the factory never merges; remove this key");
   if (raw.worktrees?.baseRule != null && !BASE_RULES.includes(raw.worktrees.baseRule) && typeof raw.worktrees.baseRule !== "string")
     errs.push("worktrees.baseRule: newest-feature-branch, integration-branch or a branch name");
@@ -67,13 +71,13 @@ export function validateConfig(raw) {
 }
 
 function merge(def, raw) {
-  if (Array.isArray(def) || Array.isArray(raw)) return raw ?? def;
+  if (Array.isArray(def) || Array.isArray(raw)) return raw ?? structuredClone(def);
   if (def && typeof def === "object" && raw && typeof raw === "object") {
     const out = {};
     for (const k of new Set([...Object.keys(def), ...Object.keys(raw)])) out[k] = merge(def[k], raw[k]);
     return out;
   }
-  return raw === undefined ? def : raw;
+  return raw === undefined ? structuredClone(def) : raw;
 }
 
 const abs = (root, p) => (p == null ? null : isAbsolute(p) ? p : resolve(root, p));
@@ -92,7 +96,7 @@ export function loadConfig(repoRoot) {
   const file = join(repoRoot, "sfactory.config.json");
   if (!existsSync(file)) fail("NO_CONFIG", `${file} not found; run "sfactory init"`);
   let raw;
-  try { raw = JSON.parse(readFileSync(file, "utf8")); } catch (e) { fail("INVALID_CONFIG", `${file}: ${e.message}`); }
+  try { raw = JSON.parse(readFileSync(file, "utf8").replace(/^﻿/, "")); } catch (e) { fail("INVALID_CONFIG", `${file}: ${e.message}`); }
   const errs = validateConfig(raw);
   if (errs.length) fail("INVALID_CONFIG", `${file}:\n  ${errs.join("\n  ")}`);
   return resolveConfig(raw, repoRoot);

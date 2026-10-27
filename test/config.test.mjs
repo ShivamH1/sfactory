@@ -1,3 +1,4 @@
+import { writeFileSync, mkdirSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join, dirname, basename } from "node:path";
@@ -55,4 +56,25 @@ test("config: DEFAULTS is frozen and resolveConfig does not mutate input", () =>
   const c = resolveConfig(raw, tmpDir());
   assert.equal(raw.stateDir, undefined);
   assert.equal(c.agents.mode, "codex");
+});
+
+test("config: a resolved config shares no arrays with DEFAULTS", () => {
+  const root = tmpDir();
+  writeConfig(root, { project: "p", agents: { mode: "claude" }, commands: { suite: "x" } });
+  const c = loadConfig(root);
+  c.stops.push("x");
+  assert.deepEqual(DEFAULTS.stops, ["awaiting-approval", "decision-needed"]);
+});
+
+test("config: a null section is INVALID_CONFIG, not a TypeError", () => {
+  const root = tmpDir();
+  writeConfig(root, { project: "p", agents: { mode: "claude" }, commands: { suite: "x" }, worktrees: null });
+  assert.throws(() => loadConfig(root), (e) => e.code === "INVALID_CONFIG" && /worktrees/.test(e.message));
+});
+
+test("config: a UTF-8 BOM does not break loading", () => {
+  const root = tmpDir();
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, "sfactory.config.json"), "\uFEFF" + JSON.stringify({ project: "p", agents: { mode: "claude" }, commands: { suite: "x" } }));
+  assert.equal(loadConfig(root).project, "p");
 });
