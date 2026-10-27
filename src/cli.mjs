@@ -1,26 +1,40 @@
 #!/usr/bin/env node
 import { createRequire } from "node:module";
+import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SfactoryError } from "./errors.mjs";
+import { commands } from "./registry.mjs";
+
+export { register } from "./registry.mjs";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
 
-const commands = new Map();
-/** Later tasks call register("job", handler) from src/commands/*.mjs. */
-export function register(name, handler) { commands.set(name, handler); }
+/** Flags that never consume the next argument. */
+export const BOOLEAN_FLAGS = new Set(["json", "yes", "no", "apply", "dry-run"]);
 
-/** Minimal arg parser: positionals plus --flag, --flag=value, --flag value. */
+/**
+ * Minimal arg parser: positionals plus --flag, --flag=value, --flag value.
+ * BOOLEAN_FLAGS never take a separate value; "--" ends flag parsing and the
+ * remainder goes to flags.rest; an empty flag name ("--=x") is ignored.
+ */
 export function parseArgs(argv) {
   const positional = [];
   const flags = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (a === "--") {
+      if (i + 1 < argv.length) flags.rest = argv.slice(i + 1);
+      break;
+    }
     if (a.startsWith("--")) {
       const eq = a.indexOf("=");
-      if (eq > 0) flags[a.slice(2, eq)] = a.slice(eq + 1);
-      else if (i + 1 < argv.length && !argv[i + 1].startsWith("--")) flags[a.slice(2)] = argv[++i];
-      else flags[a.slice(2)] = true;
+      const name = eq > 0 ? a.slice(2, eq) : a.slice(2);
+      if (!name) continue;
+      if (eq > 0) flags[name] = a.slice(eq + 1);
+      else if (BOOLEAN_FLAGS.has(name)) flags[name] = true;
+      else if (i + 1 < argv.length && !argv[i + 1].startsWith("--")) flags[name] = argv[++i];
+      else flags[name] = true;
     } else positional.push(a);
   }
   return { positional, flags };
@@ -43,11 +57,16 @@ export async function main(argv, io = {}) {
   }
 }
 
-// Command modules register themselves on import. Each later task adds one line here.
+// Command modules register themselves on import via registry.mjs. Each later task adds one line here.
 await Promise.all([
   // import("./commands/job.mjs"),
 ]);
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+function isMain() {
+  if (!process.argv[1]) return false;
+  try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
+}
+
+if (isMain()) {
   process.exitCode = await main(process.argv.slice(2));
 }
