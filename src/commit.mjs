@@ -22,13 +22,13 @@ export function hasTrailers(message, { cwd } = {}) {
   return [...new Set([...parsed, ...found])];
 }
 
+/** Every path is passed with --literal-pathspecs, so "[id]" or "*" names a file, never a pattern. */
 export function assertNamedPaths(paths, { cwd } = {}) {
   if (!Array.isArray(paths) || paths.length === 0) fail("UNNAMED_PATHS", "commit needs at least one named path");
   for (const p of paths) {
     const bad = (why) => fail("UNNAMED_PATHS", `"${p}" is not a named path (${why})`);
     if (typeof p !== "string" || p === "") bad("empty");
     if (p.startsWith("-") || p.startsWith(":")) bad("option or magic pathspec");
-    if (/[\[\]*?]/.test(p)) bad("glob");
     if (isAbsolute(p) || /^[A-Za-z]:/.test(p)) bad("absolute");
     if (/[\\/]$/.test(p)) bad("directory");
     const norm = posix.normalize(p.replace(/\\/g, "/"));

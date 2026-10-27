@@ -15,8 +15,9 @@ test("commit: trailer detection", () => {
 });
 
 test("commit: named paths only", () => {
-  for (const bad of [[], ["."], ["-A"], ["--all"], ["src/*"], ["*"]]) assert.throws(() => assertNamedPaths(bad), (e) => e.code === "UNNAMED_PATHS", JSON.stringify(bad));
-  assertNamedPaths(["src/a.mjs", "docs/b.md"]);
+  for (const bad of [[], ["."], ["-A"], ["--all"]]) assert.throws(() => assertNamedPaths(bad), (e) => e.code === "UNNAMED_PATHS", JSON.stringify(bad));
+  // literal pathspecs: bracket, star and question-mark names are file names, not globs
+  assertNamedPaths(["src/a.mjs", "docs/b.md", "[ab].txt", "src/*", "*", "a?.txt", "app/[id]/page.tsx"]);
 });
 
 test("commit: commits named paths only, refuses trailers, leaves other changes unstaged", async () => {
@@ -49,7 +50,7 @@ test("commit: trailers as git parses them are refused", async () => {
 test("commit: strict path guard", async () => {
   const r = tmpRepo();
   mkdirSync(join(r, "src")); writeFileSync(join(r, "src", "a.mjs"), "a");
-  for (const bad of ["./", ":/", "src/", "[ab].txt", "", "..", ":(top)", process.platform === "win32" ? "C:/x" : "/etc/x"]) assert.throws(() => assertNamedPaths([bad], { cwd: r }), (e) => e.code === "UNNAMED_PATHS", JSON.stringify(bad));
+  for (const bad of ["./", ":/", "src/", "", "..", ":(top)", process.platform === "win32" ? "C:/x" : "/etc/x"]) assert.throws(() => assertNamedPaths([bad], { cwd: r }), (e) => e.code === "UNNAMED_PATHS", JSON.stringify(bad));
   assert.throws(() => assertNamedPaths(["src"], { cwd: r }), (e) => e.code === "NOT_A_FILE");
   await assert.rejects(commit(cfg(), { cwd: r, paths: [":/"], message: "feat: a", holder: "t" }), (e) => e.code === "UNNAMED_PATHS");
 });
@@ -58,4 +59,14 @@ test("commit: only a real true allows trailers", async () => {
   const r = tmpRepo();
   writeFileSync(join(r, "a.txt"), "a");
   await assert.rejects(commit(cfg("false"), { cwd: r, paths: ["a.txt"], message: "feat: a\n\nCo-Authored-By: X <x@y>", holder: "t" }), (e) => e.code === "TRAILER_REFUSED");
+});
+
+test("commit: a bracketed route file commits as its literal name", async () => {
+  const r = tmpRepo();
+  mkdirSync(join(r, "app", "[id]"), { recursive: true });
+  writeFileSync(join(r, "app", "[id]", "page.tsx"), "export default 1;");
+  mkdirSync(join(r, "app", "i"));
+  writeFileSync(join(r, "app", "i", "page.tsx"), "a sibling the glob app/[id]/page.tsx would match");
+  await commit(cfg(), { cwd: r, paths: ["app/[id]/page.tsx"], message: "feat: route", holder: "t" });
+  assert.equal(git(["show", "--name-only", "--format=", "HEAD"], { cwd: r }), "app/[id]/page.tsx");
 });
