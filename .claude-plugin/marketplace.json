@@ -1,0 +1,7 @@
+{
+  "name": "sfactory",
+  "owner": { "name": "Shivam Sanjay", "url": "https://github.com/ShivamH1" },
+  "plugins": [
+    { "name": "sfactory", "source": "./", "description": "Software factory: backlog → plan → build → review → verify → pushed, with a kanban board. Claude, Codex or both." }
+  ]
+}

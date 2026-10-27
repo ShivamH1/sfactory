@@ -1,0 +1,14 @@
+{
+  "name": "sfactory",
+  "version": "0.1.0",
+  "description": "A software factory for Claude Code and Codex: cards move from backlog to pushed through plan, build, review, verify, with a kanban board of file-based state.",
+  "license": "MIT",
+  "author": "Shivam Sanjay (https://github.com/ShivamH1)",
+  "repository": { "type": "git", "url": "https://github.com/ShivamH1/sfactory.git" },
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "bin": { "sfactory": "./src/cli.mjs" },
+  "files": ["src", "bin", "board", "skills", "agents", "prompts", "schema", "docs/DESIGN.md", "INSTALL.md", "README.md", "LICENSE"],
+  "scripts": { "test": "node --test \"test/**/*.test.mjs\"" },
+  "dependencies": {}
+}
