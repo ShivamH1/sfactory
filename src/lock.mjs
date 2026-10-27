@@ -135,13 +135,22 @@ export async function acquire(c, name, { holder, waitMs = 0, pollMs = 500, stale
   }
 }
 
+// A body with no token predates token ownership: holder alone matches it.
+const owns = (cur, holder, token) => cur !== null && cur.holder === holder && (cur.token === undefined || cur.token === token);
+
+/** Throws NOT_HOLDER unless the lock is absent or held by `holder` with `token`: the check release() makes, without releasing. */
+export function assertHolder(c, name, { holder, token } = {}) {
+  const path = lockPath(c, name);
+  if (!existsSync(path)) return;
+  const cur = parse(path);
+  if (!owns(cur, holder, token)) fail("NOT_HOLDER", `${name} is held by ${cur?.holder ?? "unknown"}, not ${holder}`);
+}
+
 export function release(c, name, { holder, token } = {}) {
   const path = lockPath(c, name);
   if (!existsSync(path)) return false;
   const cur = parse(path);
-  // A body with no token predates token ownership: holder alone matches it.
-  const ok = cur !== null && cur.holder === holder && (cur.token === undefined || cur.token === token);
-  if (!ok) fail("NOT_HOLDER", `${name} is held by ${cur?.holder ?? "unknown"}, not ${holder}`);
+  if (!owns(cur, holder, token)) fail("NOT_HOLDER", `${name} is held by ${cur?.holder ?? "unknown"}, not ${holder}`);
   const moved = `${path}.rel-${randomUUID()}`;
   try { renameSync(path, moved); } catch (e) { if (e.code === "ENOENT") return false; throw e; }
   const got = parse(moved);

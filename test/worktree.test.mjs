@@ -141,3 +141,15 @@ test("worktree cli: a cut that finds another cut recorded meanwhile undoes itsel
   assert.equal(branchExists(root, "feature/late"), false);
   assert.equal(status(c, "worktree:late").held, false);
 });
+
+test("worktree: remove by a job that does not hold the lock is NOT_HOLDER and leaves the worktree", () => {
+  const { c } = setup();
+  const job = cut(c, newJob({ id: "m-1", kind: "milestone", title: "Kept" }), {});
+  assert.throws(() => remove(c, { ...job, lockToken: "wrong" }), (e) => e.code === "NOT_HOLDER");
+  assert.throws(() => remove(c, { ...job, id: "m-2" }), (e) => e.code === "NOT_HOLDER");
+  assert.ok(existsSync(job.worktree));
+  assert.ok(worktrees(c.repoRoot).some((w) => w.branch === "feature/kept"));
+  assert.equal(status(c, "worktree:kept").holder, "m-1");
+  remove(c, job);
+  assert.equal(existsSync(job.worktree), false);
+});

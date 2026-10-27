@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { fail } from "./errors.mjs";
 import { git, isClean, headOf, branchExists, newestBranch, worktreeOfBranch } from "./git.mjs";
 import { slugify } from "./store.mjs";
-import { acquireSync, release } from "./lock.mjs";
+import { acquireSync, assertHolder, release } from "./lock.mjs";
 
 export function resolveBase(c) {
   const cwd = c.repoRoot;
@@ -69,10 +69,13 @@ ${(r.stderr ?? "").slice(-2000)}`);
 
 export function remove(c, job, { force = false } = {}) {
   if (!job.worktree) fail("BAD_ARGS", `${job.id} has no worktree`);
+  const lockName = `worktree:${job.slug ?? slugify(basename(job.worktree))}`;
+  // Ownership first: another holder's lock (NOT_HOLDER) leaves the worktree in place.
+  assertHolder(c, lockName, { holder: job.id, token: job.lockToken });
   if (!force && existsSync(job.worktree) && !isClean(job.worktree)) fail("DIRTY_WORKTREE", `${job.worktree} has uncommitted changes; commit them or pass --force`);
   git(["worktree", "remove", "--force", job.worktree], { cwd: c.repoRoot });
   const { slug: _s, lockToken: _t, ...rest } = job;
-  // NOT_HOLDER propagates; a false return means the lock was already gone.
-  release(c, `worktree:${job.slug ?? slugify(basename(job.worktree))}`, { holder: job.id, token: job.lockToken });
+  // NOT_HOLDER still propagates if the lock changed hands since the check; a false return means it was already gone.
+  release(c, lockName, { holder: job.id, token: job.lockToken });
   return { ...rest, worktree: null };
 }
