@@ -1137,6 +1137,8 @@ The task review probed the brief's lock with concurrent processes and found two 
 Deferred as recorded in the ledger: age-based takeover of a live holder past `lockStaleMs`; `slugify` collisions on long lock names; the pid-reuse window on Windows.
 ---
 
+**Addendum (same day, from the Task 6 review):** `acquire`/`acquireSync` accept `durable: true` — the body carries `durable: true` and `pid: null`, `isStale` is always false for it, and only `release` with the matching holder and token clears it (`status` reports `durable`; the CLI takes `--durable`). `acquireSync(c, name, { holder, durable, pid, staleMs })` is one attempt of the same algorithm (`tryAcquireOnce`), which `acquire` loops over. Task 6 then replaces `takeLockSync` with `acquireSync(..., { durable: true })`, stores the token on the job as `lockToken`, and releases with it. Tests (h) a durable lock from a dead pid a year old is not taken over; (i) `acquireSync` free / held / stale-takeover.
+
 ### Task 6: Git helpers and worktree cut/remove
 
 **Files:**
