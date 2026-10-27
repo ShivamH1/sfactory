@@ -11,15 +11,16 @@ register("ports", async ({ positional: [verb, arg] }, io) => {
   const c = loadConfig(findRepoRoot(io.cwd));
   if (verb === "allocate") {
     if (!arg) fail("BAD_ARGS", "usage: sfactory ports allocate <id> | sfactory ports free <port>");
-    const job = readJob(c, arg);
+    readJob(c, arg); // fail early on an unknown id, before any bind
     const ports = await allocate(c, arg);
-    writeJob(c, { ...job, ports });
+    // re-read after the binds so a stage change made meanwhile is not overwritten
+    writeJob(c, { ...readJob(c, arg), ports });
     io.stdout(`${c.ports.names.map((n) => `${n}=${ports[n]}`).join(" ")}\n`);
     return 0;
   }
   if (verb === "free") {
     const port = Number(arg);
-    if (!Number.isInteger(port) || port < 0 || port > 65535) fail("BAD_ARGS", "usage: sfactory ports free <port>");
+    if (!/^\d+$/.test(arg ?? "") || port < 1 || port > 65535) fail("BAD_ARGS", "usage: sfactory ports free <port>");
     const free = await isFree(port);
     io.stdout(free ? "free\n" : "busy\n");
     return free ? 0 : 1;
