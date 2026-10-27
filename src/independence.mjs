@@ -39,11 +39,25 @@ export function checkMilestones(c, a, b, { nameA = "A", nameB = "B" } = {}) {
   return { ok: checks.every((x) => x.ok), checks };
 }
 
-/** Greedy batches in dependency order (Kahn, ties by plan order); a batch holds tasks with overlap-free files, at most `max`. */
-export function taskBatches(plan, max = 4) {
+/** The project's migrations directory relative to the repo root, as checkMilestones reads it; null when it has none. */
+export const migrationsDirOf = (c) => (c?.migrations?.dir ? toRel(c, c.migrations.dir) : null);
+
+/**
+ * Greedy batches in dependency order (Kahn, ties by plan order); a batch holds
+ * tasks with overlap-free files, at most `max`, and at most one task that adds
+ * or changes anything under `migrationsDir` (one applied list on a shared
+ * database). A plan whose `dependencyInfo` is not "declared" - no task says
+ * what it waits for - runs one task per batch in plan order unless
+ * `allowUndeclared`: absent dependencies are not proof of independence.
+ */
+export function taskBatches(plan, max = 4, { allowUndeclared = false, migrationsDir = null } = {}) {
   if (!Number.isInteger(max) || max < 1) fail("BAD_ARGS", "max must be an integer >= 1");
   const byN = new Map(plan.tasks.map((t) => [t.n, t]));
   for (const t of plan.tasks) for (const d of t.dependsOn) if (!byN.has(d)) fail("PLAN_BAD_DEPENDENCY", `Task ${t.n} depends on Task ${d} which does not exist`);
+  const declared = plan.dependencyInfo === "declared" || plan.tasks.some((t) => t.dependsOn.length);
+  if (!declared && !allowUndeclared) return plan.tasks.map((t) => [t.n]);
+  const mig = migrationsDir ? norm(migrationsDir) : null;
+  const migrates = (t) => !!mig && touched(t).some((f) => overlaps(norm(f.path), mig));
   const order = [];
   const done = new Set();
   while (order.length < plan.tasks.length) {
@@ -59,7 +73,8 @@ export function taskBatches(plan, max = 4) {
       if (!batches[i]) batches[i] = [];
       const b = batches[i];
       const disjoint = b.every((n) => !touched(byN.get(n)).some((f) => touched(t).some((g) => overlaps(norm(f.path), norm(g.path)))));
-      if (b.length < max && disjoint) { b.push(t.n); placed.set(t.n, i); break; }
+      const oneMigration = !migrates(t) || !b.some((n) => migrates(byN.get(n)));
+      if (b.length < max && disjoint && oneMigration) { b.push(t.n); placed.set(t.n, i); break; }
     }
   }
   return batches.filter((b) => b.length);

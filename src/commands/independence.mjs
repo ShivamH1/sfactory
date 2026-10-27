@@ -4,7 +4,7 @@ import { fail, SfactoryError } from "../errors.mjs";
 import { register } from "../registry.mjs";
 import { findRepoRoot, loadConfig } from "../config.mjs";
 import { parsePlan } from "../plan.mjs";
-import { checkMilestones, taskBatches } from "../independence.mjs";
+import { checkMilestones, taskBatches, migrationsDirOf } from "../independence.mjs";
 
 function readPlan(io, file) {
   const path = resolve(io.cwd, file);
@@ -28,11 +28,19 @@ register("independence", async ({ positional, flags }, io) => {
     return r.ok ? 0 : 1;
   }
   if (sub === "tasks") {
-    if (args.length !== 1) fail("BAD_ARGS", "usage: sfactory independence tasks <plan> [--max n]");
-    let max = flags.max != null ? Number(flags.max) : tryConfig(io)?.limits.parallelTasks ?? 4;
+    // "--allow-undeclared <plan>": the generic parser hands the plan to the
+    // flag as its value; a value other than true/false is the positional.
+    let allow = flags["allow-undeclared"];
+    if (typeof allow === "string" && !/^(true|false)$/.test(allow)) { args.unshift(allow); allow = true; }
+    allow = allow === true || allow === "true";
+    if (args.length !== 1) fail("BAD_ARGS", "usage: sfactory independence tasks <plan> [--max n] [--allow-undeclared]");
+    const config = tryConfig(io);
+    let max = flags.max != null ? Number(flags.max) : config?.limits.parallelTasks ?? 4;
     if (!Number.isInteger(max) || max < 1) fail("BAD_ARGS", "--max must be a positive integer");
-    io.stdout(JSON.stringify(taskBatches(readPlan(io, args[0]), max)) + "\n");
+    const plan = readPlan(io, args[0]);
+    if (plan.dependencyInfo !== "declared" && !allow) io.stderr(`${args[0]}: no dependency information (no Depends on, Consumes or "after Task N"): one task per batch; --allow-undeclared batches by files alone\n`);
+    io.stdout(JSON.stringify(taskBatches(plan, max, { allowUndeclared: allow, migrationsDir: migrationsDirOf(config) })) + "\n");
     return 0;
   }
-  fail("BAD_ARGS", "usage: sfactory independence milestones <planA> <planB> | tasks <plan> [--max n]");
+  fail("BAD_ARGS", "usage: sfactory independence milestones <planA> <planB> | tasks <plan> [--max n] [--allow-undeclared]");
 });

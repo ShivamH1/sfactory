@@ -6,6 +6,11 @@ const ID = "\\d+[a-z]?";
 const OPS = "Create|Modify|Test|Delete|Read|Add|Remove|Edit|Rename|Move|Touch";
 const FILE = /^[\w.-]+\.([A-Za-z0-9]{1,6})$/;
 const TICKED = /`([^`]+)`/g;
+/** Extension-less names that are files wherever they stand on a Files line (N4). */
+const ALLOWED = new Set("Makefile Dockerfile Containerfile Procfile Gemfile Rakefile Jenkinsfile Vagrantfile Brewfile Justfile justfile LICENSE LICENCE COPYING NOTICE README CHANGELOG AUTHORS CODEOWNERS VERSION".split(" "));
+const BARE = /^[\w.-]+$/;
+/** What may stand beside a Files line's items without being prose. */
+const SEPARATOR = /^([.,;:/&()[\]–—-]+|and|or)$/i;
 
 /**
  * Path-like: a token that contains a slash or backslash (a run of slashes
@@ -51,37 +56,54 @@ function checkProse(rest, where) {
 /**
  * A backticked item is a path only if it is path-like ("." and ".." included);
  * an identifier (`register`), code, or an item that opens with a quote (a
- * route string such as `"/me/wallet"`) is prose and ignored.
+ * route string such as `"/me/wallet"`) is prose and ignored - except as below.
  */
 const tickedIsPath = (s) => { const t = s.trim(); return !/^["']/.test(t) && (t === "." || t === ".." || pathLike(t)); };
 
-function tickedItems(rest, where) {
+/**
+ * The backticked items of a Files line's text: { paths, prose }. An item is a
+ * path when it is path-like or an allow-listed name (`Makefile`, `LICENSE`);
+ * with `first`, the text's first backticked item - the op's object - is also a
+ * path when it is a bare [\w.-]+ word (`src`, N4) or a quoted path-like token.
+ * `prose` says the text holds something beside its paths and separators: a
+ * word, or a backticked item that is not a path.
+ */
+function tickedItems(rest, where, first = false) {
   checkProse(rest, where);
-  return [...rest.matchAll(TICKED)].filter((m) => tickedIsPath(m[1])).map((m) => {
-    const p = norm(m[1]);
-    if (!p) fail("PLAN_BAD_FILE_LINE", `${where}: an empty backticked file item`);
-    return p;
+  const paths = [];
+  let prose = false;
+  [...rest.matchAll(TICKED)].forEach((m, i) => {
+    const s = m[1].trim();
+    let p = tickedIsPath(s) || ALLOWED.has(s) || (first && i === 0 && BARE.test(s)) ? s : null;
+    if (p === null && first && i === 0) { const q = s.match(/^(["'])(.+)\1$/); if (q && isPathToken(q[2].trim())) p = q[2].trim(); }
+    if (p === null) { prose = true; return; }
+    const n = norm(p);
+    if (!n) fail("PLAN_BAD_FILE_LINE", `${where}: an empty backticked file item`);
+    paths.push(n);
   });
+  if (rest.replace(TICKED, " ").split(/[\s,;]+/).some((t) => t && !SEPARATOR.test(t))) prose = true;
+  return { paths, prose };
 }
 
-/** The paths named on a Files line's text after the op (or after the Files label). */
+/** The paths named on a Files line's text after the op (or after the Files label): { paths, prose }. */
 function pathsOf(rest, where) {
   if (/^none\b/i.test(rest)) {
     // An explicit "none": names no file unless it backticks some (taken, fail closed).
     if (rest.includes("`")) return tickedItems(rest, where);
     checkProse(rest, where);
-    return [];
+    return { paths: [], prose: true };
   }
   if (rest.includes("`")) {
     if (![...rest.matchAll(TICKED)].length) fail("PLAN_BAD_FILE_LINE", `${where}: cannot read file item "${rest}"`);
-    return tickedItems(rest, where);
+    return tickedItems(rest, where, true);
   }
-  return rest.split(",").map((x) => x.trim()).map((x) => {
+  const paths = rest.split(",").map((x) => x.trim()).map((x) => {
     if (!isPathToken(x)) fail("PLAN_BAD_FILE_LINE", `${where}: cannot read file item "${x}" - wrap paths in backticks`);
     const p = norm(x);
     if (!p) fail("PLAN_BAD_FILE_LINE", `${where}: cannot read file item "${x}"`);
     return p;
   });
+  return { paths, prose: false };
 }
 
 /**
@@ -89,56 +111,105 @@ function pathsOf(rest, where) {
  * / "- Op then delete: `item`" (a qualifier needs a backticked item after the
  * colon). The colon-less form needs its first backticked item to be one
  * whitespace-free token, so "- add `import x from y`" is a step, not a file.
- * Returns { op, rest } or null.
+ * Returns { op, rest, plain } or null; `plain` is the "- Op: items" form.
  */
 function fileLine(raw) {
   const m = raw.match(new RegExp(`^\\s*[-*]\\s+(${OPS})\\b(.*)$`, "i"));
   if (!m) return null;
   const op = m[1].toLowerCase(), after = m[2].trimEnd();
   let x = after.match(/^\s*:\s*(.*)$/);
-  if (x) return { op, rest: x[1] };
+  if (x) return { op, rest: x[1], plain: true };
   x = after.match(/^\s*(`([^`]+)`.*)$/);
-  if (x) return /^\S+$/.test(x[2].trim()) ? { op, rest: x[1] } : null;
+  if (x) return /^\S+$/.test(x[2].trim()) ? { op, rest: x[1], plain: false } : null;
   x = after.match(/^([^:`]{1,60}):\s*(.*)$/);
-  if (x && /`[^`]+`/.test(x[2])) return { op, rest: x[2] };
+  if (x && /`[^`]+`/.test(x[2])) return { op, rest: x[2], plain: false };
   return null;
 }
 
+/** Ids in a text; a numeric range ("2-4", "2–4", "2 to 4") stands for every id in it. */
+const RANGE = new RegExp(`\\b(${ID})\\b(?:\\s*(?:\\bto\\b|[-\\u2013\\u2014])\\s*(${ID})\\b)?`, "gi");
+function idsIn(text) {
+  const out = [];
+  for (const m of text.matchAll(RANGE)) {
+    const a = id(m[1]);
+    out.push(a);
+    if (!m[2]) continue;
+    const b = id(m[2]);
+    if (typeof a === "number" && typeof b === "number" && b > a && b - a <= 100) for (let x = a + 1; x <= b; x++) out.push(x);
+    else out.push(b);
+  }
+  return out;
+}
+
+/**
+ * Task ids a Consumes line names: "Task 2", "Task 2's", "(Task 2)", "Tasks 3–9",
+ * "Tasks 5, 6 and 7's", "Task 3/4's". A task a milestone names ("M44 Task 6",
+ * "M44's Task 2") is another plan's and is skipped; so is a bare "T17".
+ */
+const ONE = "\\d+[a-z]?(?!\\w|\\.\\d)";
+const TASK_REFS = new RegExp(`(\\bM\\d+(?:\\.\\d+)?(?:['\\u2019]s)?\\s+)?\\bTasks?\\s+(${ONE}(?:\\s*(?:,|&|/|\\band\\b|\\bor\\b|\\bto\\b|[-\\u2013\\u2014])\\s*${ONE})*)`, "gi");
+const taskRefs = (text) => [...text.matchAll(TASK_REFS)].filter((m) => !m[1]).flatMap((m) => idsIn(m[2]));
+
 /**
  * Strict plan reader. Fails closed: a plan with no tasks, a task that names a
- * backticked path but has no Files lines, a plan with no files at all, or a
- * duplicate task number is an error, never an empty answer. A task with no
- * Files lines whose text names no backticked path, or that says "**Files:**
- * none", is accepted with `files: []`.
+ * backticked path but has no Files lines, a plan with no files at all, a
+ * duplicate task number, or a Files line outside any task is an error, never
+ * an empty answer. A task with no Files lines whose text names no backticked
+ * path, or that says "**Files:** none", is accepted with `files: []`; an op
+ * line saying "none" ("- Modify: none") declares nothing.
  *
  * A Files line continues onto the following lines while they are indented, or
  * while the line before ended with a comma; a continuation's backticked items
- * are files of the same op, and its prose obeys the same rule.
+ * are files of the same op, and its prose obeys the same rule. A Files line
+ * that yields no path (and does not say "none") is read like prose for the
+ * mention check.
+ *
+ * A Read line touches nothing and never declares its task; one in the
+ * colon-less or qualified form, or with prose beside its items, may hide a
+ * write and records its items as `touch` instead (N2).
+ *
+ * Dependencies come from "Depends on" lines, "(after Task N)" in a title, and
+ * Consumes lines naming "Task N". `dependencyInfo` is "declared" when any task
+ * has a dependency source (a Depends on line naming a task or "none", a title's
+ * "after", a Consumes line naming a task of this plan), else "none".
  */
 export function parsePlan(md) {
   const tasks = [];
   const mentions = new Map();   // task -> first backticked path-like token outside a Files line
-  const declared = new Set();   // tasks with a Files line, even one naming none
+  const declared = new Set();   // tasks with a Files line that names a written file, or "**Files:** none"
   let cur = null;
   let level = 0;      // the current task heading's level
   let fence = null;   // { ch, len } while inside a fenced block
   let cont = null;    // { op, comma } while a Files line may continue
+  let consumes = false;   // while a Consumes line may continue onto indented lines
+  let depInfo = false;
   const heading = new RegExp(`^#{2,3}\\s+Task\\s+(${ID})\\s*:\\s*(.+?)\\s*$`, "i");
   const after = new RegExp(`\\(after Task (${ID})\\)`, "i");
   const afterEnd = new RegExp(`\\s*\\(after Task (${ID})\\)\\s*$`, "i");
   const depends = /^\s*(?:-\s*)?\*{0,2}Depends on\s*\*{0,2}\s*:?\s*\*{0,2}\s*(.+)$/i;
+  const consumesLine = /^\s*(?:[-*]\s+)?\*{0,2}Consumes\b([^:]*):(.*)$/i;
   const label = /^\s*(?:[-*]\s+)?\*\*Files\s*:?\s*\*\*\s*:?\s*(.*?)\s*$/i;
   const note = (line) => { if (cur && !mentions.has(cur)) { const p = tickedPaths(line)[0]; if (p) mentions.set(cur, p); } };
-  const add = (op, rest, where) => {
+  const depend = (ns) => { for (const n of ns) if (!cur.dependsOn.includes(n)) cur.dependsOn.push(n); };
+  const consume = (text) => { const ns = taskRefs(text).filter((n) => n !== cur.n); if (ns.length) depInfo = true; depend(ns); };
+  /** Record a Files line's items under `op`; a read with prose beside its items becomes touch. */
+  const record = (op, r, text) => {
+    const o = op === "read" && r.prose ? "touch" : op;
+    if (r.paths.length && o !== "read") declared.add(cur);
+    if (!r.paths.length && !/^none\b/i.test(text)) note(text);
+    for (const p of r.paths) cur.files.push({ op: o, path: p });
+    return o;
+  };
+  const add = (op, rest, where, { plain = true, isLabel = false } = {}) => {
     // "- add:" with nothing after it introduces a step's code block; it is a
     // Files line only if indented items follow it (a nested list).
-    if (!rest) { cont = { op, comma: false }; return; }
-    // A line whose backticked items are all prose contributes no files and
-    // declares nothing; an explicit "none" declares a file-less task.
-    const ps = pathsOf(rest, where);
-    if (ps.length || /^none\b/i.test(rest)) declared.add(cur);
-    for (const p of ps) cur.files.push({ op, path: p });
-    cont = { op, comma: /,\s*$/.test(rest) };
+    if (!rest) { cont = { op, comma: false, list: true }; return; }
+    const r = pathsOf(rest, where);
+    // Only the "**Files:** none" label declares a file-less task (N5).
+    if (isLabel && /^none\b/i.test(rest)) declared.add(cur);
+    // A read in the colon-less or qualified form may hide a write (N2).
+    const o = record(op === "read" && !plain ? "touch" : op, r, rest);
+    cont = { op: o, comma: /,\s*$/.test(rest) };
   };
   const lines = String(md).split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
@@ -150,40 +221,55 @@ export function parsePlan(md) {
       continue;
     }
     const o = raw.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
-    if (o && !(o[1][0] === "`" && o[2].includes("`"))) { fence = { ch: o[1][0], len: o[1].length }; cont = null; continue; }
+    if (o && !(o[1][0] === "`" && o[2].includes("`"))) { fence = { ch: o[1][0], len: o[1].length }; cont = null; consumes = false; continue; }
     const h = raw.match(heading);
     if (h) {
       const n = id(h[1]);
       if (tasks.some((t) => t.n === n)) fail("PLAN_DUPLICATE_TASK", `Task ${h[1]} appears more than once`);
       cur = { n, title: h[2].replace(afterEnd, "").trim(), files: [], dependsOn: [] };
       level = raw.match(/^#+/)[0].length;
-      const a = h[2].match(after); if (a) cur.dependsOn.push(id(a[1]));
-      tasks.push(cur); note(h[2]); cont = null; continue;
+      const a = h[2].match(after); if (a) { cur.dependsOn.push(id(a[1])); depInfo = true; }
+      tasks.push(cur); note(h[2]); cont = null; consumes = false; continue;
     }
     // A heading at the task's level or above ("## Self-review") ends its section.
     const other = raw.match(/^(#{1,6})\s/);
-    if (cur && other && other[1].length <= level) { cur = null; cont = null; }
-    if (!cur) continue;
+    if (cur && other && other[1].length <= level) { cur = null; cont = null; consumes = false; }
+    if (!cur) {
+      // N1: a Files line with no open task would be silently dropped.
+      if (fileLine(raw) || label.test(raw)) fail("PLAN_FILES_OUTSIDE_TASK", `line ${i + 1}: a Files line outside any task ("${raw.trim()}") - put it under its task's heading`);
+      continue;
+    }
+    // Dependency lines come before the continuation branch, so a Files line
+    // ending in a comma cannot swallow them (N3).
+    const d = raw.match(depends);
+    if (d) {
+      const ns = idsIn(d[1]);
+      if (ns.length || /^\W*none\b/i.test(d[1])) depInfo = true;
+      depend(ns); note(raw); cont = null; consumes = false; continue;
+    }
+    const c = raw.match(consumesLine);
+    if (c) { consume(c[1] + " " + c[2]); note(raw); cont = null; consumes = true; continue; }
     const f = fileLine(raw);
-    if (f) { add(f.op, f.rest, where()); continue; }
+    if (f) { consumes = false; add(f.op, f.rest, where(), { plain: f.plain }); continue; }
+    if (consumes && /^\s+\S/.test(raw)) { consume(raw); note(raw); continue; }
+    consumes = false;
     if (cont && raw.trim() && !/^\s*#/.test(raw) && (/^\s/.test(raw) || cont.comma)) {
       const text = raw.trim().replace(/^[-*]\s+/, "");
-      const ps = text.includes("`") ? tickedItems(text, where()) : (checkProse(text, where()), []);
-      if (ps.length) declared.add(cur);
-      for (const p of ps) cur.files.push({ op: cont.op, path: p });
+      // In a nested item list under a bare "- Op:", an item that opens its bullet is the op's object.
+      const item = !!cont.list && /^\s*[-*]\s+`/.test(raw);
+      const r = text.includes("`") ? tickedItems(text, where(), item) : (checkProse(text, where()), { paths: [], prose: true });
+      record(cont.op, r, text);
       cont.comma = /,\s*$/.test(text);
       continue;
     }
     cont = null;
     const l = raw.match(label);
-    if (l) { if (l[1]) add("touch", l[1], where()); continue; }
+    if (l) { if (l[1]) add("touch", l[1], where(), { isLabel: true }); continue; }
     note(raw);
-    const d = raw.match(depends);
-    if (d) for (const m of d[1].matchAll(new RegExp(`\\b${ID}\\b`, "gi"))) { const n = id(m[0]); if (!cur.dependsOn.includes(n)) cur.dependsOn.push(n); }
   }
   if (fence) fail("PLAN_UNCLOSED_FENCE", "a fenced code block is never closed; everything after it would be hidden");
   if (!tasks.length) fail("PLAN_NO_TASKS", "no '## Task N:' or '### Task N:' headings found");
   for (const t of tasks) if (!declared.has(t) && mentions.has(t)) fail("PLAN_TASK_NO_FILES", `Task ${t.n} mentions paths but has no Files lines (first: \`${mentions.get(t)}\`)`);
   if (tasks.every((t) => !t.files.length)) fail("PLAN_NO_FILES", "no task has a Files line");
-  return { tasks };
+  return { tasks, dependencyInfo: depInfo ? "declared" : "none" };
 }

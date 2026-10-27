@@ -85,10 +85,16 @@ test("plan round 5: backticked items that are not path-like are prose", () => {
   assert.deepEqual(files(one1("- Modify: `apps/api/src/app.ts` (`register`, `describe`, `RewardProgram`)")).map((f) => f.path), ["apps/api/src/app.ts"]);
   assert.deepEqual(files(one1("- Modify: `web/api.ts` (the `\"/me/wallet\"` route, `'/x'`)")).map((f) => f.path), ["web/api.ts"]);
   assert.deepEqual(files(one1("- Modify: `.env`, `.`, `Makefile.am`")).map((f) => f.path), [".env", ".", "Makefile.am"]);
-  // A Files line made only of identifiers contributes no files; the task then falls under ruling 4.
+  // Plan C Task 1 (N4) changed this expectation: the first backticked item after
+  // an op is the op's object, so a bare word there (`createSession`, as `src` or
+  // `Makefile` would be) is taken as a path, fail closed; later identifiers stay prose.
   const p = parsePlan("### Task 1: A\n- Modify: `createSession` and `adminUserId`\nThen run it.\n### Task 2: B\n- Create: `b.ts`\n");
-  assert.deepEqual(p.tasks[0].files, []);
-  assert.equal(code("### Task 1: A\n- Modify: `createSession`\nSee `src/auth.ts`.\n### Task 2: B\n- Create: `b.ts`\n"), "PLAN_TASK_NO_FILES");
+  assert.deepEqual(p.tasks[0].files, [{ op: "modify", path: "createSession" }]);
+  // A Files line whose items are none of them paths (the first is not a bare
+  // word) contributes no files; the task then falls under ruling 4.
+  const q = parsePlan("### Task 1: A\n- Modify: `createSession()` and `adminUserId`\nThen run it.\n### Task 2: B\n- Create: `b.ts`\n");
+  assert.deepEqual(q.tasks[0].files, []);
+  assert.equal(code("### Task 1: A\n- Modify: `createSession()`\nSee `src/auth.ts`.\n### Task 2: B\n- Create: `b.ts`\n"), "PLAN_TASK_NO_FILES");
 });
 
 test("plan round 4: a path-like token beside a backticked item is refused", () => {
