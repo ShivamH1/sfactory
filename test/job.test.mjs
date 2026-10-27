@@ -183,3 +183,17 @@ test("job cmd: rework is refused outside reviewing or pushed", async () => {
   assert.equal(jobFileExists(c, "f-1", "rework/0.md"), false);
   assert.equal(jobFileExists(c, "f-1", "rework/1.md"), false);
 });
+
+test("job cmd: set building from reviewing or pushed is refused, pointing at rework", async () => {
+  const root = project(); const c = loadConfig(root);
+  await run(root, ["job", "add", "fix", "x"]);
+  for (const s of ["planning", "building", "reviewing"]) await run(root, ["job", "set", "f-1", s]);
+  let r = await run(root, ["job", "set", "f-1", "building"]);
+  assert.equal(r.code, 2); assert.match(r.err, /ILLEGAL_TRANSITION.*job rework f-1/);
+  assert.equal(readJob(c, "f-1").stage, "reviewing");
+  assert.equal(readJob(c, "f-1").rework, 0);
+  for (const s of ["verifying", "pushing", "pushed"]) await run(root, ["job", "set", "f-1", s]);
+  r = await run(root, ["job", "set", "f-1", "building"]);
+  assert.equal(r.code, 2); assert.match(r.err, /job rework/);
+  assert.equal(readJob(c, "f-1").stage, "pushed");
+});
