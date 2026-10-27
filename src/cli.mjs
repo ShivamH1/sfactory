@@ -60,6 +60,7 @@ export async function main(argv, io = {}) {
 // Command modules register themselves on import via registry.mjs. Each later task adds one line here.
 await Promise.all([
   import("./commands/job.mjs"),
+  import("./commands/lock.mjs"),
 ]);
 
 function isMain() {
