@@ -42,6 +42,8 @@ export function transition(job, to, opts = {}) {
   const allowed = TRANSITIONS[job.stage] ?? [];
   if (!STAGES.includes(to) || !allowed.includes(to)) fail("ILLEGAL_TRANSITION", `${job.stage} -> ${to} is not allowed for ${job.id}`);
   if (job.stage === "planning" && to === "building" && job.kind === "milestone") fail("ILLEGAL_TRANSITION", `planning -> building needs approval for a milestone (${job.id})`);
+  const cap = opts.limits?.fixRounds;
+  if (to === "fixing" && Number.isInteger(cap) && job.round >= cap) fail("FIX_ROUNDS_EXHAUSTED", `${job.id} has used ${job.round} of ${cap} fix rounds; park it for a decision`);
   const next = structuredClone(job);
   next.history.push(entry(job, to, { ...opts, now }));
   next.stage = to;

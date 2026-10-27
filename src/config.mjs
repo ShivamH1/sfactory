@@ -87,6 +87,8 @@ export function validateConfig(raw) {
     if (raw.ports.base != null && !(Number.isInteger(raw.ports.base) && raw.ports.base > 1024 && raw.ports.base < 65000)) errs.push("ports.base: integer 1025..64999");
     if (raw.ports.step != null && !(Number.isInteger(raw.ports.step) && raw.ports.step >= 2)) errs.push("ports.step: integer >= 2");
   }
+  const bp = raw.worktrees?.branchPrefix;
+  if (bp != null && !(typeof bp === "string" && bp.endsWith("/"))) errs.push('worktrees.branchPrefix: a non-empty string ending in "/"');
   if (raw.record?.style != null && !["docs-folder", "spec-tree"].includes(raw.record.style)) errs.push("record.style: docs-folder or spec-tree");
   return errs;
 }

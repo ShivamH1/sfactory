@@ -12,8 +12,8 @@ import { git } from "../git.mjs";
 const CUT_FIELDS = ["branch", "base", "worktree", "slug", "lockToken"];
 
 /** Cut a job's worktree and record it. `afterAdd` is the TEST-ONLY hook passed through to cut(). */
-export function cutJob(c, id, { slug, afterAdd } = {}) {
-  const made = cut(c, readJob(c, id), { slug, afterAdd });
+export function cutJob(c, id, { slug, afterAdd, fetch = true } = {}) {
+  const made = cut(c, readJob(c, id), { slug, afterAdd, fetch });
   const fresh = readJob(c, id);
   if (fresh.worktree) {
     // A concurrent cut of the same job (under another slug) recorded its worktree first: undo ours.
@@ -33,10 +33,10 @@ export function removeJob(c, id, { force = false } = {}) {
 
 register("worktree", async ({ positional: [verb, id], flags }, io) => {
   const c = loadConfig(findRepoRoot(io.cwd));
-  if (verb === "base") { const b = resolveBase(c); io.stdout(`${b.branch} ${b.head}\n`); return 0; }
+  if (verb === "base") { const b = resolveBase(c, { fetch: flags["no-fetch"] !== true }); io.stdout(`${b.branch} ${b.head}\n`); return 0; }
   if (!id) fail("BAD_ARGS", "usage: sfactory worktree <cut|remove> <id> [--slug s] [--force] | sfactory worktree base");
   if (verb === "cut") {
-    const j = cutJob(c, id, { slug: flags.slug });
+    const j = cutJob(c, id, { slug: flags.slug, fetch: flags["no-fetch"] !== true });
     io.stdout(`${j.id} ${j.branch} ${j.worktree} (base ${j.base.branch} ${j.base.head.slice(0, 7)}) lock token ${j.lockToken}\n`);
     return 0;
   }

@@ -23,7 +23,7 @@ const sub = {
     const job = readJob(c, id);
     if (job.stage === "awaiting-approval") fail("APPROVAL_REQUIRED", `${id} leaves awaiting-approval only through "sfactory job approve"`);
     if (to === "building" && ["reviewing", "pushed"].includes(job.stage)) fail("ILLEGAL_TRANSITION", `${id} goes back to building only through "sfactory job rework ${id} --notes <what to change>"`);
-    return done(io, writeJob(c, transition(job, to, { by: by(f), reason: f.reason ?? null })), f);
+    return done(io, writeJob(c, transition(job, to, { by: by(f), reason: f.reason ?? null, limits: c.limits })), f);
   },
   approve(p, f, io) {
     const { c } = ctx(io);

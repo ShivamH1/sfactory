@@ -1,6 +1,7 @@
 import { createServer } from "node:net";
 import { fail } from "./errors.mjs";
 import { listJobs } from "./store.mjs";
+import { withLock } from "./lock.mjs";
 
 /** Binds port on host and resolves "free", "busy" (EADDRINUSE/EACCES/other) or "unavailable" (address family absent). */
 export function tryBind(port, host) {
@@ -20,7 +21,10 @@ export async function isFree(port) {
   return true;
 }
 
-export async function allocate(c, jobId) {
+export function allocate(c, jobId) {
+  return withLock(c, "ports", { holder: `ports:${process.pid}`, waitMs: 10_000 }, () => allocateUnlocked(c, jobId));
+}
+async function allocateUnlocked(c, jobId) {
   const { base, step, names } = c.ports;
   if (names.length > step) fail("INVALID_CONFIG", `ports.names has ${names.length} names but ports.step is ${step}; blocks would overlap`);
   const held = new Set();

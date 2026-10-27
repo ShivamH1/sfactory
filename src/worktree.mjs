@@ -6,8 +6,12 @@ import { git, isClean, headOf, branchExists, newestBranch, worktreeOfBranch } fr
 import { slugify } from "./store.mjs";
 import { acquireSync, assertHolder, release } from "./lock.mjs";
 
-export function resolveBase(c) {
+export function resolveBase(c, { fetch = true } = {}) {
   const cwd = c.repoRoot;
+  if (fetch && git(["remote"], { cwd }).split(/\s+/).includes("origin")) {
+    const r = spawnSync("git", ["fetch", "--quiet", "origin"], { cwd, encoding: "utf8" });
+    if (r.error || r.status !== 0) process.stderr.write(`warning: git fetch origin failed (${(r.error?.message ?? r.stderr).trim()}); using local refs\n`);
+  }
   const rule = c.worktrees.baseRule;
   let branch;
   if (rule === "newest-feature-branch") branch = newestBranch(cwd, c.worktrees.branchPrefix) ?? integration(c);
@@ -26,7 +30,7 @@ function integration(c) {
  * is taken rolls back (worktree, branch, lock, in reverse) and rethrows the original error.
  * `afterAdd` is a TEST-ONLY callback invoked between the worktree add and the base re-read.
  */
-export function cut(c, job, { slug, afterAdd } = {}) {
+export function cut(c, job, { slug, afterAdd, fetch = true } = {}) {
   if (job.worktree) fail("WORKTREE_EXISTS", `${job.id} already has a worktree (${job.worktree}); remove it first`);
   const s = slugify(slug ?? job.title.replace(/^M\d+\s+/i, ""));
   const dir = resolve(c.worktrees.dir, s || "x");
@@ -34,7 +38,7 @@ export function cut(c, job, { slug, afterAdd } = {}) {
   if (!s) fail("BAD_ARGS", "cannot derive a slug from the title; pass --slug");
   const branch = `${c.worktrees.branchPrefix}${s}`;
   if (branchExists(c.repoRoot, branch)) fail("BRANCH_EXISTS", `${branch} already exists`);
-  const base = resolveBase(c);
+  const base = resolveBase(c, { fetch });
   const lockName = `worktree:${s}`;
   let lock;
   try { lock = acquireSync(c, lockName, { holder: job.id, durable: true }); }
