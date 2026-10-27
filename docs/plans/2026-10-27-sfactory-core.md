@@ -1110,6 +1110,31 @@ git add src/lock.mjs src/commands/lock.mjs src/cli.mjs test/lock.test.mjs
 git commit -m "feat: file locks with stale takeover and the lock command"
 ```
 
+#### Revision after review (controller, 2026-10-27) — this block supersedes the code above where they differ
+
+The task review probed the brief's lock with concurrent processes and found two Critical holes, both in the design: a lock acquired through the CLI records the short-lived CLI process's pid, so the next acquirer judges it dead and takes it over at once; and the stale takeover (unlink, then create) lets every waiter that read the stale file win together (5 to 8 holders in every probe round). Three Important gaps followed: an empty or half-written lock file reads as free but can never be taken, a non-numeric `--wait` waits for ever, and `release` matches on the holder's name alone. The revised design:
+
+**Lock body** `{ name, holder, token, pid, since }`. `token` is `crypto.randomUUID()` per acquire and is what proves ownership. `pid` is the owner process's pid **only when the owner outlives the lock**: library callers pass nothing and get `process.pid`; the CLI records `pid: null` unless `--pid <n>` names a long-lived owner. A lock with `pid: null` is judged stale by age alone.
+
+**Staleness** (`isStale(body, now, staleMs)`): `pid` not null and not alive (`process.kill(pid, 0)` throws anything but `EPERM`), or `now - Date.parse(since) > staleMs`. An unparseable or empty file whose mtime is older than `GRACE_MS = 5000` is stale too (a crashed writer); younger, it is "being written" and counts as held by `unknown`.
+
+**Atomic takeover**: never unlink-then-create. To take a stale lock, `renameSync(path, path + ".stale-" + randomUUID())`; only one process's rename succeeds (the others get `ENOENT` and loop); read the moved file, confirm it is still the body you judged stale (same `since` and `token`, or unparseable) — if it is not, rename it back and loop; `unlinkSync` the moved file; then `wx`-create as usual. If the create loses to another creator, loop. Record `tookOverFrom` from the moved body's holder.
+
+**Create**: `openSync(path, "wx")` then `writeSync` the whole body in one call then `closeSync` (the half-written window is covered by `GRACE_MS`).
+
+**Release** `release(c, name, { holder, token })`: `renameSync(path, path + ".rel-" + randomUUID())`; read it; if `holder` and `token` both match, unlink it and return `true`; otherwise rename it back and `fail("NOT_HOLDER", …)` naming the actual holder. A missing file returns `false`. The `Lock` object's `release()` carries its own token.
+
+**withLock**: releases in `finally`; if `fn` succeeded and the release throws, the release error propagates; if `fn` threw, the release error is logged to `console.error` and `fn`'s error propagates.
+
+**waitMs guard**: `acquire` fails `BAD_ARGS` unless `waitMs` is a finite integer ≥ 0; the CLI validates `--wait` the same way before calling (a bare `--wait` is `true` and is refused), and accepts `--pid <n>` (integer ≥ 1) and `--stale-ms <n>`.
+
+**status** answers `{ held: true, holder, pid, since, token: undefined, stale: boolean }` (the token is never printed), `{ held: true, holder: "unknown", corrupt: true, stale }` for an unparseable file, or `{ held: false }`.
+
+**CLI** `sfactory lock acquire <name> --holder <id> [--wait ms] [--pid n] [--stale-ms n]` prints `<name> acquired by <holder> token <token>[ (took over from X)]`; `sfactory lock release <name> --holder <id> --token <t>`; `sfactory lock status <name>`.
+
+**Tests to add** (keep the brief's four, adapted to the token API): (a) a two-process takeover test — write a dead-pid lock, spawn 6 child `node` processes (a small inline script via `-e` or a helper under `test/fixtures/`) that each call `acquire` with `waitMs: 0` and print `GOT` or `HELD`, wait for all, assert exactly one `GOT`; bounded by a 10 s timeout, children confirmed exited; (b) `release` with the right holder but wrong token → `NOT_HOLDER` and the file stays; (c) an empty lock file older than `GRACE_MS` (set its mtime back with `utimesSync`) is taken over; a fresh empty file makes `acquire` fail `LOCK_HELD` naming `unknown`; (d) `acquire(c, "x", { holder: "a", waitMs: "abc" })` → `BAD_ARGS`; (e) the waiting test asserts it waited at least 250 ms; (f) a CLI-acquired lock (`pid: null`) is not taken over by a second acquire within `staleMs`, proving the pid-null path is age-based; (g) `withLock` rethrows a release failure after `fn` succeeded.
+
+Deferred as recorded in the ledger: age-based takeover of a live holder past `lockStaleMs`; `slugify` collisions on long lock names; the pid-reuse window on Windows.
 ---
 
 ### Task 6: Git helpers and worktree cut/remove
