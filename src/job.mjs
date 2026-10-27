@@ -30,28 +30,32 @@ export function newJob({ id, kind, title, now = new Date().toISOString() }) {
     id, kind, title, stage: "backlog", returnStage: null, previousStage: null, pending: null,
     branch: null, base: null, worktree: null, ports: null, record: null,
     tasks: { total: 0, done: 0, parallel: [] }, round: 0, rework: 0, parallel: null, agents: null, cost: 0,
-    started: now, updated: now, ended: null, history: [],
+    started: now, updated: now, ended: null,
+    history: [{ at: now, from: null, to: "backlog", by: "session", reason: "created" }],
   };
 }
 
 const entry = (job, to, { by = "session", reason = null, now = new Date().toISOString() }) => ({ at: now, from: job.stage, to, by, reason });
 
 export function transition(job, to, opts = {}) {
+  const now = opts.now ?? new Date().toISOString();
   const allowed = TRANSITIONS[job.stage] ?? [];
   if (!STAGES.includes(to) || !allowed.includes(to)) fail("ILLEGAL_TRANSITION", `${job.stage} -> ${to} is not allowed for ${job.id}`);
   if (job.stage === "planning" && to === "building" && job.kind === "milestone") fail("ILLEGAL_TRANSITION", `planning -> building needs approval for a milestone (${job.id})`);
   const next = structuredClone(job);
-  next.history.push(entry(job, to, opts));
+  next.history.push(entry(job, to, { ...opts, now }));
   next.stage = to;
   if (to === "fixing") next.round += 1;
   if (to === "building" && ["reviewing", "pushed"].includes(job.stage)) next.rework += 1;
-  if (TERMINAL.includes(to)) next.ended = opts.now ?? new Date().toISOString();
+  if (TERMINAL.includes(to)) next.ended = now;
   return next;
 }
 
 export function park(job, { by = "session", reason, pending = "decision", now } = {}) {
   if (!reason) fail("BAD_ARGS", "park needs a reason");
   if (!WORKING.includes(job.stage) && job.stage !== "backlog") fail("ILLEGAL_TRANSITION", `${job.stage} cannot park (${job.id})`);
+  const ok = job.stage === "backlog" ? pending === "parallel" : pending === "decision";
+  if (!ok) fail("ILLEGAL_TRANSITION", `${job.stage} cannot park with pending "${pending}" (${job.id})`);
   const next = structuredClone(job);
   next.history.push(entry(job, "decision-needed", { by, reason, now }));
   next.returnStage = job.stage; next.pending = pending; next.stage = "decision-needed";

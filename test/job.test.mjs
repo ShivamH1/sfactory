@@ -9,14 +9,26 @@ test("job: every stage has a column and a transition entry", () => {
   for (const [s, nexts] of Object.entries(TRANSITIONS)) for (const n of nexts) assert.ok(STAGES.includes(n), `${s} -> ${n}`);
 });
 
+test("job: TRANSITIONS is exactly the specified edge set", () => {
+  const want = {
+    backlog: ["planning"], planning: ["awaiting-approval", "building"], "awaiting-approval": ["building"], building: ["reviewing"],
+    reviewing: ["fixing", "verifying", "building"], fixing: ["reviewing"], verifying: ["pushing", "fixing"], pushing: ["pushed"],
+    pushed: ["merged", "building"], merged: [], "decision-needed": [], stopped: [],
+  };
+  for (const from of STAGES) for (const to of STAGES) {
+    assert.equal(TRANSITIONS[from].includes(to), want[from].includes(to), `${from} -> ${to}`);
+  }
+});
+
 test("job: the main line for a milestone", () => {
   let j = newJob({ id: "m-1", kind: "milestone", title: "t", now });
   assert.equal(j.stage, "backlog");
   for (const to of ["planning", "awaiting-approval", "building", "reviewing", "verifying", "pushing", "pushed", "merged"]) j = transition(j, to, { by: "test", now });
   assert.equal(j.stage, "merged");
   assert.equal(j.ended, now);
-  assert.equal(j.history.length, 8);
-  assert.deepEqual(j.history[0], { at: now, from: "backlog", to: "planning", by: "test", reason: null });
+  assert.equal(j.history.length, 9);
+  assert.deepEqual(j.history[0], { at: now, from: null, to: "backlog", by: "session", reason: "created" });
+  assert.deepEqual(j.history[1], { at: now, from: "backlog", to: "planning", by: "test", reason: null });
 });
 
 test("job: a fix skips approval and a milestone may not", () => {
@@ -31,7 +43,7 @@ test("job: illegal edges are refused and the job is not mutated", () => {
   assert.throws(() => transition(j, "pushed", { now }), (e) => e.code === "ILLEGAL_TRANSITION" && /backlog -> pushed/.test(e.message));
   assert.throws(() => transition(j, "nowhere", { now }), (e) => e.code === "ILLEGAL_TRANSITION");
   assert.equal(j.stage, "backlog");
-  assert.equal(j.history.length, 0);
+  assert.equal(j.history.length, 1);
 });
 
 test("job: fix loop and the rework edges", () => {
@@ -62,6 +74,9 @@ test("job: park from every working stage and release to it", () => {
   }
   const b = park(newJob({ id: "m-2", kind: "milestone", title: "t", now }), { reason: "parallel?", pending: "parallel", now });
   assert.equal(b.returnStage, "backlog");
+  assert.equal(b.pending, "parallel");
+  assert.throws(() => park(newJob({ id: "m-4", kind: "milestone", title: "t", now }), { reason: "x", now }), (e) => e.code === "ILLEGAL_TRANSITION" && /backlog/.test(e.message));
+  assert.throws(() => park({ ...newJob({ id: "m-5", kind: "milestone", title: "t", now }), stage: "building" }, { reason: "x", pending: "parallel", now }), (e) => e.code === "ILLEGAL_TRANSITION" && /building/.test(e.message));
   assert.throws(() => park({ ...newJob({ id: "m-3", kind: "milestone", title: "t", now }), stage: "merged" }, { reason: "x", now }), (e) => e.code === "ILLEGAL_TRANSITION");
 });
 
@@ -115,9 +130,15 @@ test("job cmd: park, answer requires the answer file, parallel yes/no", async ()
   r = await run(root, ["job", "answer", "f-1", "--by", "board"]);
   assert.equal(r.code, 0); assert.equal(readJob(c, "f-1").stage, "building");
 
+  await run(root, ["job", "park", "f-1", "--reason", "again"]);
+  r = await run(root, ["job", "park", "f-1", "--reason", "again"]);
+  assert.equal(r.code, 2); assert.match(r.err, /ILLEGAL_TRANSITION/);
+  assert.equal(jobFileExists(c, "f-1", "decisions/3.md"), false);
+
   await run(root, ["job", "add", "milestone", "M2"]);
   r = await run(root, ["job", "park", "m-1", "--reason", "parallel check passed", "--pending", "parallel"]);
   assert.equal(r.code, 0);
+  assert.equal(jobFileExists(c, "m-1", "plan/parallel.md"), true);
   r = await run(root, ["job", "parallel", "m-1", "--no"]);
   assert.equal(r.code, 0); assert.equal(readJob(c, "m-1").stage, "backlog"); assert.equal(readJob(c, "m-1").parallel, "queued");
   r = await run(root, ["job", "parallel", "m-1", "--yes"]);
@@ -137,4 +158,28 @@ test("job cmd: stop/resume, merged, rework writes notes, list and show", async (
   r = await run(root, ["job", "merged", "f-1"]); assert.equal(readJob(c, "f-1").stage, "merged");
   r = await run(root, ["job", "list"]); assert.match(r.out, /f-1\s+merged/);
   r = await run(root, ["job", "show", "f-1", "--json"]); assert.equal(JSON.parse(r.out).id, "f-1");
+});
+
+test("job cmd: a double park leaves no stray decision file; answer still works", async () => {
+  const root = project(); const c = loadConfig(root);
+  await run(root, ["job", "add", "fix", "x"]);
+  await run(root, ["job", "set", "f-1", "planning"]);
+  await run(root, ["job", "set", "f-1", "building"]);
+  await run(root, ["job", "park", "f-1", "--reason", "q"]);
+  const r = await run(root, ["job", "park", "f-1", "--reason", "q2"]);
+  assert.equal(r.code, 2); assert.match(r.err, /ILLEGAL_TRANSITION/);
+  assert.equal(jobFileExists(c, "f-1", "decisions/2.md"), false);
+  writeJobFile(c, "f-1", "decisions/1-answer.md", "ok");
+  assert.equal((await run(root, ["job", "answer", "f-1"])).code, 0);
+});
+
+test("job cmd: rework is refused outside reviewing or pushed", async () => {
+  const root = project(); const c = loadConfig(root);
+  await run(root, ["job", "add", "fix", "x"]);
+  await run(root, ["job", "set", "f-1", "planning"]);
+  await run(root, ["job", "set", "f-1", "building"]);
+  const r = await run(root, ["job", "rework", "f-1", "--notes", "n"]);
+  assert.equal(r.code, 2); assert.match(r.err, /ILLEGAL_TRANSITION/);
+  assert.equal(jobFileExists(c, "f-1", "rework/0.md"), false);
+  assert.equal(jobFileExists(c, "f-1", "rework/1.md"), false);
 });

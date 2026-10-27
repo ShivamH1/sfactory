@@ -35,9 +35,24 @@ const sub = {
     const { c } = ctx(io);
     const job = readJob(c, p[0]);
     if (typeof f.reason !== "string") fail("BAD_ARGS", "park needs --reason");
-    const k = nextDecisionNo(c, job.id);
-    writeJobFile(c, job.id, `decisions/${k}.md`, `# Decision ${k}\n\n${f.reason}\n\nWrite the answer to decisions/${k}-answer.md, then run: sfactory job answer ${job.id}\n`);
-    return done(io, writeJob(c, park(job, { by: by(f), reason: f.reason, pending: f.pending === "parallel" ? "parallel" : "decision" })), f);
+    const pending = f.pending === "parallel" ? "parallel" : "decision";
+    const next = park(job, { by: by(f), reason: f.reason, pending });
+    if (pending === "parallel") writeJobFile(c, job.id, "plan/parallel.md", `# Parallel proposal
+
+${f.reason}
+
+Answer with: sfactory job parallel ${job.id} --yes | --no
+`);
+    else {
+      const k = nextDecisionNo(c, job.id);
+      writeJobFile(c, job.id, `decisions/${k}.md`, `# Decision ${k}
+
+${f.reason}
+
+Write the answer to decisions/${k}-answer.md, then run: sfactory job answer ${job.id}
+`);
+    }
+    return done(io, writeJob(c, next), f);
   },
   answer(p, f, io) {
     const { c } = ctx(io);
@@ -63,6 +78,7 @@ const sub = {
     const { c } = ctx(io);
     const job = readJob(c, p[0]);
     if (typeof f.notes !== "string") fail("BAD_ARGS", "rework needs --notes");
+    if (!["reviewing", "pushed"].includes(job.stage)) fail("ILLEGAL_TRANSITION", `rework needs reviewing or pushed, ${job.id} is ${job.stage}`);
     const next = transition(job, "building", { by: by(f), reason: "rework" });
     writeJobFile(c, job.id, `rework/${next.rework}.md`, `# Rework ${next.rework}\n\n${f.notes}\n`);
     return done(io, writeJob(c, next), f);
