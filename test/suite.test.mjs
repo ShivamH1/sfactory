@@ -39,8 +39,13 @@ test("suite: a spawn in a missing directory resolves ok=false and does not crash
   let crashed = null;
   const guard = (e) => { crashed = e; };
   process.once("uncaughtException", guard);
-  const r = await runSuite(c, { cwd: join(tmpDir(), "nope"), jobId: "m-1", logPath: join(tmpDir(), "s.log") });
-  await new Promise((res) => setTimeout(res, 200));
+  const log = join(tmpDir(), "s.log");
+  const r = await runSuite(c, { cwd: join(tmpDir(), "nope"), jobId: "m-1", logPath: log });
+  await new Promise((res) => setTimeout(res, 300));
+  const text = readFileSync(log, "utf8");
+  assert.match(text, /=== .* node -e 0 ===/);
+  assert.match(text, /spawn failed:/);
+  assert.match(text, /=== exit /);
   process.removeListener("uncaughtException", guard);
   assert.equal(crashed, null);
   assert.equal(r.ok, false);
@@ -50,7 +55,10 @@ test("suite: an unwritable log settles ok=false instead of crashing", async () =
   const c = cfg("node -e 0");
   const dir = tmpDir();
   // a log path whose parent is an existing file: mkdir fails synchronously, so use a directory as the log file
-  const r = await runSuite(c, { cwd: process.cwd(), jobId: "m-1", logPath: dir }).catch((e) => ({ threw: e }));
+  const c2 = cfg('node -e "setTimeout(()=>{},5000)"');
+  const t0 = Date.now();
+  const r = await runSuite(c2, { cwd: process.cwd(), jobId: "m-1", logPath: dir }).catch((e) => ({ threw: e }));
+  assert.ok(Date.now() - t0 < 4000, "the child was killed, not waited for");
   assert.equal(r.threw, undefined);
   assert.equal(r.ok, false);
   assert.match(r.tail, /log write failed/);
