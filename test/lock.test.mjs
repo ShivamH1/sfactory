@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, mkdirSync, utimesSync, existsSync } from "node:fs";
+import { writeFileSync, mkdirSync, utimesSync, existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { tmpDir } from "./helpers.mjs";
-import { acquire, acquireSync, release, status, withLock } from "../src/lock.mjs";
+import { acquire, acquireSync, clearGuard, release, status, withLock } from "../src/lock.mjs";
 
 const cfg = () => ({ stateDir: tmpDir("sf-lock-"), limits: { lockStaleMs: 3_600_000 } });
 
@@ -69,6 +69,8 @@ test("lock: (a) eight aligned processes racing for a dead pid lock produce exact
     const results = await Promise.all([1, 2, 3, 4, 5, 6, 7, 8].map((i) => run(c.stateDir, "p-" + i, start)));
     assert.ok(results.every((r) => r === "GOT" || r === "HELD"), results.join(","));
     assert.equal(results.filter((r) => r === "GOT").length, 1, results.join(","));
+    const iv = readFileSync(join(c.stateDir, "intervals.log"), "utf8").trim().split(String.fromCharCode(10)).map((l) => l.split(" ").map(Number).slice(1)).sort((x, y) => x[0] - y[0]);
+    for (let i = 1; i < iv.length; i++) assert.ok(iv[i][0] >= iv[i - 1][1], "holding intervals overlap: " + JSON.stringify(iv));
   }
 });
 
@@ -158,17 +160,29 @@ test("lock: (j) wrong-token releases racing four acquirers never yield two holde
   for (const r of results) assert.match(r, /^GOT [0-9]+ OVERLAP 0$/, results.join(" | "));
 });
 
-test("lock: (k) a fresh takeover guard is busy and shown by status; an old guard is cleared", () => {
+test("lock: (k) a fresh takeover guard is busy and shown by status", () => {
+  const c = cfg();
+  stale(c, "g");
+  writeFileSync(join(c.stateDir, "locks", "g.lock.takeover"), "{}");
+  assert.throws(() => acquireSync(c, "g", { holder: "b" }), (e) => e.code === "LOCK_HELD");
+  const st = status(c, "g");
+  assert.equal(st.takeover, true);
+  assert.ok(st.guardAge >= 0);
+});
+
+test("lock: (l) an old guard is never auto-cleared; clearGuard (lock clear --guard) removes it", () => {
   const c = cfg();
   stale(c, "g");
   const guard = join(c.stateDir, "locks", "g.lock.takeover");
   writeFileSync(guard, "{}");
-  assert.throws(() => acquireSync(c, "g", { holder: "b" }), (e) => e.code === "LOCK_HELD");
-  assert.equal(status(c, "g").takeover, true);
   const old = new Date(Date.now() - 60_000);
   utimesSync(guard, old, old);
+  assert.throws(() => acquireSync(c, "g", { holder: "b" }), (e) => e.code === "LOCK_HELD" && /takeover guard present/.test(e.message) && /lock clear g --guard/.test(e.message));
+  assert.ok(existsSync(guard));
+  assert.ok(status(c, "g").guardAge >= 60_000);
+  assert.equal(clearGuard(c, "g"), true);
+  assert.equal(clearGuard(c, "g"), false);
   const l = acquireSync(c, "g", { holder: "b" });
   assert.equal(l.tookOverFrom, "ghost");
-  assert.equal(existsSync(guard), false);
   l.release();
 });

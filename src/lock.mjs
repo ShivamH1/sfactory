@@ -30,10 +30,17 @@ function inspect(path, staleMs) {
 }
 
 const guardPath = (path) => path + ".takeover";
-function guardFresh(path) { try { return Date.now() - statSync(guardPath(path)).mtimeMs <= GRACE_MS; } catch { return false; } }
+/** Age in ms of the takeover guard, or null when there is none. A guard is never cleared automatically, however old. */
+function guardAge(path) { try { return Date.now() - statSync(guardPath(path)).mtimeMs; } catch { return null; } }
+
+/** Operator's decision: remove a takeover guard whose taker is known to be gone. */
+export function clearGuard(c, name) {
+  try { unlinkSync(guardPath(lockPath(c, name))); return true; } catch (e) { if (e.code === "ENOENT") return false; throw e; }
+}
 
 export function status(c, name, { staleMs = c.limits?.lockStaleMs ?? 3_600_000 } = {}) {
-  if (guardFresh(lockPath(c, name))) return { held: true, holder: "<taking over>", takeover: true };
+  const age = guardAge(lockPath(c, name));
+  if (age !== null) return { held: true, holder: "<taking over>", takeover: true, guardAge: Math.round(age) };
   const s = inspect(lockPath(c, name), staleMs);
   if (s.none) return { held: false };
   if (s.corrupt) return { held: true, holder: "unknown", corrupt: true, stale: s.stale };
@@ -43,23 +50,22 @@ export function status(c, name, { staleMs = c.limits?.lockStaleMs ?? 3_600_000 }
 
 function tryCreate(path, body) {
   let fd;
-  try { fd = openSync(path, "wx"); } catch (e) { if (e.code === "EEXIST") return false; throw e; }
+  try { fd = openSync(path, "wx"); } catch (e) { if (["EEXIST", "EPERM", "EBUSY", "EACCES"].includes(e.code)) return false; throw e; }
   try { writeSync(fd, JSON.stringify(body, null, 2)); } finally { closeSync(fd); }
   return true;
 }
 
 function writeNew(path, body) { return tryCreate(path, body); }
 
-/** Clear a guard left by a crashed taker: rename it aside, then unlink. */
-function clearOldGuard(gp) {
-  const moved = `${gp}.${randomUUID()}`;
-  try { renameSync(gp, moved); } catch (e) { if (e.code === "ENOENT") return; throw e; }
-  try { unlinkSync(moved); } catch { /* already gone */ }
-}
-
 const sameJudged = (judged, now) => now.stale && (judged.corrupt ? now.corrupt === true : now.body !== undefined && now.body.since === judged.body.since && now.body.token === judged.body.token);
 
-const heldMessage = (name, cur) => `${name} is held by ${cur.body?.holder ?? "unknown"} since ${cur.body?.since ?? "?"}`;
+const heldMessage = (c, name, staleMs) => {
+  const path = lockPath(c, name);
+  const age = guardAge(path);
+  if (age !== null) return `${name}: takeover guard present (${guardPath(path)}, ${Math.round(age / 1000)} s old); if no taker is running, remove it with: sfactory lock clear ${name} --guard`;
+  const cur = inspect(path, staleMs);
+  return `${name} is held by ${cur.body?.holder ?? "unknown"} since ${cur.body?.since ?? "?"}`;
+};
 
 /** One attempt, shared by acquire and acquireSync: returns the Lock, or null when the lock is held or a takeover is busy. */
 function tryAcquireOnce(c, name, { holder, staleMs, pid, durable }) {
@@ -76,18 +82,15 @@ function tryAcquireOnce(c, name, { holder, staleMs, pid, durable }) {
   for (let i = 0; i < 4; i++) {
     const s = inspect(path, staleMs);
     if (s.none) {
-      if (guardFresh(path)) return null;
+      if (guardAge(path) !== null) return null;
       const body = make();
       if (writeNew(path, body)) return lockOf(body);
       continue;
     }
     if (!s.stale) return null;
     // Stale: serialise the takeover through the guard file; nothing ever renames onto the lock path.
-    if (!tryCreate(gp, { by: holder, token: randomUUID(), since: new Date().toISOString() })) {
-      if (guardFresh(path)) return null;
-      try { clearOldGuard(gp); } catch (e) { if (e.code === "ENOENT") continue; return null; }
-      continue;
-    }
+    const guard = { by: holder, token: randomUUID(), since: new Date().toISOString() };
+    if (!tryCreate(gp, guard)) return null; // another taker, or a guard left behind: busy either way
     try {
       const again = inspect(path, staleMs);
       if (!again.none) {
@@ -97,7 +100,8 @@ function tryAcquireOnce(c, name, { holder, staleMs, pid, durable }) {
       const body = make(s.corrupt ? "unknown" : s.body.holder);
       return writeNew(path, body) ? lockOf(body) : null;
     } finally {
-      try { unlinkSync(gp); } catch { /* already gone */ }
+      // Remove the guard only if it is still ours; on any mismatch or read error leave it.
+      try { if (JSON.parse(readFileSync(gp, "utf8")).token === guard.token) unlinkSync(gp); } catch { /* not ours, or gone */ }
     }
   }
   return null;
@@ -112,7 +116,7 @@ function checkArgs(c, holder, waitMs) {
 export function acquireSync(c, name, { holder, staleMs = c.limits?.lockStaleMs ?? 3_600_000, pid = process.pid, durable = false } = {}) {
   checkArgs(c, holder, 0);
   const l = tryAcquireOnce(c, name, { holder, staleMs, pid, durable });
-  if (!l) fail("LOCK_HELD", heldMessage(name, inspect(lockPath(c, name), staleMs)));
+  if (!l) fail("LOCK_HELD", heldMessage(c, name, staleMs));
   return l;
 }
 
@@ -122,7 +126,7 @@ export async function acquire(c, name, { holder, waitMs = 0, pollMs = 500, stale
   for (;;) {
     const l = tryAcquireOnce(c, name, { holder, staleMs, pid, durable });
     if (l) return l;
-    if (Date.now() >= deadline) fail("LOCK_HELD", heldMessage(name, inspect(lockPath(c, name), staleMs)));
+    if (Date.now() >= deadline) fail("LOCK_HELD", heldMessage(c, name, staleMs));
     await sleep(Math.max(1, Math.min(pollMs, deadline - Date.now())));
   }
 }
