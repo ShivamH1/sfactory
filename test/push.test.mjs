@@ -30,3 +30,9 @@ test("push: refusals", () => {
   writeFileSync(join(r, "dirty.txt"), "d");
   assert.throws(() => push(cfg(), { cwd: r, holder: "t" }), (e) => e.code === "DIRTY_TREE");
 });
+
+test("push: anything but a real true is PUSH_DISABLED", () => {
+  const r = repoWithRemote();
+  sh("git", ["checkout", "-q", "-b", "feature/z"], r);
+  for (const v of ["true", null, 1]) assert.throws(() => push(cfg(v), { cwd: r, holder: "t" }), (e) => e.code === "PUSH_DISABLED", String(v));
+});

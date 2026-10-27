@@ -45,12 +45,12 @@ export async function commit(c, { cwd, paths, message, holder }) {
   if (typeof message !== "string" || !message.trim()) fail("BAD_ARGS", "commit needs a message");
   if (c.git.namedPathsOnly !== false) assertNamedPaths(paths, { cwd });
   const trailers = hasTrailers(message, { cwd });
-  if (trailers.length && !c.git.trailers) fail("TRAILER_REFUSED", `trailers are off (git.trailers): ${trailers.join("; ")}`);
+  if (trailers.length && c.git.trailers !== true) fail("TRAILER_REFUSED", `trailers are off (git.trailers): ${trailers.join("; ")}`);
   return withLock(c, "commit", { holder: holder ?? "session", waitMs: 60_000 }, async () => {
     git(["--literal-pathspecs", "add", "--", ...paths], { cwd });
     git(["--literal-pathspecs", "commit", "--quiet", "-m", message, "--", ...paths], { cwd });
     const added = git(["log", "-1", "--format=%(trailers)", "HEAD"], { cwd });
-    if (added && !c.git.trailers) fail("TRAILER_REFUSED", `a commit-msg hook added a trailer: ${added.split(/\r?\n/).filter(Boolean).join("; ")} (the commit was left in place, not reset)`);
+    if (added && c.git.trailers !== true) fail("TRAILER_REFUSED", `a commit-msg hook added a trailer: ${added.split(/\r?\n/).filter(Boolean).join("; ")} (the commit was left in place, not reset)`);
     return git(["rev-parse", "HEAD"], { cwd });
   });
 }

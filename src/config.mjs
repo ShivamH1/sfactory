@@ -63,14 +63,24 @@ export function validateConfig(raw) {
   if (lim.parallelTasks != null && !(Number.isInteger(lim.parallelTasks) && lim.parallelTasks >= 1 && lim.parallelTasks <= 4))
     errs.push("limits.parallelTasks: integer 1..4");
   if (lim.fixRounds != null && !(Number.isInteger(lim.fixRounds) && lim.fixRounds >= 1)) errs.push("limits.fixRounds: integer >= 1");
-  if (raw.stops != null) {
-    if (!Array.isArray(raw.stops)) errs.push("stops: must be an array");
-    else for (const s of raw.stops) if (!STOP_STAGES.includes(s)) errs.push(`stops: "${s}" is not a stoppable stage (${STOP_STAGES.join(", ")})`);
-  }
+  if (Array.isArray(raw.stops)) for (const s of raw.stops) if (!STOP_STAGES.includes(s)) errs.push(`stops: "${s}" is not a stoppable stage (${STOP_STAGES.join(", ")})`);
   for (const k of SECTIONS) {
     if (k in raw && (raw[k] === null || typeof raw[k] !== "object" || Array.isArray(raw[k]))) errs.push(`${k}: must be an object`);
   }
   if (raw.git?.merge === true) errs.push("git.merge: the factory never merges; remove this key");
+  // A JSON string "false" is truthy: every switch must be a real boolean.
+  for (const k of ["trailers", "namedPathsOnly", "push", "merge"]) {
+    const v = raw.git?.[k];
+    if (v != null && typeof v !== "boolean") errs.push(`git.${k}: must be true or false, not ${JSON.stringify(v)}`);
+  }
+  if (raw.commands?.suiteSerial != null && typeof raw.commands.suiteSerial !== "boolean") errs.push(`commands.suiteSerial: must be true or false, not ${JSON.stringify(raw.commands.suiteSerial)}`);
+  const lists = { rules: raw.rules, hotspots: raw.hotspots, fixCardRefusals: raw.fixCardRefusals, stops: raw.stops,
+    "worktrees.afterCut": raw.worktrees?.afterCut, "worktrees.copyFromBase": raw.worktrees?.copyFromBase,
+    "secrets.neverHandToAgents": raw.secrets?.neverHandToAgents, "commands.typecheck": raw.commands?.typecheck, "ports.names": raw.ports?.names };
+  for (const [k, v] of Object.entries(lists)) {
+    if (v == null) continue;
+    if (!Array.isArray(v) || !v.every((x) => typeof x === "string")) errs.push(`${k}: must be an array of strings`);
+  }
   if (raw.worktrees?.baseRule != null && !BASE_RULES.includes(raw.worktrees.baseRule) && typeof raw.worktrees.baseRule !== "string")
     errs.push("worktrees.baseRule: newest-feature-branch, integration-branch or a branch name");
   if (raw.ports != null) {

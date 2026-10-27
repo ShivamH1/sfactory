@@ -2,7 +2,7 @@ import { fail } from "./errors.mjs";
 import { git, currentBranch, isClean, remoteHead, headOf } from "./git.mjs";
 
 export function push(c, { cwd, remote = "origin" }) {
-  if (c.git.push === false) fail("PUSH_DISABLED", "git.push is false in sfactory.config.json");
+  if (c.git.push !== true) fail("PUSH_DISABLED", `git.push is ${JSON.stringify(c.git.push)} in sfactory.config.json; only true allows a push`);
   const prefix = c.worktrees.branchPrefix;
   if (!prefix) fail("BRANCH_REFUSED", "branchPrefix is empty; refusing to push");
   const branch = currentBranch(cwd);

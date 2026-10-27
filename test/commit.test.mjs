@@ -53,3 +53,9 @@ test("commit: strict path guard", async () => {
   assert.throws(() => assertNamedPaths(["src"], { cwd: r }), (e) => e.code === "NOT_A_FILE");
   await assert.rejects(commit(cfg(), { cwd: r, paths: [":/"], message: "feat: a", holder: "t" }), (e) => e.code === "UNNAMED_PATHS");
 });
+
+test("commit: only a real true allows trailers", async () => {
+  const r = tmpRepo();
+  writeFileSync(join(r, "a.txt"), "a");
+  await assert.rejects(commit(cfg("false"), { cwd: r, paths: ["a.txt"], message: "feat: a\n\nCo-Authored-By: X <x@y>", holder: "t" }), (e) => e.code === "TRAILER_REFUSED");
+});

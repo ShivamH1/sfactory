@@ -95,3 +95,18 @@ test("config: findRepoRoot from a linked worktree is the main checkout, so jobs 
   assert.equal(await main(["job", "show", "m-1"], b.io), 0, b.err.join(""));
   assert.equal(JSON.parse(b.out.join("")).title, "Shared");
 });
+
+test("config: string booleans and untyped lists are INVALID_CONFIG, naming the key", () => {
+  const base = { project: "p", agents: { mode: "claude" }, commands: { suite: "x" } };
+  const root = tmpDir();
+  writeConfig(root, { ...base, git: { trailers: "false" } });
+  assert.throws(() => loadConfig(root), (e) => e.code === "INVALID_CONFIG" && /git\.trailers/.test(e.message));
+  writeConfig(root, { ...base, worktrees: { afterCut: "pnpm install" } });
+  assert.throws(() => loadConfig(root), (e) => e.code === "INVALID_CONFIG" && /worktrees\.afterCut/.test(e.message));
+  const errs = validateConfig({ ...base, commands: { suite: "x", suiteSerial: "yes", typecheck: "tsc" }, git: { push: "true", namedPathsOnly: 0 },
+    rules: "CLAUDE.md", hotspots: [1], fixCardRefusals: {}, stops: "awaiting-approval", ports: { names: "api" },
+    secrets: { neverHandToAgents: ".env" }, worktrees: { copyFromBase: [".env", null] } });
+  for (const k of ["commands\.suiteSerial", "commands\.typecheck", "git\.push", "git\.namedPathsOnly", "^rules", "^hotspots", "^fixCardRefusals", "^stops", "ports\.names", "secrets\.neverHandToAgents", "worktrees\.copyFromBase"])
+    assert.ok(errs.some((e) => new RegExp(k).test(e)), `${k} not named in ${JSON.stringify(errs)}`);
+  assert.deepEqual(validateConfig({ ...base, git: { trailers: true, push: false }, rules: ["CLAUDE.md"], worktrees: { afterCut: [] } }), []);
+});
