@@ -56,3 +56,10 @@ test("independence: normalised hotspots and a parent migrations directory count"
   const m = checkMilestones(c, p("apps/api/prisma"), p("apps/api/prisma/migrations/1/m.sql"));
   assert.equal(m.checks.find((x) => x.name === "migrations").ok, false);
 });
+
+test("independence: a file-less task touches nothing", () => {
+  const plan = parsePlan("### Task 1: Baseline\nRun the suite.\n### Task 2: B\n- Create: `b.ts`\n### Task 3: C\n- Modify: `b.ts`\n### Task 4: Close\nTick the boxes.\n");
+  assert.deepEqual(taskBatches(plan, 4), [[1, 2, 4], [3]]);
+  const r = checkMilestones({ hotspots: [], migrations: null, repoRoot: "/repo", record: {} }, plan, { tasks: [tk(1, [], "c.ts"), { n: 2, title: "", files: [], dependsOn: [] }] });
+  assert.equal(r.ok, true);
+});

@@ -30,8 +30,12 @@ const code = (md) => { try { parsePlan(md); } catch (e) { return e.code; } retur
 
 test("plan: fails closed", () => {
   assert.equal(code("# nothing here"), "PLAN_NO_TASKS");
-  assert.equal(code("### Task 1: A\nno files\n"), "PLAN_TASK_NO_FILES");
-  assert.equal(code("### Task 1: A\n- Create: a\n### Task 1: B\n- Create: b\n"), "PLAN_DUPLICATE_TASK");
+  // Round 4 changed this expectation: a task that names no path is file-less,
+  // so a plan made only of such tasks has no files at all.
+  assert.equal(code("### Task 1: A\nno files\n"), "PLAN_NO_FILES");
+  assert.equal(code("### Task 1: A\nedit `src/x.ts` by hand\n### Task 2: B\n- Create: `b.ts`\n"), "PLAN_TASK_NO_FILES");
+  // Round 4: an unticked item must be path-like, so the input names files with extensions.
+  assert.equal(code("### Task 1: A\n- Create: a.ts\n### Task 1: B\n- Create: b.ts\n"), "PLAN_DUPLICATE_TASK");
 });
 
 const tail = "### Task 2: Next\n- Create: `next.ts`\n";
@@ -61,4 +65,57 @@ test("plan: mixed Files lines refuse unquoted text", () => {
 test("plan: fence openers - inline triple-backtick runs and tab indents are not fences", () => {
   assert.deepEqual(names("### Task 1: A\n- Create: `a.ts`\n```x```\n" + tail), [1, 2]);
   assert.deepEqual(names("### Task 1: A\n- Create: `a.ts`\n\t```\n" + tail), [1, 2]);
+});
+
+const files = (md) => parsePlan(md).tasks[0].files;
+const one1 = (line) => "### Task 1: A\n" + line + "\n";
+
+test("plan round 4: trailing prose that names no path is allowed", () => {
+  assert.deepEqual(files(one1("- Modify: `apps/x.ts` (extend)")), [{ op: "modify", path: "apps/x.ts" }]);
+  assert.deepEqual(files(one1("- Create: `y.ts` *(create)*")), [{ op: "create", path: "y.ts" }]);
+  assert.deepEqual(files(one1("- Modify: `z.ts` (the controller call), Tier 3)")), [{ op: "modify", path: "z.ts" }]);
+  assert.deepEqual(files(one1("- Test: `t.ts`.")), [{ op: "test", path: "t.ts" }]);
+  assert.deepEqual(files(one1("- Modify: `a.ts` / `b.ts` (route)")).map((f) => f.path), ["a.ts", "b.ts"]);
+  assert.deepEqual(files(one1("- Modify: `a.ts` (`Foo` at :80-87)")).map((f) => f.path), ["a.ts", "Foo"]);
+  assert.deepEqual(files(one1("- Modify: `a.ts` (see M44.1 and 19.1 entry 7)")).map((f) => f.path), ["a.ts"]);
+});
+
+test("plan round 4: a path-like token beside a backticked item is refused", () => {
+  for (const line of ["- Modify: `a.ts` and b.ts", "- Modify: `a.ts` (also src/x)", "- Modify: `a.ts` ..", "- Modify: `a.ts` (and .env)", "- Modify: `a.ts` (:src)"]) {
+    assert.equal(code(one1(line)), "PLAN_BAD_FILE_LINE", line);
+  }
+});
+
+test("plan round 4: more ops, with or without a colon, lower-cased", () => {
+  assert.deepEqual(files(one1("- Delete: `old.ts`")), [{ op: "delete", path: "old.ts" }]);
+  assert.deepEqual(files(one1("- RENAME `a.tsx` → `b.tsx`")).map((f) => f.op + " " + f.path), ["rename a.tsx", "rename b.tsx"]);
+  for (const op of ["Read", "Add", "Remove", "Edit", "Move", "Touch"]) assert.deepEqual(files(one1(`- ${op}: \`f.ts\``)), [{ op: op.toLowerCase(), path: "f.ts" }]);
+  assert.deepEqual(files(one1("- Create (gitignored): `.superpowers/r.ts`")), [{ op: "create", path: ".superpowers/r.ts" }]);
+  // A step bullet that starts with an op word is not a Files line.
+  assert.deepEqual(files("### Task 1: A\n- Create: `a.ts`\n- add `import x from \"y\";`\n- add:\n\n```ts\nz\n```\n"), [{ op: "create", path: "a.ts" }]);
+});
+
+test("plan round 4: unticked items must each be one path-like token, never empty", () => {
+  for (const line of ["- Modify: ```", "- Modify: ``", "- Modify: a.ts, , b.ts", "- Modify: a.ts,", "- Create: the three migrations named in the file map", "- Modify: something"]) {
+    assert.equal(code(one1(line)), "PLAN_BAD_FILE_LINE", line);
+  }
+  assert.deepEqual(files(one1("- Modify: src/a.ts, b.json")).map((f) => f.path), ["src/a.ts", "b.json"]);
+});
+
+test("plan round 4: file-less tasks", () => {
+  const p = parsePlan("### Task 1: Baseline\nRun the suite; record the count.\n### Task 2: B\n- Create: `b.ts`\n");
+  assert.deepEqual(p.tasks.map((t) => t.files), [[], [{ op: "create", path: "b.ts" }]]);
+  assert.deepEqual(parsePlan("### Task 1: A\n**Files:** none changed. Log entry only, see `spec/log.md`.\n### Task 2: B\n- Create: `b.ts`\n").tasks[0].files, [{ op: "touch", path: "spec/log.md" }]);
+  assert.deepEqual(parsePlan("### Task 1: A\n**Files:** none in the repo.\nThen read `docs/x.md`.\n### Task 2: B\n- Create: `b.ts`\n").tasks[0].files, []);
+  assert.equal(code("### Task 1: A\nRun `pnpm test` and read `CLAUDE.md`.\n### Task 2: B\n- Create: `b.ts`\n"), "PLAN_TASK_NO_FILES");
+  assert.equal(code("### Task 1: A\nRun the suite.\n### Task 2: B\nAnd the build.\n"), "PLAN_NO_FILES");
+  // Prose after the plan's last task is not that task's.
+  assert.deepEqual(parsePlan("### Task 1: A\n- Create: `a.ts`\n### Task 2: Close\nTick the boxes.\n## Self-review\nSee `src/x.ts`.\n").tasks[1].files, []);
+});
+
+test("plan round 4: a Files line continues onto indented lines or after a trailing comma", () => {
+  assert.deepEqual(files(one1("- Test: `a.test.ts` (rewrite),\n  `b.test.ts`,\n  `c.test.ts` (fixtures only)")).map((f) => f.path), ["a.test.ts", "b.test.ts", "c.test.ts"]);
+  assert.deepEqual(files(one1("**Files:** `x.tsx`, `y.tsx`,\n`z.tsx`.")).map((f) => f.op + " " + f.path), ["touch x.tsx", "touch y.tsx", "touch z.tsx"]);
+  assert.deepEqual(files(one1("- Create:\n  - `n1.ts`\n  - `n2.ts`")).map((f) => f.path), ["n1.ts", "n2.ts"]);
+  assert.equal(code(one1("- Modify: `a.ts`,\n  and also src/b.ts")), "PLAN_BAD_FILE_LINE");
 });
