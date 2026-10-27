@@ -862,7 +862,7 @@ test("job cmd: stop/resume, merged, rework writes notes, list and show", async (
 - [ ] **Step 6: Write src/commands/job.mjs**
 
 ```js
-import { register } from "../cli.mjs";
+import { register } from "../registry.mjs";
 import { findRepoRoot, loadConfig } from "../config.mjs";
 import { readJob, writeJob, nextId, listJobs, writeJobFile, jobFileExists, readJobFile } from "../store.mjs";
 import { newJob, transition, park, release, stop, resume } from "../job.mjs";
@@ -1084,7 +1084,7 @@ export async function withLock(c, name, opts, fn) {
 - [ ] **Step 4: Write src/commands/lock.mjs**
 
 ```js
-import { register } from "../cli.mjs";
+import { register } from "../registry.mjs";
 import { findRepoRoot, loadConfig } from "../config.mjs";
 import { acquire, release, status } from "../lock.mjs";
 import { fail } from "../errors.mjs";
@@ -1343,7 +1343,7 @@ export function remove(c, job) {
 - [ ] **Step 6: Write src/commands/worktree.mjs**
 
 ```js
-import { register } from "../cli.mjs";
+import { register } from "../registry.mjs";
 import { findRepoRoot, loadConfig } from "../config.mjs";
 import { readJob, writeJob } from "../store.mjs";
 import { cut, remove, resolveBase } from "../worktree.mjs";
