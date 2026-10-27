@@ -1138,6 +1138,23 @@ Deferred as recorded in the ledger: age-based takeover of a live holder past `lo
 ---
 
 **Addendum (same day, from the Task 6 review):** `acquire`/`acquireSync` accept `durable: true` — the body carries `durable: true` and `pid: null`, `isStale` is always false for it, and only `release` with the matching holder and token clears it (`status` reports `durable`; the CLI takes `--durable`). `acquireSync(c, name, { holder, durable, pid, staleMs })` is one attempt of the same algorithm (`tryAcquireOnce`), which `acquire` loops over. Task 6 then replaces `takeLockSync` with `acquireSync(..., { durable: true })`, stores the token on the job as `lockToken`, and releases with it. Tests (h) a durable lock from a dead pid a year old is not taken over; (i) `acquireSync` free / held / stale-takeover.
+#### Revision 2 after the fix-round re-review (controller, 2026-10-27) — supersedes the takeover and release steps of Revision 1
+
+The re-review raced the Revision 1 code with aligned processes and worker threads: the "rename back on mismatch" step overwrites a lock a third process has just `wx`-created (POSIX and Windows both replace on rename), and a non-holder's `release` renamed the live lock aside before checking it, so a wrong-token release handed the lock to a second holder. Rule for this revision: **nothing ever renames onto `path`, and nothing moves a lock it has not first matched.**
+
+**Takeover is serialised through a guard file** `path + ".takeover"`:
+1. `tryAcquireOnce` reads the lock (`inspect`). Absent → `wx`-create our body (fast path; EEXIST → loop). Held and not stale → `LOCK_HELD`.
+2. Stale → `wx`-create the guard with body `{ by: holder, token, since }`. EEXIST on the guard: if the existing guard's mtime is younger than `GRACE_MS`, another taker is mid-takeover → return "busy" (the caller loops / `LOCK_HELD`); if older, the taker crashed → `renameSync(guard, guard + "." + randomUUID())` then `unlinkSync` the moved file (ENOENT from losing the rename → loop) and retry step 2 once.
+3. Under the guard, `inspect` the lock **again**. Only if it is still stale (same `since` and `token` as judged, or corrupt with mtime older than `GRACE_MS`) `unlinkSync(path)`; if it is now a different, live body, remove the guard and return "busy".
+4. `wx`-create our body (EEXIST → someone created between our unlink and our create: remove the guard, loop; they hold it). Record `tookOverFrom` in our body as well as on the `Lock`.
+5. `unlinkSync` the guard. The guard is removed in a `finally` so a throw never leaves a fresh guard behind.
+Every other code path (`status`, the fast-path create) treats a guard younger than `GRACE_MS` as "held by a taker": `status` reports `{ held: true, holder: "<taking over>", takeover: true }`, and the fast path refuses to `wx`-create while a fresh guard exists (it checks the guard first; the create is still `wx`, so a lost race is just EEXIST).
+
+**Release reads before it moves.** `release(c, name, { holder, token })`: `inspect` the lock; if absent → `false`; if the body's `holder`/`token` do not match → `fail("NOT_HOLDER")` **without touching the file**; if they match → `renameSync(path, path + ".rel-" + randomUUID())` (ENOENT → someone took it over as stale between our read and our rename; return `false`), read the moved file, and if it is ours `unlinkSync` it and return `true`; if it is not ours (a takeover happened between our read and our rename and a new owner created in the gap, so we moved *their* lock) put it back with `linkSync(moved, path)` — which fails with EEXIST instead of overwriting — then `unlinkSync(moved)`; on EEXIST leave the moved file in place, log one line, and return `false`. A token-less legacy body matches on holder alone, as before.
+
+**Rename errors other than ENOENT** (EPERM/EBUSY on Windows) inside `tryAcquireOnce` count as "busy" for this attempt (loop or `LOCK_HELD`), never a raw throw.
+
+**Test (a) is strengthened**: the children synchronise on a start timestamp passed as an argument (each sleeps until `Date.now() >= start`), acquire with their own `process.pid`, hold the lock for 300 ms while alive, then print `GOT`/`HELD` and exit; the parent starts eight and asserts exactly one `GOT`; run the whole thing three times in the test. Add test (j): a `release` with the wrong token while four other processes acquire in a loop never yields two holders (reuse the child with a mode argument), and test (k): a fresh guard file makes `acquireSync` answer `LOCK_HELD` and `status` report `takeover: true`; an old guard is cleared and the lock taken.
 
 ### Task 6: Git helpers and worktree cut/remove
 
