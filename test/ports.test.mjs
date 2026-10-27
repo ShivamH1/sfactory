@@ -45,7 +45,7 @@ test("ports: every port of a held job blocks, and overlapping config is refused"
   const held = { id: "m-1", kind: "milestone", title: "a", stage: "building", started: "2026-01-01T00:00:00Z", history: [], ports: { block: 47100, a: 47100, b: 47101, c: 47102 } };
   const c = { stateDir: tmpDir("sf-ports-"), ports: { base: 47100, step: 2, names: ["a", "b", "c"] } };
   writeJob(c, held);
-  await assert.rejects(allocate(c, "m-2"), (e) => e.code === "BAD_CONFIG" && /3/.test(e.message) && /2/.test(e.message));
+  await assert.rejects(allocate(c, "m-2"), (e) => e.code === "INVALID_CONFIG" && /3/.test(e.message) && /2/.test(e.message));
   const d = { stateDir: c.stateDir, ports: { base: 47100, step: 10, names: ["a", "b", "c"] } };
   assert.equal((await allocate(d, "m-2")).block, 47110);
   const e = { stateDir: c.stateDir, ports: { base: 47101, step: 10, names: ["a", "b"] } };

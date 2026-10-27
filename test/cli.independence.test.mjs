@@ -45,3 +45,12 @@ test("independence milestones: a parse error names the plan file", async () => {
   const r = await run(["independence", "milestones", "empty.md", plans("a")], dir);
   assert.match(r.err, /PLAN_NO_TASKS: empty\.md:/);
 });
+
+test("independence: a wrong argument count is BAD_ARGS", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "sf-args-")));
+  for (const argv of [["independence", "milestones", "one.md"], ["independence", "tasks"], ["independence", "nope"]]) {
+    const r = await run(argv, dir);
+    assert.equal(r.code, 2);
+    assert.match(r.err, /error BAD_ARGS: usage: sfactory independence/, argv.join(" "));
+  }
+});

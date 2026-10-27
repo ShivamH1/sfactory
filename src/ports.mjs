@@ -22,7 +22,7 @@ export async function isFree(port) {
 
 export async function allocate(c, jobId) {
   const { base, step, names } = c.ports;
-  if (names.length > step) fail("BAD_CONFIG", `ports.names has ${names.length} names but ports.step is ${step}; blocks would overlap`);
+  if (names.length > step) fail("INVALID_CONFIG", `ports.names has ${names.length} names but ports.step is ${step}; blocks would overlap`);
   const held = new Set();
   for (const j of listJobs(c)) {
     if (j.id === jobId || !j.ports || j.stage === "merged") continue;
