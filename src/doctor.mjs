@@ -3,9 +3,14 @@ import { mkdirSync, accessSync, constants, readFileSync, existsSync } from "node
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 
-const which = (exec, cmd) => { const r = exec(cmd, ["--version"], { encoding: "utf8", shell: process.platform === "win32" }); return r && r.status === 0 ? (r.stdout || "").trim().split("\n")[0] : null; };
+const which = (exec, cmd) => {
+  // On Windows an npm-installed shim is a .cmd, which needs a shell; pass one string so no args are concatenated.
+  const r = process.platform === "win32" ? exec(`${cmd} --version`, { encoding: "utf8", shell: true }) : exec(cmd, ["--version"], { encoding: "utf8" });
+  return r && r.status === 0 ? (r.stdout || "").trim().split("\n")[0] : null;
+};
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-export function runDoctor(c, { cwd, exec = spawnSync, codexConfigPath = join(homedir(), ".codex", "config.toml") } = {}) {
+export function runDoctor(c, { exec = spawnSync, codexConfigPath = join(homedir(), ".codex", "config.toml") } = {}) {
   const checks = [];
   const add = (name, ok, detail) => checks.push({ name, ok, detail });
   const major = Number(process.versions.node.split(".")[0]);
@@ -23,12 +28,12 @@ export function runDoctor(c, { cwd, exec = spawnSync, codexConfigPath = join(hom
     const v = which(exec, "codex"); add("codex", !!v, v ?? "codex not on PATH (needed for codex and mixed modes)");
     const toml = existsSync(codexConfigPath) ? readFileSync(codexConfigPath, "utf8") : "";
     for (const p of [c.agents.codex.implement, c.agents.codex.review]) {
-      const has = new RegExp(`^\[profiles\.${p}\]`, "m").test(toml);
-      add(`codex profile ${p}`, has, toml ? (has ? "present" : `add [profiles.${p}] to ${codexConfigPath} (see INSTALL.md)`) : `${codexConfigPath} not found`);
+      const has = new RegExp("^\\s*\\[\\s*profiles\\.\\s*\"?" + esc(p) + "\"?\\s*\\]", "m").test(toml);
+      add(`codex profile ${p}`, has, toml ? (has ? "present" : `add [profiles.${p}] to ${codexConfigPath} (see the README's Codex section)`) : `${codexConfigPath} not found`);
     }
   }
   if (c.rules.length > 1) {
-    const bodies = c.rules.map((r) => { const f = join(c.repoRoot, r); return existsSync(f) ? readFileSync(f, "utf8") : null; });
+    const bodies = c.rules.map((r) => { const f = join(c.repoRoot, r); return existsSync(f) ? readFileSync(f, "utf8").replace(/\r\n/g, "\n") : null; });
     const same = bodies.every((b) => b !== null && b === bodies[0]);
     add("rules", same, same ? `${c.rules.join(" = ")}` : `${c.rules.join(", ")} differ or are missing; run sfactory sync-rules`);
   }

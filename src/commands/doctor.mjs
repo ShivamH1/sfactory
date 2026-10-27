@@ -12,7 +12,7 @@ register("doctor", async (_args, io) => {
   try { c = loadConfig(findRepoRoot(io.cwd)); } catch (e) {
     if (e instanceof SfactoryError && SOFT.has(e.code)) configError = `${e.code}: ${e.message}`; else throw e;
   }
-  const r = runDoctor(c, { cwd: io.cwd });
+  const r = runDoctor(c);
   if (configError) { const row = r.checks.find((x) => x.name === "config"); if (row) row.detail = configError; }
   if (c) {
     const free = await isFree(c.ports.base);
