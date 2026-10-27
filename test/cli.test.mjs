@@ -31,6 +31,16 @@ test("parseArgs: force is a boolean and never consumes the next token", () => {
   assert.equal(flags.force, true);
 });
 
+test("parseArgs: guard and durable are booleans and never consume the next token", () => {
+  const { positional, flags } = parseArgs(["clear", "--guard", "suite"]);
+  assert.deepEqual(positional, ["clear", "suite"]);
+  assert.equal(flags.guard, true);
+  const b = parseArgs(["acquire", "--durable", "worktree:x", "--holder", "m-1"]);
+  assert.deepEqual(b.positional, ["acquire", "worktree:x"]);
+  assert.equal(b.flags.durable, true);
+  assert.equal(b.flags.holder, "m-1");
+});
+
 test("cli: SfactoryError from a handler exits 2 with its code", async () => {
   register("boom", () => { throw new SfactoryError("BOOM", "it broke"); });
   const err = [];

@@ -11,7 +11,7 @@ const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
 
 /** Flags that never consume the next argument. */
-export const BOOLEAN_FLAGS = new Set(["json", "yes", "no", "apply", "dry-run", "force"]);
+export const BOOLEAN_FLAGS = new Set(["json", "yes", "no", "apply", "dry-run", "force", "guard", "durable"]);
 
 /**
  * Minimal arg parser: positionals plus --flag, --flag=value, --flag value.
