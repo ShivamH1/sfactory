@@ -22,7 +22,7 @@ register("independence", async ({ positional, flags }, io) => {
   const [sub, ...args] = positional;
   if (sub === "milestones") {
     if (args.length !== 2) fail("USAGE", "sfactory independence milestones <planA> <planB>");
-    const config = tryConfig(io) ?? { hotspots: [], migrations: null, repoRoot: io.cwd, record: { carriedForward: null } };
+    const config = loadConfig(findRepoRoot(io.cwd));
     const r = checkMilestones(config, readPlan(io, args[0]), readPlan(io, args[1]), { nameA: basename(args[0]), nameB: basename(args[1]) });
     for (const c of r.checks) io.stdout(`${c.name}  ${c.ok ? "ok" : "FAIL"}  ${c.detail}\n`);
     return r.ok ? 0 : 1;
@@ -30,7 +30,7 @@ register("independence", async ({ positional, flags }, io) => {
   if (sub === "tasks") {
     if (args.length !== 1) fail("USAGE", "sfactory independence tasks <plan> [--max n]");
     let max = flags.max != null ? Number(flags.max) : tryConfig(io)?.limits.parallelTasks ?? 4;
-    if (!Number.isInteger(max) || max < 1) fail("USAGE", "--max must be a positive integer");
+    if (!Number.isInteger(max) || max < 1) fail("BAD_ARGS", "--max must be a positive integer");
     io.stdout(JSON.stringify(taskBatches(readPlan(io, args[0]), max)) + "\n");
     return 0;
   }

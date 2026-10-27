@@ -36,3 +36,23 @@ test("independence: task batches respect dependencies, disjointness and the cap"
   const shared = { tasks: [{ n: 1, title: "", files: [{ op: "modify", path: "x" }], dependsOn: [] }, { n: 2, title: "", files: [{ op: "modify", path: "x" }], dependsOn: [] }] };
   assert.deepEqual(taskBatches(shared, 4), [[1], [2]]);
 });
+
+const tk = (n, deps = [], p = `f${n}`) => ({ n, title: "", files: [{ op: "create", path: p }], dependsOn: deps });
+const code = (fn) => { try { fn(); } catch (e) { return e.code; } return null; };
+
+test("taskBatches: validation and ordering", () => {
+  assert.equal(code(() => taskBatches({ tasks: [tk(1, [9])] }, 4)), "PLAN_BAD_DEPENDENCY");
+  assert.equal(code(() => taskBatches({ tasks: [tk(1, [2]), tk(2, [1])] }, 4)), "PLAN_DEPENDENCY_CYCLE");
+  assert.deepEqual(taskBatches({ tasks: [tk(1, [2]), tk(2)] }, 4), [[2], [1]]);
+  assert.equal(code(() => taskBatches({ tasks: [tk(1)] }, 0)), "BAD_ARGS");
+  assert.deepEqual(taskBatches({ tasks: [tk(1, [], "pkg"), tk(2, [], "pkg/x.ts")] }, 4), [[1], [2]]);
+});
+
+test("independence: normalised hotspots and a parent migrations directory count", () => {
+  const c = { hotspots: ["./packages/core/"], migrations: { dir: "/repo/apps/api/prisma/migrations" }, repoRoot: "/repo", record: {} };
+  const p = (path) => ({ tasks: [tk(1, [], path)] });
+  const r = checkMilestones(c, p("packages/core/src/a.ts"), p("packages/core/src/a.ts"));
+  assert.equal(r.checks.find((x) => x.name === "hotspots").ok, false);
+  const m = checkMilestones(c, p("apps/api/prisma"), p("apps/api/prisma/migrations/1/m.sql"));
+  assert.equal(m.checks.find((x) => x.name === "migrations").ok, false);
+});
