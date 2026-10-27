@@ -33,3 +33,20 @@ test("plan: fails closed", () => {
   assert.equal(code("### Task 1: A\nno files\n"), "PLAN_TASK_NO_FILES");
   assert.equal(code("### Task 1: A\n- Create: a\n### Task 1: B\n- Create: b\n"), "PLAN_DUPLICATE_TASK");
 });
+
+const tail = "### Task 2: Next\n- Create: `next.ts`\n";
+const names = (md) => parsePlan(md).tasks.map((t) => t.n);
+
+test("plan: CommonMark fences", () => {
+  const four = "### Task 1: A\n- Create: `a.ts`\n````md\n```js\n### Task 9: fake\n- Create: `leak.ts`\n```\n````\n" + tail;
+  assert.deepEqual(names(four), [1, 2]);
+  assert.deepEqual(parsePlan(four).tasks[0].files, [{ op: "create", path: "a.ts" }]);
+  assert.deepEqual(names("### Task 1: A\n- Create: `a.ts`\n~~~\n```\n~~~\n" + tail), [1, 2]);
+  assert.equal(code("### Task 1: A\n- Create: `a.ts`\n```\n### Task 2: hidden\n"), "PLAN_UNCLOSED_FENCE");
+});
+
+test("plan: a file item without backticks must be one token", () => {
+  assert.equal(code("### Task 1: A\n- Modify: apps/api/src/app.ts (register the route)\n"), "PLAN_BAD_FILE_LINE");
+  assert.equal(code("### Task 1: A\n- Modify: a.ts, b c.ts\n"), "PLAN_BAD_FILE_LINE");
+  assert.deepEqual(parsePlan("### Task 1: A\n- Modify: apps/api/src/app.ts\n").tasks[0].files, [{ op: "modify", path: "apps/api/src/app.ts" }]);
+});

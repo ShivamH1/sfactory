@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve, basename } from "node:path";
-import { fail } from "../errors.mjs";
+import { fail, SfactoryError } from "../errors.mjs";
 import { register } from "../registry.mjs";
 import { findRepoRoot, loadConfig } from "../config.mjs";
 import { parsePlan } from "../plan.mjs";
@@ -8,7 +8,7 @@ import { checkMilestones, taskBatches } from "../independence.mjs";
 
 function readPlan(io, file) {
   const path = resolve(io.cwd, file);
-  try { return parsePlan(readFileSync(path, "utf8")); } catch (e) { fail("PLAN_UNREADABLE", `${path}: ${e.message}`); }
+  try { return parsePlan(readFileSync(path, "utf8")); } catch (e) { if (e instanceof SfactoryError) throw e; fail("PLAN_UNREADABLE", `${path}: ${e.message}`); }
 }
 
 function tryConfig(io) {

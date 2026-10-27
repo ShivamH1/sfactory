@@ -4,10 +4,13 @@ const norm = (p) => p.trim().replace(/^`|`$/g, "").replace(/\\/g, "/").replace(/
 const id = (s) => (/^\d+$/.test(s) ? Number(s) : s.toLowerCase());
 const ID = "\\d+[a-z]?";
 
-function pathsOf(rest) {
+function pathsOf(rest, n) {
   const ticked = [...rest.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
-  const items = ticked.length ? ticked : rest.split(",");
-  return items.map(norm).filter(Boolean);
+  if (ticked.length) return ticked.map(norm).filter(Boolean);
+  return rest.split(",").map((x) => x.trim()).filter(Boolean).map((x) => {
+    if (!/^\S+$/.test(x)) fail("PLAN_BAD_FILE_LINE", `Task ${n}: cannot read file item "${x}" - wrap paths in backticks`);
+    return norm(x);
+  });
 }
 
 /**
@@ -17,15 +20,20 @@ function pathsOf(rest) {
 export function parsePlan(md) {
   const tasks = [];
   let cur = null;
-  let fenced = false;
+  let fence = null;   // { ch, len } while inside a fenced block
   const heading = new RegExp(`^#{2,3}\\s+Task\\s+(${ID})\\s*:\\s*(.+?)\\s*$`, "i");
   const after = new RegExp(`\\(after Task (${ID})\\)`, "i");
   const afterEnd = new RegExp(`\\s*\\(after Task (${ID})\\)\\s*$`, "i");
   const depends = /^\s*(?:-\s*)?\*{0,2}Depends on\s*\*{0,2}\s*:?\s*\*{0,2}\s*(.+)$/i;
   const fileLine = /^\s*[-*]\s*(Create|Modify|Test)\b\s*(:?)\s*(.+?)\s*$/i;
   for (const raw of String(md).split(/\r?\n/)) {
-    if (/^\s*```/.test(raw)) { fenced = !fenced; continue; }
-    if (fenced) continue;
+    if (fence) {
+      const c = raw.match(/^\s{0,3}(`{3,}|~{3,})\s*$/);
+      if (c && c[1][0] === fence.ch && c[1].length >= fence.len) fence = null;
+      continue;
+    }
+    const o = raw.match(/^\s{0,3}(`{3,}|~{3,})/);
+    if (o) { fence = { ch: o[1][0], len: o[1].length }; continue; }
     const h = raw.match(heading);
     if (h) {
       const n = id(h[1]);
@@ -37,12 +45,13 @@ export function parsePlan(md) {
     if (!cur) continue;
     const f = raw.match(fileLine);
     if (f && (f[2] === ":" || f[3].startsWith("`"))) {
-      for (const p of pathsOf(f[3])) cur.files.push({ op: f[1].toLowerCase(), path: p });
+      for (const p of pathsOf(f[3], cur.n)) cur.files.push({ op: f[1].toLowerCase(), path: p });
       continue;
     }
     const d = raw.match(depends);
     if (d) for (const m of d[1].matchAll(new RegExp(`\\b${ID}\\b`, "gi"))) { const n = id(m[0]); if (!cur.dependsOn.includes(n)) cur.dependsOn.push(n); }
   }
+  if (fence) fail("PLAN_UNCLOSED_FENCE", "a fenced code block is never closed; everything after it would be hidden");
   if (!tasks.length) fail("PLAN_NO_TASKS", "no '## Task N:' or '### Task N:' headings found");
   for (const t of tasks) if (!t.files.length) fail("PLAN_TASK_NO_FILES", `Task ${t.n} has no Files lines`);
   return { tasks };
