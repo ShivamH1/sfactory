@@ -104,3 +104,18 @@ test("suite cli: red command prints red (exit 1), returns 1, log lands under ver
   const files = readdirSync(join(jobDir(c, "m-1"), "verify"));
   assert.ok(files.some((f) => /^suite-.*\.log$/.test(f)));
 });
+
+test("suite: killTree ends the shell's child too (the command, not only the shell)", async () => {
+  const { spawn } = await import("node:child_process");
+  const { killTree } = await import("../src/suite.mjs");
+  const marker = join(tmpDir(), "survived.txt").replace(/\\/g, "/");
+  const p = spawn(`node -e "setTimeout(()=>require('fs').writeFileSync('${marker}','x'),4000)"`, { shell: true, stdio: ["ignore", "pipe", "pipe"] });
+  const closed = new Promise((res) => p.on("close", () => res(Date.now())));
+  await new Promise((res) => setTimeout(res, 500)); // let the grandchild start
+  const t0 = Date.now();
+  killTree(p);
+  const t1 = await Promise.race([closed, new Promise((res) => setTimeout(() => res(null), 2000))]);
+  assert.ok(t1 !== null && t1 - t0 < 2000, "close fired within 2 s");
+  await new Promise((res) => setTimeout(res, 4500));
+  assert.equal(existsSync(marker), false, "the grandchild was killed before it wrote its marker");
+});

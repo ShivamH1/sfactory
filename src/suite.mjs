@@ -3,12 +3,16 @@ import { createWriteStream, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { acquire } from "./lock.mjs";
 
-function killTree(p) {
+/**
+ * Kill the child and everything under it. On Windows the tree is killed first: once p.kill() has
+ * ended the shell, taskkill /T can no longer find its children and the real command runs on.
+ */
+export function killTree(p) {
   if (!p) return;
-  try { p.kill(); } catch { /* best effort */ }
   if (process.platform === "win32" && p.pid) {
     try { spawnSync("taskkill", ["/pid", String(p.pid), "/T", "/F"], { stdio: "ignore" }); } catch { /* best effort */ }
   }
+  try { p.kill(); } catch { /* best effort */ }
 }
 
 function spawnToLog(command, cwd, logPath) {
@@ -52,7 +56,7 @@ function spawnToLog(command, cwd, logPath) {
 }
 
 export async function runSuite(c, { cwd, jobId, logPath, command = c.commands.suite }) {
-  if (!c.commands.suiteSerial) return spawnToLog(command, cwd, logPath);
+  if (c.commands.suiteSerial === false) return spawnToLog(command, cwd, logPath);
   const lock = await acquire(c, "suite", { holder: jobId, waitMs: c.limits.suiteWaitMs, pollMs: 100 });
   try { return await spawnToLog(command, cwd, logPath); }
   finally {
