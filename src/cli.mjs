@@ -61,6 +61,7 @@ export async function main(argv, io = {}) {
 await Promise.all([
   import("./commands/commit.mjs"),
   import("./commands/cost.mjs"),
+  import("./commands/doctor.mjs"),
   import("./commands/independence.mjs"),
   import("./commands/job.mjs"),
   import("./commands/lock.mjs"),
