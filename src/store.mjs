@@ -15,7 +15,7 @@ export function jobDir(c, id) {
   return join(jobsDir(c), id);
 }
 function jobPath(c, id, rel) {
-  const base = jobDir(c, id);
+  const base = resolve(jobDir(c, id)); // resolve, as f is: a drive-less absolute stateDir gains its drive on Windows
   const f = resolve(base, rel);
   if (!f.startsWith(base + sep)) fail("BAD_PATH", `"${rel}" escapes the job folder`);
   return f;

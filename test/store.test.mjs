@@ -65,3 +65,13 @@ test("store: ids and relative paths are guarded", () => {
   assert.throws(() => readJobFile(c, "m-1", "../x.md"), (e) => e.code === "BAD_PATH");
   assert.throws(() => jobFileExists(c, "m-1", "../x.md"), (e) => e.code === "BAD_PATH");
 });
+
+test("store: a drive-less absolute stateDir (Windows) still reads and writes job files", () => {
+  const dir = tmpDir("sf-store-");
+  const c = { stateDir: /^[A-Za-z]:/.test(dir) ? dir.slice(2) : dir };
+  const f = writeJobFile(c, "m-1", "plan/approval.md", "ok\n");
+  assert.equal(readFileSync(f, "utf8"), "ok\n");
+  assert.equal(readJobFile(c, "m-1", "plan/approval.md"), "ok\n");
+  assert.equal(jobFileExists(c, "m-1", "plan/approval.md"), true);
+  assert.throws(() => writeJobFile(c, "m-1", "../escape.md", "x"), (e) => e.code === "BAD_PATH");
+});
