@@ -6,7 +6,11 @@ const ID = "\\d+[a-z]?";
 
 function pathsOf(rest, n) {
   const ticked = [...rest.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
-  if (ticked.length) return ticked.map(norm).filter(Boolean);
+  if (ticked.length) {
+    const rem = rest.replace(/`[^`]+`/g, "").replace(/,/g, "").replace(/\band\b/gi, "").replace(/\s+/g, "");
+    if (rem) fail("PLAN_BAD_FILE_LINE", `Task ${n}: unquoted text beside backticked paths: "${rem}" - wrap every path in backticks`);
+    return ticked.map(norm).filter(Boolean);
+  }
   return rest.split(",").map((x) => x.trim()).filter(Boolean).map((x) => {
     if (!/^\S+$/.test(x)) fail("PLAN_BAD_FILE_LINE", `Task ${n}: cannot read file item "${x}" - wrap paths in backticks`);
     return norm(x);
@@ -28,12 +32,12 @@ export function parsePlan(md) {
   const fileLine = /^\s*[-*]\s*(Create|Modify|Test)\b\s*(:?)\s*(.+?)\s*$/i;
   for (const raw of String(md).split(/\r?\n/)) {
     if (fence) {
-      const c = raw.match(/^\s{0,3}(`{3,}|~{3,})\s*$/);
+      const c = raw.match(/^ {0,3}(`{3,}|~{3,})\s*$/);
       if (c && c[1][0] === fence.ch && c[1].length >= fence.len) fence = null;
       continue;
     }
-    const o = raw.match(/^\s{0,3}(`{3,}|~{3,})/);
-    if (o) { fence = { ch: o[1][0], len: o[1].length }; continue; }
+    const o = raw.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (o && !(o[1][0] === "`" && o[2].includes("`"))) { fence = { ch: o[1][0], len: o[1].length }; continue; }
     const h = raw.match(heading);
     if (h) {
       const n = id(h[1]);

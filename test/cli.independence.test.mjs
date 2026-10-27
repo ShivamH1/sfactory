@@ -36,3 +36,12 @@ test("independence milestones: a plan with no tasks keeps its PLAN_NO_TASKS code
   assert.equal(r.code, 2);
   assert.match(r.err, /PLAN_NO_TASKS/);
 });
+
+test("independence milestones: a parse error names the plan file", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "sf-named-")));
+  spawnSync("git", ["init", "-q"], { cwd: dir });
+  writeFileSync(join(dir, "sfactory.config.json"), JSON.stringify({ project: "p", agents: { mode: "claude" }, commands: { suite: "x" } }));
+  writeFileSync(join(dir, "empty.md"), "# nothing\n");
+  const r = await run(["independence", "milestones", "empty.md", plans("a")], dir);
+  assert.match(r.err, /PLAN_NO_TASKS: empty\.md:/);
+});

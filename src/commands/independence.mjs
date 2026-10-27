@@ -8,7 +8,7 @@ import { checkMilestones, taskBatches } from "../independence.mjs";
 
 function readPlan(io, file) {
   const path = resolve(io.cwd, file);
-  try { return parsePlan(readFileSync(path, "utf8")); } catch (e) { if (e instanceof SfactoryError) throw e; fail("PLAN_UNREADABLE", `${path}: ${e.message}`); }
+  try { return parsePlan(readFileSync(path, "utf8")); } catch (e) { if (e instanceof SfactoryError) throw new SfactoryError(e.code, `${file}: ${e.message}`); fail("PLAN_UNREADABLE", `${path}: ${e.message}`); }
 }
 
 function tryConfig(io) {

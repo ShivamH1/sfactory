@@ -50,3 +50,15 @@ test("plan: a file item without backticks must be one token", () => {
   assert.equal(code("### Task 1: A\n- Modify: a.ts, b c.ts\n"), "PLAN_BAD_FILE_LINE");
   assert.deepEqual(parsePlan("### Task 1: A\n- Modify: apps/api/src/app.ts\n").tasks[0].files, [{ op: "modify", path: "apps/api/src/app.ts" }]);
 });
+
+test("plan: mixed Files lines refuse unquoted text", () => {
+  const one = (line) => "### Task 1: A\n" + line + "\n";
+  assert.equal(code(one("- Modify: `a.ts`, b.ts")), "PLAN_BAD_FILE_LINE");
+  assert.deepEqual(parsePlan(one("- Modify: `a.ts` and `b.ts`")).tasks[0].files.map((f) => f.path), ["a.ts", "b.ts"]);
+  assert.deepEqual(parsePlan(one("- Modify: `a.ts`, `b.ts`,")).tasks[0].files.map((f) => f.path), ["a.ts", "b.ts"]);
+});
+
+test("plan: fence openers - inline triple-backtick runs and tab indents are not fences", () => {
+  assert.deepEqual(names("### Task 1: A\n- Create: `a.ts`\n```x```\n" + tail), [1, 2]);
+  assert.deepEqual(names("### Task 1: A\n- Create: `a.ts`\n\t```\n" + tail), [1, 2]);
+});
