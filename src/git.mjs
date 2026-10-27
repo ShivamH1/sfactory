@@ -13,8 +13,8 @@ export const currentBranch = (cwd) => git(["branch", "--show-current"], { cwd })
 export const headOf = (cwd, ref) => git(["rev-parse", "--verify", `${ref}^{commit}`], { cwd });
 export const branchExists = (cwd, name) => spawnSync("git", ["show-ref", "--verify", "--quiet", `refs/heads/${name}`], { cwd }).status === 0;
 export function newestBranch(cwd, prefix) {
-  const out = git(["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", `refs/heads/${prefix}`], { cwd });
-  return out.split("\n").filter(Boolean)[0] ?? null;
+  const out = git(["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/heads/"], { cwd });
+  return out.split(/\r?\n/).filter(Boolean).find((n) => n.startsWith(prefix)) ?? null;
 }
 export function worktrees(cwd) {
   const out = git(["worktree", "list", "--porcelain"], { cwd });

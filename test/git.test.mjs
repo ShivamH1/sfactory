@@ -33,3 +33,15 @@ test("git: newestBranch by committer date, worktrees, branchContains", () => {
   assert.equal(branchContains(r, "feature/new", headOf(r, "feature/old")), true);
   assert.equal(branchContains(r, "feature/old", headOf(r, "feature/new")), false);
 });
+
+test("git: newestBranch works for a prefix without a trailing slash", () => {
+  const r = tmpRepo();
+  sh("git", ["checkout", "-q", "-b", "milestone-a"], r);
+  writeFileSync(join(r, "a.txt"), "a"); sh("git", ["add", "a.txt"], r);
+  sh("git", ["commit", "-q", "-m", "a", "--date", "2026-01-01T00:00:00Z"], r, { GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z" });
+  sh("git", ["checkout", "-q", "-b", "milestone-b"], r);
+  writeFileSync(join(r, "b.txt"), "b"); sh("git", ["add", "b.txt"], r);
+  sh("git", ["commit", "-q", "-m", "b"], r);
+  sh("git", ["checkout", "-q", "main"], r);
+  assert.equal(newestBranch(r, "milestone-"), "milestone-b");
+});

@@ -7,7 +7,7 @@ import { loadConfig } from "../src/config.mjs";
 import { newJob } from "../src/job.mjs";
 import { resolveBase, cut, remove } from "../src/worktree.mjs";
 import { status } from "../src/lock.mjs";
-import { worktrees } from "../src/git.mjs";
+import { worktrees, branchExists } from "../src/git.mjs";
 
 function setup(extra = {}) {
   const root = tmpRepo();
@@ -38,7 +38,7 @@ test("worktree: cut creates the worktree and branch, records base, runs afterCut
   assert.match(job.base.head, /^[0-9a-f]{40}$/);
   assert.equal(status(c, "worktree:feed-moderation").holder, "m-1");
   assert.ok(worktrees(root).some((w) => w.branch === "feature/feed-moderation"));
-  remove(c, job);
+  remove(c, job, { force: true }); // after.txt and .env are untracked
   assert.equal(existsSync(job.worktree), false);
   assert.equal(status(c, "worktree:feed-moderation").held, false);
 });
@@ -52,4 +52,41 @@ test("worktree: refuses the main checkout and a foreign lock", async () => {
   const l = await acquire(c2, "worktree:x", { holder: "someone-else" });
   assert.throws(() => cut(c2, newJob({ id: "m-2", kind: "milestone", title: "x" }), {}), (e) => e.code === "WORKTREE_LOCKED" && /someone-else/.test(e.message));
   l.release();
+});
+
+test("worktree: a failed afterCut rolls back worktree, branch and lock", () => {
+  const { root, c } = setup({ afterCut: ["node -e \"process.exit(3)\""] });
+  assert.throws(() => cut(c, newJob({ id: "m-1", kind: "milestone", title: "Rollback me" }), {}), (e) => e.code === "AFTER_CUT_FAILED");
+  assert.equal(existsSync(join(c.worktrees.dir, "rollback-me")), false);
+  assert.equal(branchExists(root, "feature/rollback-me"), false);
+  assert.equal(status(c, "worktree:rollback-me").held, false);
+});
+
+test("worktree: BASE_MOVED rolls back completely", () => {
+  const { root, c } = setup();
+  const afterAdd = () => { writeFileSync(join(root, "moved.txt"), "m"); sh("git", ["add", "moved.txt"], root); sh("git", ["commit", "-q", "-m", "move"], root); };
+  assert.throws(() => cut(c, newJob({ id: "m-1", kind: "milestone", title: "Moved" }), { afterAdd }), (e) => e.code === "BASE_MOVED");
+  assert.equal(existsSync(join(c.worktrees.dir, "moved")), false);
+  assert.equal(branchExists(root, "feature/moved"), false);
+  assert.equal(status(c, "worktree:moved").held, false);
+});
+
+test("worktree: remove refuses a dirty worktree unless forced", () => {
+  const { c } = setup();
+  const job = cut(c, newJob({ id: "m-1", kind: "milestone", title: "Dirty" }), {});
+  writeFileSync(join(job.worktree, "wip.txt"), "x");
+  assert.throws(() => remove(c, job), (e) => e.code === "DIRTY_WORKTREE");
+  assert.ok(existsSync(job.worktree));
+  const out = remove(c, job, { force: true });
+  assert.equal(existsSync(job.worktree), false);
+  assert.equal(out.worktree, null);
+  assert.equal(status(c, "worktree:dirty").held, false);
+});
+
+test("worktree: --slug is sanitised and an empty one refused", () => {
+  const { c } = setup();
+  const job = cut(c, newJob({ id: "m-1", kind: "milestone", title: "t" }), { slug: "My Slug!" });
+  assert.equal(job.slug, "my-slug");
+  remove(c, job);
+  assert.throws(() => cut(c, newJob({ id: "m-2", kind: "milestone", title: "t" }), { slug: "!!!" }), (e) => e.code === "BAD_ARGS");
 });
