@@ -6,12 +6,12 @@ import { fail } from "./errors.mjs";
 export function priceOf(prices, model, { inputTokens = 0, outputTokens = 0, cacheReadTokens = 0 }) {
   const p = prices?.[model];
   if (!p) return null;
-  return Math.round(((inputTokens * p.input + outputTokens * p.output + cacheReadTokens * (p.cacheRead ?? 0)) / 1e6) * 10000) / 10000;
+  return Math.round(((inputTokens * p.input + outputTokens * p.output + cacheReadTokens * (p.cacheRead ?? 0)) / 1e6) * 10000 + 1e-9) / 10000;
 }
 export function totalUsd(entries) {
   let usd = 0, unpriced = 0;
   for (const e of entries) if (e.usd == null) unpriced++; else usd += e.usd;
-  return { usd: Math.round(usd * 10000) / 10000, unpriced };
+  return { usd: Math.round(usd * 10000 + 1e-9) / 10000, unpriced };
 }
 export function readCost(c, id) {
   const t = readJobFile(c, id, "cost.json");

@@ -24,7 +24,7 @@ register("cost", async ({ positional: [verb, id], flags }, io) => {
     const cacheReadTokens = int(flags["cache-read"], "cache-read", false);
     let usd = null;
     if (flags.usd !== undefined) {
-      usd = typeof flags.usd === "string" && /^d+(.d+)?$/.test(flags.usd) ? Number(flags.usd) : NaN;
+      usd = typeof flags.usd === "string" && /^\d+(\.\d+)?$/.test(flags.usd) ? Number(flags.usd) : NaN;
       if (!Number.isFinite(usd) || usd < 0) fail("BAD_ARGS", "--usd must be a non-negative number");
     }
     const e = addCost(c, id, { stage: flags.stage, agent: flags.agent, model: flags.model, inputTokens, outputTokens, cacheReadTokens, usd });
