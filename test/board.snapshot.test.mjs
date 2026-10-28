@@ -85,3 +85,9 @@ test("snapshot: parallel proposal, stopped column, ports of live jobs", () => {
   assert.equal(s.board.pollMs, 1500);
   assert.equal(buildSnapshot({ stateDir: c.stateDir }, { now: NOW }).board.pollMs, 2000);
 });
+
+test("snapshot: demo is present only when asked for", () => {
+  const { c } = setup();
+  assert.equal("demo" in buildSnapshot(c, { now: NOW }), false);
+  assert.equal(buildSnapshot(c, { now: NOW, demo: true }).demo, true);
+});

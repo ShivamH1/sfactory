@@ -46,7 +46,6 @@ function lockView(c, name) {
 }
 
 export function buildSnapshot(c, { now = new Date().toISOString(), demo = false } = {}) {
-  void demo;
   const jobs = listJobs(c).map((j) => {
     const cost = readCost(c, j.id).total ?? { usd: 0, unpriced: 0 };
     return {
@@ -70,5 +69,6 @@ export function buildSnapshot(c, { now = new Date().toISOString(), demo = false 
     jobs,
     locks: { live: lockView(c, "live"), suite: lockView(c, "suite"), commit: lockView(c, "commit") },
     ports: jobs.filter((j) => j.ports && j.stage !== "merged").map((j) => ({ id: j.id, ports: j.ports })),
+    ...(demo ? { demo: true } : {}),
   };
 }
