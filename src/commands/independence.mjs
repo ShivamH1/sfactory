@@ -28,11 +28,7 @@ register("independence", async ({ positional, flags }, io) => {
     return r.ok ? 0 : 1;
   }
   if (sub === "tasks") {
-    // "--allow-undeclared <plan>": the generic parser hands the plan to the
-    // flag as its value; a value other than true/false is the positional.
-    let allow = flags["allow-undeclared"];
-    if (typeof allow === "string" && !/^(true|false)$/.test(allow)) { args.unshift(allow); allow = true; }
-    allow = allow === true || allow === "true";
+    const allow = flags["allow-undeclared"] === true;
     if (args.length !== 1) fail("BAD_ARGS", "usage: sfactory independence tasks <plan> [--max n] [--allow-undeclared]");
     const config = tryConfig(io);
     let max = flags.max != null ? Number(flags.max) : config?.limits.parallelTasks ?? 4;

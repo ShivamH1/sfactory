@@ -49,6 +49,11 @@ export const migrationsDirOf = (c) => (c?.migrations?.dir ? toRel(c, c.migration
  * database). A plan whose `dependencyInfo` is not "declared" - no task says
  * what it waits for - runs one task per batch in plan order unless
  * `allowUndeclared`: absent dependencies are not proof of independence.
+ *
+ * A file a task shares with an earlier task (plan order) is an implicit
+ * ordering edge: the later task waits for the earlier one. The edge is left
+ * out only when the earlier task already waits, by the edges so far, for the
+ * later one (an explicit forward "Depends on"), so it never makes a cycle.
  */
 export function taskBatches(plan, max = 4, { allowUndeclared = false, migrationsDir = null } = {}) {
   if (!Number.isInteger(max) || max < 1) fail("BAD_ARGS", "max must be an integer >= 1");
@@ -58,21 +63,32 @@ export function taskBatches(plan, max = 4, { allowUndeclared = false, migrations
   if (!declared && !allowUndeclared) return plan.tasks.map((t) => [t.n]);
   const mig = migrationsDir ? norm(migrationsDir) : null;
   const migrates = (t) => !!mig && touched(t).some((f) => overlaps(norm(f.path), mig));
+  const shares = (a, b) => touched(a).some((f) => touched(b).some((g) => overlaps(norm(f.path), norm(g.path))));
+  const waits = new Map(plan.tasks.map((t) => [t.n, [...t.dependsOn]]));
+  const reaches = (from, to) => {
+    const seen = new Set(), stack = [from];
+    while (stack.length) { const n = stack.pop(); if (n === to) return true; if (!seen.has(n)) { seen.add(n); stack.push(...waits.get(n)); } }
+    return false;
+  };
+  plan.tasks.forEach((t, k) => {
+    for (const u of plan.tasks.slice(0, k)) if (shares(u, t) && !reaches(u.n, t.n) && !waits.get(t.n).includes(u.n)) waits.get(t.n).push(u.n);
+  });
   const order = [];
   const done = new Set();
   while (order.length < plan.tasks.length) {
-    const next = plan.tasks.find((t) => !done.has(t.n) && t.dependsOn.every((d) => done.has(d)));
+    const next = plan.tasks.find((t) => !done.has(t.n) && waits.get(t.n).every((d) => done.has(d)));
     if (!next) fail("PLAN_DEPENDENCY_CYCLE", `dependency cycle among Tasks ${plan.tasks.filter((t) => !done.has(t.n)).map((t) => t.n).join(", ")}`);
     done.add(next.n); order.push(next);
   }
   const batches = [];
   const placed = new Map();   // n -> batch index
   for (const t of order) {
-    let i = t.dependsOn.length ? Math.max(...t.dependsOn.map((d) => placed.get(d))) + 1 : 0;
+    const w = waits.get(t.n);
+    let i = w.length ? Math.max(...w.map((d) => placed.get(d))) + 1 : 0;
     for (; ; i++) {
       if (!batches[i]) batches[i] = [];
       const b = batches[i];
-      const disjoint = b.every((n) => !touched(byN.get(n)).some((f) => touched(t).some((g) => overlaps(norm(f.path), norm(g.path)))));
+      const disjoint = b.every((n) => !shares(byN.get(n), t));
       const oneMigration = !migrates(t) || !b.some((n) => migrates(byN.get(n)));
       if (b.length < max && disjoint && oneMigration) { b.push(t.n); placed.set(t.n, i); break; }
     }

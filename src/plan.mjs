@@ -144,11 +144,21 @@ function idsIn(text) {
 /**
  * Task ids a Consumes line names: "Task 2", "Task 2's", "(Task 2)", "Tasks 3–9",
  * "Tasks 5, 6 and 7's", "Task 3/4's". A task a milestone names ("M44 Task 6",
- * "M44's Task 2") is another plan's and is skipped; so is a bare "T17".
+ * "M44's Task 2") is another plan's and is skipped; so is a bare "T17". After
+ * the first id, a further list item is at most three digits and must be
+ * followed by the list going on or ending, so "Task 1, 3 days later" and
+ * "Task 1, 2026-10-07 ruling" name Task 1 only.
  */
 const ONE = "\\d+[a-z]?(?!\\w|\\.\\d)";
-const TASK_REFS = new RegExp(`(\\bM\\d+(?:\\.\\d+)?(?:['\\u2019]s)?\\s+)?\\bTasks?\\s+(${ONE}(?:\\s*(?:,|&|/|\\band\\b|\\bor\\b|\\bto\\b|[-\\u2013\\u2014])\\s*${ONE})*)`, "gi");
+const NEXT = "\\d{1,3}[a-z]?(?!\\w|\\.\\d)(?=\\s*(?:$|[,;:.)\\]&/]|['\\u2019]s\\b|\\band\\b|\\bor\\b|\\bto\\b|[-\\u2013\\u2014]\\s*\\d))";
+const RANGE_END = "\\s*(?:\\bto\\b|[-\\u2013\\u2014])\\s*\\d{1,3}[a-z]?(?!\\w|\\.\\d)";
+const LIST_ITEM = `\\s*(?:,|&|/|\\band\\b|\\bor\\b)\\s*${NEXT}`;
+const TASK_REFS = new RegExp(`(\\bM\\d+(?:\\.\\d+)?(?:['\\u2019]s)?\\s+)?\\bTasks?\\s+(${ONE}(?:${RANGE_END}|${LIST_ITEM})*)`, "gi");
 const taskRefs = (text) => [...text.matchAll(TASK_REFS)].filter((m) => !m[1]).flatMap((m) => idsIn(m[2]));
+
+/** Plan order of two task ids: by number, then letter ("6" < "6a" < "7"). */
+const rank = (n) => { const m = String(n).match(/^(\d+)([a-z]?)$/); return m ? [Number(m[1]), m[2]] : [Infinity, ""]; };
+const earlier = (a, b) => { const [x, s] = rank(a), [y, t] = rank(b); return x < y || (x === y && s < t); };
 
 /**
  * Strict plan reader. Fails closed: a plan with no tasks, a task that names a
@@ -191,7 +201,9 @@ export function parsePlan(md) {
   const label = /^\s*(?:[-*]\s+)?\*\*Files\s*:?\s*\*\*\s*:?\s*(.*?)\s*$/i;
   const note = (line) => { if (cur && !mentions.has(cur)) { const p = tickedPaths(line)[0]; if (p) mentions.set(cur, p); } };
   const depend = (ns) => { for (const n of ns) if (!cur.dependsOn.includes(n)) cur.dependsOn.push(n); };
-  const consume = (text) => { const ns = taskRefs(text).filter((n) => n !== cur.n); if (ns.length) depInfo = true; depend(ns); };
+  // A Consumes line names only earlier tasks; a later one is prose ("Task 4 uses
+  // it"). Depends on lines stay literal.
+  const consume = (text) => { const ns = taskRefs(text).filter((n) => earlier(n, cur.n)); if (ns.length) depInfo = true; depend(ns); };
   /** Record a Files line's items under `op`; a read with prose beside its items becomes touch. */
   const record = (op, r, text) => {
     const o = op === "read" && r.prose ? "touch" : op;
@@ -251,7 +263,8 @@ export function parsePlan(md) {
     if (c) { consume(c[1] + " " + c[2]); note(raw); cont = null; consumes = true; continue; }
     const f = fileLine(raw);
     if (f) { consumes = false; add(f.op, f.rest, where(), { plain: f.plain }); continue; }
-    if (consumes && /^\s+\S/.test(raw)) { consume(raw); note(raw); continue; }
+    // A Files label ends a Consumes line; it is never its continuation (C1).
+    if (consumes && /^\s+\S/.test(raw) && !label.test(raw)) { consume(raw); note(raw); continue; }
     consumes = false;
     if (cont && raw.trim() && !/^\s*#/.test(raw) && (/^\s/.test(raw) || cont.comma)) {
       const text = raw.trim().replace(/^[-*]\s+/, "");

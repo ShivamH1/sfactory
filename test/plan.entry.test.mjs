@@ -144,3 +144,35 @@ test("acceptance script: prints the table and a summary line", () => {
   assert.match(a.text, /2 plans: 1 parse \/ 1 fail \(1 PLAN_NO_TASKS\)\n$/);
   assert.equal(spawnSync(process.execPath, [script], { encoding: "utf8" }).status, 2);
 });
+
+// Fix round 1 (review of 6126b68).
+
+test("fix C1: a Files label after a Consumes line is a Files line, not a Consumes continuation", () => {
+  const md = "### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Create: `b.ts`\n- Consumes: Task 1\n  **Files:** `secret.ts`\n";
+  assert.deepEqual(files(md, 1), ["create b.ts", "touch secret.ts"]);
+  assert.deepEqual(deps(md, 1), [1]);
+  // A label alone opens a Files list that is read as before.
+  assert.deepEqual(files("### Task 1: A\n- Consumes: nothing,\n  **Files:**\n- Create: `c.ts`\n"), ["create c.ts"]);
+});
+
+test("fix I1: a Consumes line keeps only earlier tasks; Depends on stays literal", () => {
+  const p = "### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Create: `b.ts`\n### Task 3: C\n";
+  const t4 = "### Task 4: D\n- Create: `d.ts`\n";
+  assert.deepEqual(deps(p + "- Consumes: `f` (Task 4 uses it), Task 2's `g`\n- Create: `c.ts`\n" + t4, 2), [2]);
+  assert.deepEqual(deps(p + "- Consumes: nothing. (Task 4's classifier validates it.)\n- Create: `c.ts`\n" + t4, 2), []);
+  assert.deepEqual(deps(p + "**Depends on:** Task 4\n- Create: `c.ts`\n" + t4, 2), [4]);
+  // Letter ids order by number, then letter.
+  const l = "### Task 6: A\n- Create: `a.ts`\n### Task 6a: B\n- Consumes: Task 6, Task 7\n- Create: `b.ts`\n### Task 7: C\n- Create: `c.ts`\n";
+  assert.deepEqual(deps(l, 1), [6]);
+});
+
+test("fix m2: numbers after a task list that are not task refs are not dependencies", () => {
+  const p = "### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Create: `b.ts`\n### Task 3: C\n- Create: `c.ts`\n### Task 9: D\n- Create: `d.ts`\n";
+  const d = (line) => deps(p + line + "\n", 3);
+  assert.deepEqual(d("- Consumes: Task 1, 2026-10-07 ruling"), [1]);
+  assert.deepEqual(d("- Consumes: Task 1, 3 days later"), [1]);
+  assert.deepEqual(d("- Consumes: Task 1 and 2 more helpers"), [1]);
+  assert.deepEqual(d("- Consumes: Tasks 1, 2 and 3's services"), [1, 2, 3]);
+  assert.deepEqual(d("- Consumes: Tasks 1–3."), [1, 2, 3]);
+  assert.deepEqual(d("- Consumes: (Tasks 1, 3)"), [1, 3]);
+});

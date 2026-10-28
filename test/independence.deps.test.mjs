@@ -74,3 +74,18 @@ test("independence tasks: sequential for an undeclared plan unless --allow-undec
   assert.equal(r.out, "[[1],[2]]\n");
   assert.equal(r.err, "");
 });
+
+// Fix round 1 (review of 6126b68): a file shared with an earlier task is an ordering edge.
+
+test("fix I2: a task never runs before an earlier task it shares a file with", () => {
+  // The coordinator's shape: T3 lands after T1's batch.
+  const a = parsePlan("### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Consumes: Task 1\n- Create: `b.ts`\n### Task 3: C\n- Modify: `a.ts`\n");
+  const ba = taskBatches(a, 4);
+  assert.ok(ba.findIndex((b) => b.includes(3)) > ba.findIndex((b) => b.includes(1)), JSON.stringify(ba));
+  // The reference plans' shape (08-ledger): the earlier task waits on a dependency, the later one does not.
+  const b = parsePlan("### Task 1: A\n- Create: `x.ts`\n### Task 2: B\n- Consumes: Task 1\n- Create: `a.ts`\n### Task 3: C\n- Modify: `a.ts`\n");
+  assert.deepEqual(taskBatches(b, 4), [[1], [2], [3]]);
+  // An explicit forward Depends on wins over plan order, without a cycle.
+  const c = parsePlan("### Task 1: A\n- Modify: `a.ts`\n**Depends on:** Task 2\n### Task 2: B\n- Create: `a.ts`\n");
+  assert.deepEqual(taskBatches(c, 4), [[2], [1]]);
+});
