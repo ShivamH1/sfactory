@@ -90,6 +90,7 @@ export function jobView(c, j, now = new Date().toISOString()) {
     files,
     needsYou: needsYou(c, j),
     prText: readJobFile(c, j.id, "pr.md"),
+    ...(j.activity?.note ? { activity: { at: j.activity.at ?? null, note: String(j.activity.note).slice(0, 200) } } : {}),
     ...(active ? { active: true } : {}),
     ...(reviews.length ? { reviews } : {}),
   };

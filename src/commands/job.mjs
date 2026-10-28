@@ -18,6 +18,7 @@ const sub = {
   resume: (p) => ({ id: p[0] }),
   merged: (p) => ({ id: p[0] }),
   rework: (p, f) => ({ id: p[0], notes: f.notes }),
+  touch: (p, f) => ({ id: p[0], note: str(f.note) }),
   show: (p) => ({ id: p[0] }),
   list: () => ({}),
 };

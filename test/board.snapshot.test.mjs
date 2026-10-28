@@ -152,3 +152,17 @@ test("snapshot: a demo snapshot measures elapsed against the latest stamp in its
   assert.equal(s.generatedAt, "2026-10-27T10:30:00.000Z");
   assert.equal(s.jobs[0].elapsedMs, 30 * 60 * 1000);
 });
+
+test("snapshot: a touch makes a working card pulse and carries its note (at and note only)", async () => {
+  const { c } = setup();
+  const { actions } = await import("../src/job-actions.mjs");
+  const a = addJob(c, "fix", "Touched", { now: T0 });
+  actions.set(c, { id: a.id, to: "planning" });
+  actions.set(c, { id: a.id, to: "building" });
+  actions.touch(c, { id: a.id, note: "reading the brief", by: "secret-agent" });
+  const j = buildSnapshot(c).jobs.find((x) => x.id === a.id);
+  assert.equal(j.active, true);
+  assert.deepEqual(Object.keys(j.activity).sort(), ["at", "note"]);
+  assert.equal(j.activity.note, "reading the brief");
+  assert.equal(JSON.stringify(j).includes("secret-agent"), false);
+});

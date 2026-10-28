@@ -167,3 +167,19 @@ test("actions: set applies the config's fix-round cap (moved here from commands/
   assert.equal(readJob(c, "f-1").stage, "reviewing");
   unheld(c, "f-1");
 });
+
+test("actions: touch stamps updated and activity, changes no stage or history, validates the note", () => {
+  const c = cfg();
+  actions.add(c, { kind: "fix", title: "F" });
+  actions.set(c, { id: "f-1", to: "planning" });
+  const before = readJob(c, "f-1");
+  const j = actions.touch(c, { id: "f-1", note: "writing the plan", by: "claude" });
+  assert.equal(j.stage, before.stage);
+  assert.equal(j.history.length, before.history.length);
+  assert.equal(j.activity.note, "writing the plan"); assert.equal(j.activity.by, "claude");
+  assert.ok(Date.parse(j.updated) >= Date.parse(before.updated));
+  assert.equal(actions.touch(c, { id: "f-1" }).activity.note, undefined);
+  throwsCode(() => actions.touch(c, { id: "f-1", note: "x".repeat(201) }), "BAD_ARGS");
+  throwsCode(() => actions.touch(c, { id: "f-1", note: 5 }), "BAD_ARGS");
+  unheld(c, "f-1");
+});

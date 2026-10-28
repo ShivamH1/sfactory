@@ -96,6 +96,14 @@ Write the answer to decisions/${k}-answer.md, then run: sfactory job answer ${jo
       return writeJob(c, next);
     });
   },
+  touch(c, { id, note, by = "session" }) {
+    return locked(c, id, (job) => {
+      if (note !== undefined && (typeof note !== "string" || note.length > 200)) fail("BAD_ARGS", "the note must be text of at most 200 characters");
+      const next = structuredClone(job);
+      next.activity = { at: new Date().toISOString(), ...(note ? { note } : {}), by };
+      return writeJob(c, next);
+    });
+  },
   show(c, { id }) { return readJob(c, id); },
   list(c) { return listJobs(c); },
 };
