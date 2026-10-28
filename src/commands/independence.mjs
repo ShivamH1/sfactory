@@ -34,7 +34,7 @@ register("independence", async ({ positional, flags }, io) => {
     let max = flags.max != null ? Number(flags.max) : config?.limits.parallelTasks ?? 4;
     if (!Number.isInteger(max) || max < 1) fail("BAD_ARGS", "--max must be a positive integer");
     const plan = readPlan(io, args[0]);
-    if (plan.dependencyInfo !== "declared" && !allow) io.stderr(`${args[0]}: no dependency information (no Depends on, Consumes or "after Task N"): one task per batch; --allow-undeclared batches by files alone\n`);
+    if (plan.dependencyInfo !== "declared" && !allow) io.stderr(`${args[0]}: no explicit "Depends on" line: one task per batch, in dependency order; --allow-undeclared batches by files and the Consumes / "after Task N" edges\n`);
     io.stdout(JSON.stringify(taskBatches(plan, max, { allowUndeclared: allow, migrationsDir: migrationsDirOf(config) })) + "\n");
     return 0;
   }

@@ -46,9 +46,11 @@ export const migrationsDirOf = (c) => (c?.migrations?.dir ? toRel(c, c.migration
  * Greedy batches in dependency order (Kahn, ties by plan order); a batch holds
  * tasks with overlap-free files, at most `max`, and at most one task that adds
  * or changes anything under `migrationsDir` (one applied list on a shared
- * database). A plan whose `dependencyInfo` is not "declared" - no task says
- * what it waits for - runs one task per batch in plan order unless
- * `allowUndeclared`: absent dependencies are not proof of independence.
+ * database). A plan whose `dependencyInfo` is not "declared" - no explicit
+ * "Depends on" line; edges read from Consumes or "after Task N" do not count
+ * (S1) - runs one task per batch, in dependency order, unless
+ * `allowUndeclared`: inferred or absent dependencies are not proof of
+ * independence.
  *
  * A file a task shares with an earlier task (plan order) is an implicit
  * ordering edge: the later task waits for the earlier one. The edge is left
@@ -61,8 +63,6 @@ export function taskBatches(plan, max = 4, { allowUndeclared = false, migrations
   if (!Number.isInteger(max) || max < 1) fail("BAD_ARGS", "max must be an integer >= 1");
   const byN = new Map(plan.tasks.map((t) => [t.n, t]));
   for (const t of plan.tasks) for (const d of t.dependsOn) if (!byN.has(d)) fail("PLAN_BAD_DEPENDENCY", `Task ${t.n} depends on Task ${d} which does not exist`);
-  const declared = plan.dependencyInfo === "declared" || plan.tasks.some((t) => t.dependsOn.length);
-  if (!declared && !allowUndeclared) return plan.tasks.map((t) => [t.n]);
   const mig = migrationsDir ? norm(migrationsDir) : null;
   const migrates = (t) => !!mig && touched(t).some((f) => overlaps(norm(f.path), mig));
   const shares = (a, b) => touched(a).some((f) => touched(b).some((g) => overlaps(norm(f.path), norm(g.path))));
@@ -82,6 +82,7 @@ export function taskBatches(plan, max = 4, { allowUndeclared = false, migrations
     if (!next) fail("PLAN_DEPENDENCY_CYCLE", `dependency cycle among Tasks ${plan.tasks.filter((t) => !done.has(t.n)).map((t) => t.n).join(", ")}`);
     done.add(next.n); order.push(next);
   }
+  if (plan.dependencyInfo !== "declared" && !allowUndeclared) return order.map((t) => [t.n]);
   const batches = [];
   const placed = new Map();   // n -> batch index
   for (const t of order) {

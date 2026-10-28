@@ -129,8 +129,8 @@ function fileLine(raw) {
   return null;
 }
 
-/** Ids in a text; a numeric range ("2-4", "2–4", "2 to 4") stands for every id in it. */
-const RANGE = new RegExp(`\\b(${ID})\\b(?:\\s*(?:\\bto\\b|[-\\u2013\\u2014])\\s*(${ID})\\b)?`, "gi");
+/** Ids in a text; a numeric range ("2-4", "2–4", "2 to 4", "2 through 4", "2..4") stands for every id in it. */
+const RANGE = new RegExp(`\\b(${ID})\\b(?:\\s*(?:\\bto\\b|\\bthrough\\b|\\bthru\\b|\\.\\.|[-\\u2013\\u2014])\\s*(${ID})\\b)?`, "gi");
 function idsIn(text) {
   const out = [];
   for (const m of text.matchAll(RANGE)) {
@@ -174,9 +174,14 @@ const MID_LABEL = /\*\*Files(?:\s*\([^)]*\))?\s*:?\s*\*\*\s*:?/i;
  * write and records its items as `touch` instead (N2).
  *
  * Dependencies come from "Depends on" lines, "(after Task N)" in a title, and
- * Consumes lines naming "Task N". `dependencyInfo` is "declared" when any task
- * has a dependency source (a Depends on line naming a task or "none", a title's
- * "after", a Consumes line naming a task of this plan), else "none".
+ * Consumes lines naming earlier tasks; a dependency line outside any task is an
+ * error. `dependencyInfo` is "declared" only when some task carries an explicit
+ * Depends on line (naming a task or "none"), else "none" (S1): edges read from
+ * prose order tasks but never on their own prove they may run in parallel.
+ *
+ * A Files list survives blank lines while the next non-blank line is a list
+ * item (not a "[ ]" step) or an indented line (S4); right after a Files line,
+ * an unindented line opening with a backticked item continues it (S5).
  */
 export function parsePlan(md) {
   const tasks = [];
@@ -195,7 +200,9 @@ export function parsePlan(md) {
   const heading = new RegExp(`^ {0,3}#{2,3}\\s+Task\\s+(${ID})\\s*:\\s*(.+?)\\s*$`, "i");
   const after = new RegExp(`\\(after Task (${ID})\\)`, "i");
   const afterEnd = new RegExp(`\\s*\\(after Task (${ID})\\)\\s*$`, "i");
-  const depends = new RegExp(`^\\s*(?:${BULLET}\\s*)?\\*{0,2}Depends on\\s*\\*{0,2}\\s*:?\\s*\\*{0,2}\\s*(.+)$`, "i");
+  // A label, not prose: "Depends on:" / "**Depends on:**" / "**Depends on**" (a
+  // wrapped "depends on it." is prose and must never declare a plan, S1).
+  const depends = new RegExp(`^\\s*(?:${BULLET}\\s*)?(?:\\*\\*Depends on\\s*(?::\\s*\\*\\*|\\*\\*\\s*:?)|Depends on\\s*:)\\s*(.+)$`, "i");
   const consumesLine = new RegExp(`^\\s*(?:${BULLET}\\s+)?\\*{0,2}Consumes\\b([^:]*):(.*)$`, "i");
   // "**Files:**", "**Files**:", "**Files (anything):**", or a plain "Files:" (R2-5).
   const label = new RegExp(`^\\s*(?:${BULLET}\\s+)?(?:\\*\\*Files(?:\\s*\\([^)]*\\))?\\s*:?\\s*\\*\\*\\s*:?|Files(?:\\s*\\([^)]*\\))?\\s*:)\\s*(.*?)\\s*$`, "i");
@@ -203,12 +210,21 @@ export function parsePlan(md) {
   const note = (line) => { if (cur && !mentions.has(cur)) { const p = tickedPaths(line)[0]; if (p) mentions.set(cur, p); } };
   const depend = (ns) => { for (const n of ns) if (!cur.dependsOn.includes(n)) cur.dependsOn.push(n); };
   // A Consumes line names only tasks earlier in the plan (R2-2), and every
-  // number naming one counts (R2-1). Depends on lines stay literal.
+  // number naming one counts (R2-1), "T5" and "Task2" included (S2). Its edges
+  // order tasks but never declare the plan (S1). Depends on lines stay literal.
   const consume = (text) => {
     const before = new Set(tasks.slice(0, -1).map((t) => t.n));   // cur is the last task pushed
-    const ns = idsIn(text.replace(ISO_DATE, " ")).filter((n) => before.has(n));
-    if (ns.length) depInfo = true;
-    depend(ns);
+    const t = text.replace(ISO_DATE, " ").replace(/\bT(?=\d)/g, " ").replace(/\b(Tasks?)(?=\d)/gi, "$1 ");
+    depend(idsIn(t).filter((n) => before.has(n)));
+  };
+  const STEP = new RegExp(`^\\s*${BULLET}\\s+\\[[ xX]\\]`);   // a "- [ ]" step, never a Files item
+  /** After a blank line, does the next non-blank line carry a Files list on (S4)? */
+  const listGoesOn = (i) => {
+    let j = i + 1;
+    while (j < lines.length && !lines[j].trim()) j++;
+    if (j >= lines.length) return false;
+    const nx = lines[j];
+    return !STEP.test(nx) && (BULLET_RE.test(nx) || /^\s+\S/.test(nx));
   };
   /** A dependency line's text and the rest after a mid-line Files label, or null. */
   const splitLabel = (s) => { const m = s.match(MID_LABEL); return m ? [s.slice(0, m.index), s.slice(m.index + m[0].length).trim()] : [s, null]; };
@@ -250,7 +266,7 @@ export function parsePlan(md) {
       if (tasks.some((t) => t.n === n)) fail("PLAN_DUPLICATE_TASK", `Task ${h[1]} appears more than once`);
       cur = { n, title: h[2].replace(afterEnd, "").trim(), files: [], dependsOn: [] };
       level = raw.trim().match(/^#+/)[0].length;
-      const a = h[2].match(after); if (a) { cur.dependsOn.push(id(a[1])); depInfo = true; }
+      const a = h[2].match(after); if (a) cur.dependsOn.push(id(a[1]));
       tasks.push(cur); note(h[2]); cont = null; consumes = false; continue;
     }
     // A heading at the task's level or above ("## Self-review") ends its section.
@@ -259,6 +275,8 @@ export function parsePlan(md) {
     if (!cur) {
       // N1: a Files line with no open task would be silently dropped.
       if (fileLine(raw) || label.test(raw)) fail("PLAN_FILES_OUTSIDE_TASK", `line ${i + 1}: a Files line outside any task ("${raw.trim()}") - put it under its task's heading`);
+      // S3: so is a dependency line.
+      if (depends.test(raw) || consumesLine.test(raw)) fail("PLAN_DEPS_OUTSIDE_TASK", `line ${i + 1}: a dependency line outside any task ("${raw.trim()}") - put it under its task's heading`);
       continue;
     }
     // Dependency lines come before the continuation branch, so a Files line
@@ -288,8 +306,16 @@ export function parsePlan(md) {
     let both = false;
     if (consumes && /^\s+\S/.test(raw) && !label.test(raw)) { consume(raw); note(raw); if (!cont) continue; both = true; }
     if (!both) consumes = false;
-    const bare = cont?.label && !/^\s/.test(raw) && !cont.comma && BULLET_RE.test(raw);
-    if (cont && raw.trim() && !/^\s*#/.test(raw) && !label.test(raw) && (/^\s/.test(raw) || cont.comma || bare)) {
+    if (!raw.trim()) {
+      if (cont && listGoesOn(i)) { cont.afterBlank = true; continue; }
+      cont = null; continue;
+    }
+    // A trailing comma and a lazy line (S5) carry a Files line on only when no blank line came between.
+    const commaCont = !!cont?.comma && !cont.afterBlank;
+    const lazy = !!cont && !cont.afterBlank && raw.startsWith("`");
+    const bare = !!cont?.label && !/^\s/.test(raw) && !commaCont && BULLET_RE.test(raw) && !STEP.test(raw);
+    if (cont && !/^\s*#/.test(raw) && !label.test(raw) && (/^\s/.test(raw) || commaCont || bare || lazy)) {
+      cont.afterBlank = false;
       const text = raw.trim().replace(BULLET_RE, "");
       // In a nested item list under a bare "- Op:" or label, an item that opens its bullet is the op's object.
       const item = (!!cont.list || bare) && itemBullet.test(raw);

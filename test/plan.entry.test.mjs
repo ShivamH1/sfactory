@@ -124,13 +124,17 @@ test("deps: a Consumes line after a trailing comma is not swallowed as a continu
   assert.deepEqual(files(md, 1), ["modify b.ts"]);
 });
 
-test("deps: dependencyInfo is declared when any task has a dependency source, else none", () => {
+test("deps: dependencyInfo is declared only by an explicit Depends on line, else none", () => {
   const info = (md) => parsePlan(md).dependencyInfo;
   assert.equal(info("### Task 1: A\n- Create: `a.ts`\n" + tail), "none");
   assert.equal(info("### Task 1: A\n- Create: `a.ts`\n- Consumes: nothing.\n" + tail), "none");
-  assert.equal(info("### Task 1: A\n- Create: `a.ts`\n### Task 2: B (after Task 1)\n- Create: `b.ts`\n"), "declared");
-  assert.equal(info("### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Consumes: Task 1\n- Create: `b.ts`\n"), "declared");
+  // Fix round 3 (S1, structural ruling) changed these two expectations: Consumes
+  // and "(after Task N)" still add ordering edges, but prose-derived edges are
+  // not proof of independence, so they never on their own declare a plan.
+  assert.equal(info("### Task 1: A\n- Create: `a.ts`\n### Task 2: B (after Task 1)\n- Create: `b.ts`\n"), "none");
+  assert.equal(info("### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Consumes: Task 1\n- Create: `b.ts`\n"), "none");
   assert.equal(info("### Task 1: A\n- Create: `a.ts`\n**Depends on:** none\n" + tail), "declared");
+  assert.equal(info("### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Depends on: Task 1\n- Create: `b.ts`\n"), "declared");
   assert.deepEqual(deps("### Task 1: A\n- Create: `a.ts`\n### Task 2: B (after Task 1)\n- Create: `b.ts`\n- Consumes: Task 1\n", 1), [1]);
 });
 
@@ -229,7 +233,8 @@ test("fix R2-4: an empty **Files:** label opens a list", () => {
   assert.deepEqual(files(p + "**Files:**\n  `secret.ts`\n"), ["create a.ts", "touch secret.ts"]);
   // A bare item after an op line in a label's list is a file too.
   assert.deepEqual(files("### Task 1: A\n**Files:**\n- Create: `a.ts`\n- `secret.ts`\n"), ["create a.ts", "touch secret.ts"]);
-  // The list ends at a blank line.
+  // Fix round 3 (S4) changed this case: the list no longer ends at a blank line
+  // followed by a list item; "- step one" names no path, so it adds no file.
   assert.deepEqual(files(p + "**Files:**\n- `b.ts`\n\n- step one\n"), ["create a.ts", "touch b.ts"]);
 });
 
@@ -248,4 +253,59 @@ test("fix R2-5: more Files line forms, and an indented task heading", () => {
   // Outside a task these forms are refused like the others.
   assert.equal(code("1. Create: `x.ts`\n### Task 1: A\n- Create: `a.ts`\n"), "PLAN_FILES_OUTSIDE_TASK");
   assert.equal(code("### Task 1: A\n- Create: `a.ts`\n## Notes\nFiles: `x.ts`\n"), "PLAN_FILES_OUTSIDE_TASK");
+});
+
+// Fix round 3 (structural ruling and the remaining Files holes).
+
+const five = four + "### Task 5: E\n";
+
+test("fix S2: Consumes reads T-refs, Task2 with no space, and through / .. ranges", () => {
+  const d = (line) => deps(five + line + "\n- Create: `e.ts`\n", 4);
+  assert.deepEqual(d("- Consumes: `x` (T1), `y` (T2)"), [1, 2]);
+  assert.deepEqual(d("- Consumes: T3's helper"), [3]);
+  assert.deepEqual(d("- Consumes: Task2's `z`"), [2]);
+  assert.deepEqual(d("- Consumes: Tasks 1 through 3"), [1, 2, 3]);
+  assert.deepEqual(d("- Consumes: Tasks 1..3"), [1, 2, 3]);
+  // A T-ref to no earlier task is prose.
+  assert.deepEqual(d("- Consumes: T17's helper"), []);
+});
+
+test("fix S3: a dependency line outside any task is refused", () => {
+  assert.equal(code("### Task 1: A\n- Create: `a.ts`\n## Notes\n**Depends on:** Task 1\n"), "PLAN_DEPS_OUTSIDE_TASK");
+  assert.equal(code("### Task 1: A\n- Create: `a.ts`\n  ### Notes\n- Consumes: Task 1\n"), "PLAN_DEPS_OUTSIDE_TASK");
+  assert.equal(code("### Task 1: A\n- Create: `a.ts`\n   ## Wrap-up\n- Depends on: Task 1\n"), "PLAN_DEPS_OUTSIDE_TASK");
+  assert.equal(code("**Depends on:** Task 1\n### Task 1: A\n- Create: `a.ts`\n"), "PLAN_DEPS_OUTSIDE_TASK");
+  // Inside a deeper heading the task is still open.
+  assert.deepEqual(deps("### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n#### Interfaces\n- Consumes: Task 1\n- Create: `b.ts`\n", 1), [1]);
+});
+
+test("fix S4: a Files list survives blank lines before a list item or an indented line", () => {
+  const p = "### Task 1: A\n- Create: `a.ts`\n";
+  assert.deepEqual(files(p + "**Files:**\n\n- `secret.ts`\n"), ["create a.ts", "touch secret.ts"]);
+  assert.deepEqual(files("### Task 1: A\n**Files:**\n\n- Create: `a.ts`\n- `secret.ts`\n"), ["create a.ts", "touch secret.ts"]);
+  assert.deepEqual(files(one("- Modify:\n  - `b.ts`\n\n  - `secret.ts`")), ["modify b.ts", "modify secret.ts"]);
+  assert.deepEqual(files(p + "**Files:**\n- `b.ts`\n\n\n  `secret.ts`\n"), ["create a.ts", "touch b.ts", "touch secret.ts"]);
+  // A checkbox step or a paragraph ends the list.
+  assert.deepEqual(files(p + "**Files:**\n- `b.ts`\n\n- [ ] **Step 1:** edit `c.ts`\n"), ["create a.ts", "touch b.ts"]);
+  assert.deepEqual(files(p + "**Files:**\n- `b.ts`\n\nThen run it.\n\n- `x.ts`\n"), ["create a.ts", "touch b.ts"]);
+});
+
+test("fix S5: a lazy backticked-path line right after a Files op line continues it", () => {
+  assert.deepEqual(files(one("- Modify: `b.ts`\n`secret.ts`")), ["modify b.ts", "modify secret.ts"]);
+  assert.deepEqual(files(one("- Modify: `b.ts`\n`secret.ts` and `c.ts`")), ["modify b.ts", "modify secret.ts", "modify c.ts"]);
+  // After a blank line it is a paragraph, not a continuation.
+  assert.deepEqual(files(one("- Modify: `b.ts`\n\n`x.ts` is generated.")), ["modify b.ts"]);
+});
+
+test("fix S1/S3: only a Depends on label is a dependency line; prose 'depends on' is not", () => {
+  // Reference plan 34's appendix wraps prose onto a line opening "depends on it.".
+  assert.deepEqual(names("### Task 1: A\n- Create: `a.ts`\n## Appendix\n   depends on it.** The same gap\n"), [1]);
+  const p = parsePlan("### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Create: `b.ts`\nThe retry\ndepends on 1 clock: the tick.\n");
+  assert.deepEqual(p.tasks[1].dependsOn, []);
+  assert.equal(p.dependencyInfo, "none");
+  // The label forms stay dependency lines.
+  for (const line of ["Depends on: Task 1", "**Depends on:** Task 1", "**Depends on**: Task 1", "**Depends on** Task 1", "- Depends on: 1", "1. Depends on: Task 1"]) {
+    const q = parsePlan("### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n" + line + "\n- Create: `b.ts`\n");
+    assert.deepEqual([q.tasks[1].dependsOn, q.dependencyInfo], [[1], "declared"], line);
+  }
 });
