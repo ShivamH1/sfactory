@@ -302,3 +302,17 @@ test("round 3: fetch leaves the ssh command to the repo core.sshCommand (and GIT
   try { fetchOrigin(r, { timeoutMs: 20000 }); } finally { if (old !== undefined) process.env.GIT_SSH_COMMAND = old; if (oldSsh !== undefined) process.env.GIT_SSH = oldSsh; }
   assert.equal(existsSync(marker), true, "core.sshCommand ran");
 });
+
+test("round 4: GIT_SSH set leaves GIT_SSH_COMMAND unset; with no ssh setting at all the fetch gets BatchMode", async () => {
+  const { fetchEnv } = await import("../src/worktree.mjs");
+  const r = tmpRepo();
+  const emptyGlobal = join(tmpDir("sf-gcfg-"), "gitconfig");
+  writeFileSync(emptyGlobal, "");
+  const base = { ...process.env, GIT_CONFIG_GLOBAL: emptyGlobal, GIT_CONFIG_NOSYSTEM: "1" };
+  delete base.GIT_SSH_COMMAND; delete base.GIT_SSH;
+  const withSsh = fetchEnv(r, { ...base, GIT_SSH: "plink" });
+  assert.equal("GIT_SSH_COMMAND" in withSsh, false, "GIT_SSH is the user's choice; no GIT_SSH_COMMAND to outrank it");
+  assert.equal(withSsh.GIT_SSH, "plink");
+  assert.equal(withSsh.GIT_TERMINAL_PROMPT, "0");
+  assert.equal(fetchEnv(r, base).GIT_SSH_COMMAND, "ssh -o BatchMode=yes");
+});

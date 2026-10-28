@@ -81,6 +81,34 @@ test("exec: a timeout kills the child and reports not ok", async () => {
   assert.equal(calls[0].child.killed, true);
 });
 
+test("round 4: off win32 codex spawns detached and follows the parent's signals while the child runs; win32 does neither", async () => {
+  const desc = Object.getOwnPropertyDescriptor(process, "platform");
+  const counts = () => ["SIGINT", "SIGTERM", "SIGHUP"].map((s) => process.listenerCount(s));
+  const before = counts();
+  const runAs = async (platform) => {
+    Object.defineProperty(process, "platform", { ...desc, value: platform });
+    try {
+      const during = [];
+      const { spawn, calls } = fakeSpawn((child) => { during.push(counts()); emit(child, [], 0); });
+      const base = { cwd: "/w", prompt: "p", spawn, which: () => true };
+      await runCodexExec(cfg(), { ...base, profile: "implement", outDir: tmpDir("sf-out-"), codexHome: homeWith("implement") });
+      await runCodexReview(cfg(), { ...base, base: "main", outDir: tmpDir("sf-out-") });
+      const hung = fakeSpawn(() => { /* never answers */ });
+      const t = await runCodexExec(cfg(), { ...base, spawn: hung.spawn, profile: "implement", outDir: tmpDir("sf-out-"), codexHome: homeWith("implement"), timeoutMs: 30 });
+      assert.equal(t.timedOut, true); assert.equal(hung.calls[0].child.killed, true);
+      return { during, calls, after: counts() };
+    } finally { Object.defineProperty(process, "platform", desc); }
+  };
+  const posix = await runAs("linux");
+  for (const call of posix.calls) assert.equal(call.opts.detached, true);
+  assert.deepEqual(posix.during, [before.map((n) => n + 1), before.map((n) => n + 1)], "one handler per signal while a child runs");
+  assert.deepEqual(posix.after, before, "handlers removed after close and after a timeout");
+  const win = await runAs("win32");
+  for (const call of win.calls) { assert.notEqual(call.opts.detached, true); assert.equal(call.opts.shell, true); }
+  assert.deepEqual(win.during, [before, before]);
+  assert.deepEqual(win.after, before);
+});
+
 test("review: base and commit argv, prompt from stdin via -", async () => {
   const { spawn, calls } = fakeSpawn((child) => { child.stdout.write("findings\n"); child.stdout.end(); setImmediate(() => child.emit("close", 0)); });
   const c = cfg();

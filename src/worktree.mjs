@@ -30,23 +30,31 @@ export function resolveBase(c, { fetch = true } = {}) {
 }
 /**
  * git fetch that can never prompt. It runs under a small node wrapper so that, on timeout, the whole
- * process tree (git-remote-https and friends) is killed with killTree, not just git.
+ * process tree (git-remote-https and friends) is killed with killTree, not just git. Off win32 git is
+ * detached (its own group, for the kill), so the wrapper passes Ctrl+C, SIGTERM and SIGHUP on to it.
  */
 const FETCH_WRAPPER = `
 import { spawn } from "node:child_process";
-import { killTree } from ${JSON.stringify(new URL("./suite.mjs", import.meta.url).href)};
-const p = spawn("git", ["fetch", "--quiet", "origin"], { stdio: ["ignore", "ignore", "pipe"], detached: process.platform !== "win32" });
+import { killTree, followSignals } from ${JSON.stringify(new URL("./suite.mjs", import.meta.url).href)};
+const detached = process.platform !== "win32";
+const p = spawn("git", ["fetch", "--quiet", "origin"], { stdio: ["ignore", "ignore", "pipe"], detached });
+if (detached) followSignals(p);
 let err = "";
 p.stderr.on("data", (d) => { err += d; });
 const t = setTimeout(() => { killTree(p); process.stderr.write("fetch timed out"); process.exit(124); }, Number(process.env.SF_FETCH_TIMEOUT_MS) || 60000);
 p.on("error", (e) => { clearTimeout(t); process.stderr.write(e.message); process.exit(1); });
 p.on("close", (code) => { clearTimeout(t); process.stderr.write(err); process.exit(code ?? 1); });
 `;
-export function fetchOrigin(cwd, { timeoutMs = 60_000 } = {}) {
-  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never", SF_FETCH_TIMEOUT_MS: String(timeoutMs) };
+/** The fetch's environment: no prompts, and BatchMode ssh only when the user has chosen no ssh command. */
+export function fetchEnv(cwd, env = process.env) {
+  const out = { ...env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
   // Git ranks GIT_SSH_COMMAND above core.sshCommand and GIT_SSH, so only set it when the user has configured neither.
-  const userSsh = process.env.GIT_SSH_COMMAND || process.env.GIT_SSH || spawnSync("git", ["config", "--get", "core.sshCommand"], { cwd, encoding: "utf8" }).stdout?.trim();
-  if (!userSsh) env.GIT_SSH_COMMAND = "ssh -o BatchMode=yes";
+  const userSsh = env.GIT_SSH_COMMAND || env.GIT_SSH || spawnSync("git", ["config", "--get", "core.sshCommand"], { cwd, encoding: "utf8", env }).stdout?.trim();
+  if (!userSsh) out.GIT_SSH_COMMAND = "ssh -o BatchMode=yes";
+  return out;
+}
+export function fetchOrigin(cwd, { timeoutMs = 60_000 } = {}) {
+  const env = { ...fetchEnv(cwd), SF_FETCH_TIMEOUT_MS: String(timeoutMs) };
   return spawnSync(process.execPath, ["--input-type=module", "-e", FETCH_WRAPPER], { cwd, encoding: "utf8", timeout: timeoutMs + 15_000, env });
 }
 const hasBranch = (cwd, b) => branchExists(cwd, b) || remoteHead(cwd, b) !== null;

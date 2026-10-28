@@ -109,7 +109,8 @@ test("suite: killTree ends the shell's child too (the command, not only the shel
   const { spawn } = await import("node:child_process");
   const { killTree } = await import("../src/suite.mjs");
   const marker = join(tmpDir(), "survived.txt").replace(/\\/g, "/");
-  const p = spawn(`node -e "setTimeout(()=>require('fs').writeFileSync('${marker}','x'),4000)"`, { shell: true, stdio: ["ignore", "pipe", "pipe"] });
+  // Spawned as the callers spawn: detached off win32, so the child leads its own process group.
+  const p = spawn(`node -e "setTimeout(()=>require('fs').writeFileSync('${marker}','x'),4000)"`, { shell: true, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
   const closed = new Promise((res) => p.on("close", () => res(Date.now())));
   await new Promise((res) => setTimeout(res, 500)); // let the grandchild start
   const t0 = Date.now();
@@ -118,4 +119,75 @@ test("suite: killTree ends the shell's child too (the command, not only the shel
   assert.ok(t1 !== null && t1 - t0 < 2000, "close fired within 2 s");
   await new Promise((res) => setTimeout(res, 4500));
   assert.equal(existsSync(marker), false, "the grandchild was killed before it wrote its marker");
+});
+
+test("round 4: killTree leaves an exited child alone, even when its pid now names a live process", async () => {
+  const { spawn } = await import("node:child_process");
+  const { killTree } = await import("../src/suite.mjs");
+  // A live process stands in for whatever reused the dead child's pid.
+  const live = spawn(process.execPath, ["-e", "setTimeout(()=>{},30000)"], { stdio: "ignore", detached: process.platform !== "win32" });
+  await new Promise((res) => setTimeout(res, 300));
+  try {
+    let killCalled = false;
+    for (const ended of [{ exitCode: 0, signalCode: null }, { exitCode: null, signalCode: "SIGTERM" }]) {
+      killTree({ pid: live.pid, ...ended, kill: () => { killCalled = true; } });
+    }
+    await new Promise((res) => setTimeout(res, 300));
+    assert.equal(killCalled, false, "p.kill() not called on an exited child");
+    assert.equal(live.exitCode, null, "the process now holding the pid was not killed");
+    assert.equal(live.signalCode, null);
+  } finally { live.kill(); }
+});
+
+const SIGS = ["SIGINT", "SIGTERM", "SIGHUP"];
+const counts = () => SIGS.map((s) => process.listenerCount(s));
+
+test("round 4: followSignals kills the child's tree on SIGINT, SIGTERM or SIGHUP, re-raises, and removes its handlers", async () => {
+  const { EventEmitter } = await import("node:events");
+  const { followSignals } = await import("../src/suite.mjs");
+  const before = counts();
+  for (const sig of SIGS) {
+    const child = new EventEmitter();
+    const killed = [], raised = [];
+    // kill and reraise are stubbed: the real re-raise would end this test process.
+    followSignals(child, { kill: (p) => killed.push(p), reraise: (s) => raised.push(s) });
+    assert.deepEqual(counts(), before.map((n) => n + 1), "one handler per signal while the child runs");
+    process.emit(sig, sig);
+    assert.deepEqual(killed, [child], `${sig} killed the child's tree`);
+    assert.deepEqual(raised, [sig], `${sig} was re-raised`);
+    assert.deepEqual(counts(), before, `every handler removed after ${sig}`);
+  }
+  // A child that closes on its own takes its handlers with it; a later signal touches nothing.
+  const child = new EventEmitter();
+  const seen = [];
+  const off = followSignals(child, { kill: () => seen.push("kill"), reraise: () => seen.push("raise") });
+  child.emit("close", 0, null);
+  assert.deepEqual(counts(), before);
+  process.emit("SIGINT", "SIGINT");
+  off(); // idempotent
+  assert.deepEqual(seen, []);
+  assert.deepEqual(counts(), before);
+});
+
+test("round 4: followSignals' own re-raise ends the process with the signal after killing the child", async () => {
+  // Run in a separate process: the real re-raise must not reach the test runner.
+  const { spawnSync } = await import("node:child_process");
+  const { readFileSync } = await import("node:fs");
+  const d = tmpDir("sf-sig-");
+  const killedFile = join(d, "killed"), survivedFile = join(d, "survived");
+  const url = new URL("../src/suite.mjs", import.meta.url).href;
+  const script = `
+import { EventEmitter } from "node:events";
+import { writeFileSync } from "node:fs";
+import { followSignals } from ${JSON.stringify(url)};
+const child = new EventEmitter();
+followSignals(child, { kill: () => writeFileSync(${JSON.stringify(killedFile)}, "x") });
+process.emit("SIGTERM", "SIGTERM");
+setTimeout(() => writeFileSync(${JSON.stringify(survivedFile)}, "x"), 3000);
+`;
+  const r = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 15000 });
+  assert.equal(readFileSync(killedFile, "utf8"), "x", "the child's tree was killed first");
+  assert.equal(existsSync(survivedFile), false, "the process ended on the re-raised signal");
+  if (process.platform === "win32") assert.notEqual(r.status, 0);
+  else assert.equal(r.signal, "SIGTERM");
 });

@@ -3,7 +3,7 @@ import { createWriteStream, existsSync, mkdirSync, readFileSync, statSync } from
 import { homedir } from "node:os";
 import { basename, delimiter, join } from "node:path";
 import { fail } from "./errors.mjs";
-import { killTree } from "./suite.mjs";
+import { killTree, followSignals } from "./suite.mjs";
 
 const SECRETISH = /(_SECRET|_TOKEN|_KEY)$/i;
 const ALLOWED_PREFIX = /^(CODEX_|OPENAI_)/i;
@@ -40,10 +40,17 @@ export const codexHomeDir = (env = process.env) => env.CODEX_HOME || join(homedi
 export const profileFile = (name, home = codexHomeDir()) => join(home, `${name}.config.toml`);
 
 const quoteWin = (a) => (/[\s"&|<>^%()]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);
+const NOOP = () => {};
+/**
+ * Returns the child and the function that stops following the parent's signals. Off win32 the child is
+ * detached (its own process group, so a timeout's killTree reaches everything codex started), and so
+ * SIGINT, SIGTERM and SIGHUP are passed on to it while it runs.
+ */
 function launch(spawn, args, cwd, env) {
   // An npm-installed codex on Windows is a .cmd shim, which needs a shell; arguments are quoted by hand.
-  if (process.platform === "win32") return spawn(["codex", ...args.map(quoteWin)].join(" "), { cwd, env, shell: true, stdio: ["pipe", "pipe", "pipe"] });
-  return spawn("codex", args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+  if (process.platform === "win32") return { child: spawn(["codex", ...args.map(quoteWin)].join(" "), { cwd, env, shell: true, stdio: ["pipe", "pipe", "pipe"] }), unfollow: NOOP };
+  const child = spawn("codex", args, { cwd, env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
+  return { child, unfollow: followSignals(child) };
 }
 
 function preflight({ profile, which, home, requireProfile }) {
@@ -68,7 +75,7 @@ export async function runCodexExec(c, { cwd, profile, prompt, sandbox = "workspa
   const started = Date.now();
   const log = createWriteStream(logPath, { flags: "w" });
   return new Promise((resolve) => {
-    let settled = false, timedOut = false, buf = "", usage = null, child = null;
+    let settled = false, timedOut = false, buf = "", usage = null, child = null, unfollow = NOOP;
     const take = (line) => {
       if (!line.trim()) return;
       let ev; try { ev = JSON.parse(line); } catch { return; }
@@ -76,7 +83,7 @@ export async function runCodexExec(c, { cwd, profile, prompt, sandbox = "workspa
       if (u) usage = { inputTokens: (usage?.inputTokens ?? 0) + u.inputTokens, outputTokens: (usage?.outputTokens ?? 0) + u.outputTokens };
     };
     const finish = (exitCode) => {
-      if (settled) return; settled = true; clearTimeout(timer);
+      if (settled) return; settled = true; clearTimeout(timer); unfollow();
       if (buf) take(buf);
       log.end(() => {
         let lastMessage = "";
@@ -85,7 +92,7 @@ export async function runCodexExec(c, { cwd, profile, prompt, sandbox = "workspa
       });
     };
     const timer = setTimeout(() => { timedOut = true; killTree(child); setTimeout(() => finish(null), 50); }, timeoutMs);
-    try { child = launch(spawn, args, cwd, filterEnv(c, env)); } catch (e) { log.write(`spawn failed: ${e.message}\n`); return finish(null); }
+    try { ({ child, unfollow } = launch(spawn, args, cwd, filterEnv(c, env))); } catch (e) { log.write(`spawn failed: ${e.message}\n`); return finish(null); }
     child.stdout.on("data", (d) => { log.write(d); buf += String(d); const parts = buf.split(/\r?\n/); buf = parts.pop(); parts.forEach(take); });
     child.stderr.on("data", (d) => log.write(d));
     child.stdin.on("error", () => { /* child exited before reading the prompt */ });
@@ -104,10 +111,10 @@ export async function runCodexReview(c, { cwd, base, commit, prompt, profile, ou
   const args = ["review", ...(base != null ? ["--base", base] : ["--commit", commit]), "-"];
   const log = createWriteStream(logPath, { flags: "w" });
   return new Promise((resolve) => {
-    let settled = false, text = "", child = null;
-    const finish = (code) => { if (settled) return; settled = true; clearTimeout(timer); log.end(() => resolve({ ok: code === 0, text, logPath })); };
+    let settled = false, text = "", child = null, unfollow = NOOP;
+    const finish = (code) => { if (settled) return; settled = true; clearTimeout(timer); unfollow(); log.end(() => resolve({ ok: code === 0, text, logPath })); };
     const timer = setTimeout(() => { killTree(child); setTimeout(() => finish(null), 50); }, timeoutMs);
-    try { child = launch(spawn, args, cwd, filterEnv(c, env)); } catch (e) { log.write(`spawn failed: ${e.message}\n`); return finish(null); }
+    try { ({ child, unfollow } = launch(spawn, args, cwd, filterEnv(c, env))); } catch (e) { log.write(`spawn failed: ${e.message}\n`); return finish(null); }
     child.stdout.on("data", (d) => { text += String(d); log.write(d); });
     child.stderr.on("data", (d) => log.write(d));
     child.stdin.on("error", () => {});
