@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, accessSync, constants, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, accessSync, constants, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { codexHomeDir } from "./codex.mjs";
+import { syncRules } from "./rules.mjs";
 
 const which = (exec, cmd) => {
   // On Windows an npm-installed shim is a .cmd, which needs a shell; pass one string so no args are concatenated.
@@ -32,9 +33,11 @@ export function runDoctor(c, { exec = spawnSync, codexHome = codexHomeDir() } = 
     }
   }
   if (c.rules.length > 1) {
-    const bodies = c.rules.map((r) => { const f = join(c.repoRoot, r); return existsSync(f) ? readFileSync(f, "utf8").replace(/\r\n/g, "\n") : null; });
-    const same = bodies.every((b) => b !== null && b === bodies[0]);
-    add("rules", same, same ? `${c.rules.join(" = ")}` : `${c.rules.join(", ")} differ or are missing; run sfactory sync-rules`);
+    // The same comparison sync-rules makes (adapted first line, BOM and line endings ignored), so the two never disagree.
+    try {
+      const r = syncRules(c.repoRoot, c.rules, { check: true });
+      add("rules", r.differs.length === 0, r.differs.length ? `${r.differs.join(", ")} differ from ${r.source} or are missing; run sfactory sync-rules` : c.rules.join(" = "));
+    } catch (e) { add("rules", false, e?.code ? `${e.code}: ${e.message}` : String(e?.message ?? e)); }
   }
   return { ok: checks.every((x) => x.ok), checks };
 }

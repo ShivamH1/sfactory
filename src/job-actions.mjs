@@ -1,5 +1,5 @@
 import { readJob, writeJob, addJob, withJobLock, listJobs, writeJobFile, jobFileExists, readJobFile } from "./store.mjs";
-import { transition, park, release, stop, resume } from "./job.mjs";
+import { transition, park, release, stop, resume, WORKING } from "./job.mjs";
 import { fail } from "./errors.mjs";
 
 /** The gates as functions: each takes (c, args), runs under the job's lock, re-reads the job there and returns the written job. */
@@ -96,9 +96,14 @@ Write the answer to decisions/${k}-answer.md, then run: sfactory job answer ${jo
       return writeJob(c, next);
     });
   },
+  /**
+   * Marks a working card as live (updated + activity). Outside a working stage it writes nothing and returns
+   * the job unchanged: re-stamping awaiting-approval would re-gate the board's Approve-after-viewing.
+   */
   touch(c, { id, note, by = "session" }) {
     return locked(c, id, (job) => {
       if (note !== undefined && (typeof note !== "string" || note.length > 200)) fail("BAD_ARGS", "the note must be text of at most 200 characters");
+      if (!WORKING.includes(job.stage)) return job;
       const next = structuredClone(job);
       next.activity = { at: new Date().toISOString(), ...(note ? { note } : {}), by };
       return writeJob(c, next);

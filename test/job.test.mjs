@@ -197,3 +197,23 @@ test("job cmd: set building from reviewing or pushed is refused, pointing at rew
   assert.equal(r.code, 2); assert.match(r.err, /job rework/);
   assert.equal(readJob(c, "f-1").stage, "pushed");
 });
+
+test("job cmd: touch marks a working stage; elsewhere it prints (not touched) and exits 0; a bare --note is BAD_ARGS", async () => {
+  const root = project(); const c = loadConfig(root);
+  await run(root, ["job", "add", "milestone", "M1 touch"]);
+  const before = readJob(c, "m-1");
+  let r = await run(root, ["job", "touch", "m-1", "--note", "early"]);
+  assert.equal(r.code, 0); assert.equal(r.out, "m-1 backlog (not touched)\n");
+  assert.deepEqual(readJob(c, "m-1"), before);
+  await run(root, ["job", "set", "m-1", "planning"]);
+  r = await run(root, ["job", "touch", "m-1", "--note", "start brainstorming"]);
+  assert.equal(r.code, 0); assert.equal(r.out, "m-1 planning\n");
+  assert.equal(readJob(c, "m-1").activity.note, "start brainstorming");
+  r = await run(root, ["job", "touch", "m-1", "--note"]);
+  assert.equal(r.code, 2); assert.match(r.err, /BAD_ARGS/);
+  await run(root, ["job", "set", "m-1", "awaiting-approval"]);
+  const parked = readJob(c, "m-1");
+  r = await run(root, ["job", "touch", "m-1", "--note", "late finish"]);
+  assert.equal(r.code, 0); assert.equal(r.out, "m-1 awaiting-approval (not touched)\n");
+  assert.deepEqual(readJob(c, "m-1"), parked, "awaiting-approval is not re-stamped (the board's Approve-after-viewing keys on it)");
+});

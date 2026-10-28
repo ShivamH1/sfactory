@@ -2,6 +2,7 @@ import { register } from "../registry.mjs";
 import { findRepoRoot, loadConfig } from "../config.mjs";
 import { actions } from "../job-actions.mjs";
 import { fail } from "../errors.mjs";
+import { WORKING } from "../job.mjs";
 
 const done = (io, job, flags) => { io.stdout(flags.json ? JSON.stringify(job, null, 2) + "\n" : `${job.id} ${job.stage}\n`); return 0; };
 const str = (v) => (typeof v === "string" ? v : undefined);
@@ -18,7 +19,7 @@ const sub = {
   resume: (p) => ({ id: p[0] }),
   merged: (p) => ({ id: p[0] }),
   rework: (p, f) => ({ id: p[0], notes: f.notes }),
-  touch: (p, f) => ({ id: p[0], note: str(f.note) }),
+  touch: (p, f) => { if (f.note === true) fail("BAD_ARGS", '--note needs a value: sfactory job touch <id> --note "<text>"'); return { id: p[0], note: str(f.note) }; },
   show: (p) => ({ id: p[0] }),
   list: () => ({}),
 };
@@ -37,5 +38,6 @@ register("job", async ({ positional, flags }, io) => {
     io.stdout(flags.json ? JSON.stringify(out, null, 2) + "\n" : out.map((j) => `${j.id.padEnd(6)} ${j.stage.padEnd(18)} ${j.kind.padEnd(9)} ${j.title}\n`).join(""));
     return 0;
   }
+  if (name === "touch" && !WORKING.includes(out.stage) && !flags.json) { io.stdout(`${out.id} ${out.stage} (not touched)\n`); return 0; }
   return done(io, out, name === "show" ? { json: true } : flags);
 }, ACCEPTS);

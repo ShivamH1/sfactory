@@ -72,9 +72,10 @@ export function integration(c) {
 /**
  * Cut a worktree and branch for a job. Refusals run cheap-first; anything that throws after the lock
  * is taken rolls back (worktree, branch, lock, in reverse) and rethrows the original error.
- * `afterAdd` is a TEST-ONLY callback invoked between the worktree add and the base re-read.
+ * `afterAdd` is a TEST-ONLY callback invoked between the worktree add and the base re-read; `gitRun` is a TEST-ONLY
+ * stand-in for git() in the add and the rollback.
  */
-export function cut(c, job, { slug, afterAdd, fetch = true } = {}) {
+export function cut(c, job, { slug, afterAdd, fetch = true, gitRun = git } = {}) {
   if (job.worktree) fail("WORKTREE_EXISTS", `${job.id} already has a worktree (${job.worktree}); remove it first`);
   const s = slugify(slug ?? job.title.replace(/^M\d+\s+/i, ""));
   const dir = resolve(c.worktrees.dir, s || "x");
@@ -91,7 +92,7 @@ export function cut(c, job, { slug, afterAdd, fetch = true } = {}) {
   try {
     mkdirSync(dirname(dir), { recursive: true });
     branchCreated = true;
-    git(["worktree", "add", "-b", branch, dir, base.head], { cwd: c.repoRoot });
+    gitRun(["worktree", "add", "-b", branch, dir, base.head], { cwd: c.repoRoot });
     worktreeAdded = true;
     if (afterAdd) afterAdd();
     const after = headOf(c.repoRoot, base.ref);
@@ -107,9 +108,12 @@ export function cut(c, job, { slug, afterAdd, fetch = true } = {}) {
 ${(r.stderr ?? "").slice(-2000)}`);
     }
   } catch (e) {
-    if (worktreeAdded) { try { git(["worktree", "remove", "--force", dir], { cwd: c.repoRoot }); } catch { /* best effort */ } }
-    try { git(["worktree", "prune"], { cwd: c.repoRoot }); } catch { /* best effort */ }
-    if (branchCreated && branchExists(c.repoRoot, branch)) { try { git(["branch", "-D", branch], { cwd: c.repoRoot }); } catch { /* best effort */ } }
+    if (worktreeAdded) {
+      try { gitRun(["worktree", "remove", "--force", dir], { cwd: c.repoRoot }); } catch { /* best effort */ }
+      // Before branch -D: a registered worktree whose folder is gone (or that remove could not delete) still holds the branch.
+      try { gitRun(["worktree", "prune"], { cwd: c.repoRoot }); } catch { /* best effort */ }
+    }
+    if (branchCreated && branchExists(c.repoRoot, branch)) { try { gitRun(["branch", "-D", branch], { cwd: c.repoRoot }); } catch { /* best effort */ } }
     try { lock.release(); } catch { /* best effort */ }
     throw e;
   }

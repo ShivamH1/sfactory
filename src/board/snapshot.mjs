@@ -90,7 +90,8 @@ export function jobView(c, j, now = new Date().toISOString()) {
     files,
     needsYou: needsYou(c, j),
     prText: readJobFile(c, j.id, "pr.md"),
-    ...(j.activity?.note ? { activity: { at: j.activity.at ?? null, note: String(j.activity.note).slice(0, 200) } } : {}),
+    // A touch describes work in progress: once the card has left the working stages its note is stale, so it is not shown.
+    ...(j.activity?.note && WORKING.includes(j.stage) ? { activity: { at: j.activity.at ?? null, note: String(j.activity.note).slice(0, 200) } } : {}),
     ...(active ? { active: true } : {}),
     ...(reviews.length ? { reviews } : {}),
   };

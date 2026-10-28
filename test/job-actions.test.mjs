@@ -183,3 +183,16 @@ test("actions: touch stamps updated and activity, changes no stage or history, v
   throwsCode(() => actions.touch(c, { id: "f-1", note: 5 }), "BAD_ARGS");
   unheld(c, "f-1");
 });
+
+test("actions: touch writes nothing outside a working stage and returns the job unchanged", () => {
+  const c = cfg();
+  actions.add(c, { kind: "milestone", title: "M" });
+  for (const to of [null, "planning", "awaiting-approval"]) {
+    if (to) actions.set(c, { id: "m-1", to });
+    if (to === "planning") { assert.ok(actions.touch(c, { id: "m-1", note: "n" }).activity, "planning is a working stage"); continue; }
+    const before = readJob(c, "m-1");
+    assert.deepEqual(actions.touch(c, { id: "m-1", note: "n" }), before);
+    assert.deepEqual(readJob(c, "m-1"), before);
+  }
+  unheld(c, "m-1");
+});

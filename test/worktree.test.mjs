@@ -200,3 +200,32 @@ test("worktree: a cut whose worktree folder vanished mid-way still deletes its b
   assert.equal(branchExists(root, "feature/vanish"), false);
   assert.equal(worktrees(root).some((w) => w.branch === "feature/vanish"), false);
 });
+
+test("worktree: the cut rollback prunes before deleting the branch, and only when the worktree was added", async () => {
+  const { git } = await import("../src/git.mjs");
+  // 1. The folder vanished and `worktree remove` fails (stubbed): only the prune frees the branch for -D.
+  const { root, c } = setup();
+  const calls = [];
+  const gitRun = (args, opts) => {
+    calls.push(args.slice(0, 2).join(" "));
+    if (args[0] === "worktree" && args[1] === "remove") throw new Error("remove failed (stub)");
+    return git(args, opts);
+  };
+  const dir = join(c.worktrees.dir, "stubbed");
+  const afterAdd = () => { rmSync(dir, { recursive: true, force: true }); throw new Error("boom"); };
+  assert.throws(() => cut(c, newJob({ id: "m-1", kind: "milestone", title: "Stubbed" }), { afterAdd, gitRun }), /boom/);
+  const prune = calls.indexOf("worktree prune"), del = calls.indexOf("branch -D");
+  assert.ok(prune >= 0 && del > prune, `prune before branch -D: ${calls.join(" | ")}`);
+  assert.equal(branchExists(root, "feature/stubbed"), false);
+  // 2. The add itself failed: nothing was added, so nothing is pruned.
+  const s2 = setup();
+  const calls2 = [];
+  const failAdd = (args, opts) => {
+    calls2.push(args.slice(0, 2).join(" "));
+    if (args[0] === "worktree" && args[1] === "add") throw new Error("add failed (stub)");
+    return git(args, opts);
+  };
+  assert.throws(() => cut(s2.c, newJob({ id: "m-2", kind: "milestone", title: "No add" }), { gitRun: failAdd }), /add failed/);
+  assert.equal(calls2.includes("worktree prune"), false, `no prune without an add: ${calls2.join(" | ")}`);
+  assert.equal(status(s2.c, "worktree:no-add").held, false);
+});

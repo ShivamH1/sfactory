@@ -4,7 +4,7 @@ import { tmpRepo, tmpDir, writeConfig } from "./helpers.mjs";
 import { loadConfig } from "../src/config.mjs";
 import { runDoctor } from "../src/doctor.mjs";
 import { main } from "../src/cli.mjs";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const fakeExec = (present) => (cmd) => { const w = String(cmd).split(" ")[0]; const ok = present.includes(w); return { status: ok ? 0 : 1, stdout: ok ? `${w} 1.0.0
@@ -64,8 +64,8 @@ test("doctor: a [profiles.*] table in config.toml does not count; one missing fi
 
 test("doctor: rules files differing only by line endings are the same", () => {
   const root = tmpRepo();
-  writeFileSync(join(root, "A.md"), "a\nb\n"); writeFileSync(join(root, "B.md"), "a\r\nb\r\n");
-  writeConfig(root, { project: "p", agents: { mode: "claude" }, commands: { suite: "npm test" }, rules: ["A.md", "B.md"], stateDir: tmpDir("sf-d-"), worktrees: { dir: tmpDir("sf-dw-") }, ports: { base: 47530 } });
+  writeFileSync(join(root, "CLAUDE.md"), "a\nb\n"); writeFileSync(join(root, "AGENTS.md"), "a\r\nb\r\n");
+  writeConfig(root, { project: "p", agents: { mode: "claude" }, commands: { suite: "npm test" }, rules: ["CLAUDE.md", "AGENTS.md"], stateDir: tmpDir("sf-d-"), worktrees: { dir: tmpDir("sf-dw-") }, ports: { base: 47530 } });
   const r = runDoctor(loadConfig(root), { exec: fakeExec(["git", "claude"]) });
   assert.equal(r.checks.find((x) => x.name === "rules").ok, true);
 });
@@ -83,4 +83,25 @@ test("doctor command: a good config prints a ports.base row", async () => {
   const out = [];
   await main(["doctor"], { cwd: root, stdout: (s) => out.push(s), stderr: () => {} });
   assert.match(out.join(""), /ports\.base\s+47540/);
+});
+
+test("doctor: the rules check agrees with sync-rules (adapted first line, BOM, CRLF) and reports its refusals", async () => {
+  const { syncRules } = await import("../src/rules.mjs");
+  const cfgWith = (root, rules, port) => { writeConfig(root, { project: "p", agents: { mode: "claude" }, commands: { suite: "npm test" }, rules, stateDir: tmpDir("sf-d-"), worktrees: { dir: tmpDir("sf-dw-") }, ports: { base: port } }); return loadConfig(root); };
+  const rules = (r) => r.checks.find((x) => x.name === "rules");
+  const root = tmpRepo();
+  writeFileSync(join(root, "CLAUDE.md"), "# CLAUDE.md\n\nThis file provides guidance to Claude Code (claude.ai/code) when working here.\n\nRule one.\n");
+  const c = cfgWith(root, ["CLAUDE.md", "AGENTS.md"], 47540);
+  assert.equal(rules(runDoctor(c, { exec: fakeExec(["git", "claude"]) })).ok, false, "AGENTS.md missing");
+  syncRules(root, c.rules);
+  assert.equal(rules(runDoctor(c, { exec: fakeExec(["git", "claude"]) })).ok, true, "in sync after sync-rules, though the first line differs");
+  writeFileSync(join(root, "AGENTS.md"), "\uFEFF" + readFileSync(join(root, "AGENTS.md"), "utf8").replace(/\n/g, "\r\n"));
+  assert.equal(rules(runDoctor(c, { exec: fakeExec(["git", "claude"]) })).ok, true, "a kept BOM and CRLF are still in sync");
+  writeFileSync(join(root, "AGENTS.md"), "something else\n");
+  const r = rules(runDoctor(c, { exec: fakeExec(["git", "claude"]) }));
+  assert.equal(r.ok, false); assert.match(r.detail, /AGENTS\.md/); assert.match(r.detail, /sync-rules/);
+  const other = tmpRepo();
+  writeFileSync(join(other, "A.md"), "a\n"); writeFileSync(join(other, "B.md"), "a\n");
+  const bad = rules(runDoctor(cfgWith(other, ["A.md", "B.md"], 47550), { exec: fakeExec(["git", "claude"]) }));
+  assert.equal(bad.ok, false); assert.match(bad.detail, /RULES_SOURCE_UNSUPPORTED/);
 });
