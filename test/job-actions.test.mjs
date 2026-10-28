@@ -1,3 +1,5 @@
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tmpDir } from "./helpers.mjs";
@@ -113,7 +115,32 @@ test("actions: a job held by another holder is JOB_BUSY, and the lock is untouch
   const c = cfg();
   actions.add(c, { kind: "fix", title: "x" });
   const l = acquireSync(c, "job:f-1", { holder: "other" });
-  try { throwsCode(() => actions.set(c, { id: "f-1", to: "planning" }), "JOB_BUSY"); } finally { l.release(); }
+  try {
+    throwsCode(() => actions.set(c, { id: "f-1", to: "planning" }), "JOB_BUSY");
+    const s = status(c, "job:f-1");
+    assert.equal(s.held, true); assert.equal(s.holder, "other");
+  } finally { l.release(); }
   assert.equal(readJob(c, "f-1").stage, "backlog");
   assert.equal(actions.set(c, { id: "f-1", to: "planning" }).stage, "planning");
+});
+
+test("actions: board input is validated (park pending, answer text)", () => {
+  const c = cfg();
+  actions.add(c, { kind: "fix", title: "x" });
+  actions.set(c, { id: "f-1", to: "planning" });
+  throwsCode(() => actions.park(c, { id: "f-1", reason: "r", pending: "bogus" }), "BAD_ARGS");
+  throwsCode(() => actions.park(c, { id: "f-1", reason: "r", pending: 5 }), "BAD_ARGS");
+  assert.equal(readJob(c, "f-1").stage, "planning");
+  actions.park(c, { id: "f-1", reason: "r", pending: "decision" });
+  throwsCode(() => actions.answer(c, { id: "f-1", text: 42 }), "BAD_ARGS");
+  throwsCode(() => actions.answer(c, { id: "f-1", text: null }), "BAD_ARGS");
+  assert.equal(readJob(c, "f-1").stage, "decision-needed");
+  unheld(c, "f-1");
+});
+
+test("actions: add with a bad kind is BAD_ARGS and leaves no folder", () => {
+  const c = cfg();
+  throwsCode(() => actions.add(c, { kind: "bogus", title: "t" }), "BAD_ARGS");
+  throwsCode(() => actions.add(c, { kind: "milestone ", title: "t" }), "BAD_ARGS");
+  assert.deepEqual(existsSync(join(c.stateDir, "jobs")) ? readdirSync(join(c.stateDir, "jobs")) : [], []);
 });

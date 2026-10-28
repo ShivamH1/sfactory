@@ -53,19 +53,24 @@ export function withJobLock(c, id, fn, { retries = 40, delayMs = 50 } = {}) {
   try { return fn(); } finally { try { lock.release(); } catch { /* lock already gone */ } }
 }
 
-/** Only src/job.mjs may call this, inside withJobLock. Atomic: write a unique temp file, then rename over job.json. */
+/** Write text to f atomically: a unique temp file, then a rename (retried on the EPERM/EBUSY a reader can cause on Windows). */
+export function atomicWrite(f, text) {
+  const tmp = `${f}.${process.pid}.${randomUUID()}.tmp`;
+  writeFileSync(tmp, text);
+  for (let i = 0; ; i++) {
+    try { renameSync(tmp, f); return; }
+    catch (e) { if (!["EPERM", "EBUSY"].includes(e.code) || i >= 2) { try { unlinkSync(tmp); } catch { /* best effort */ } throw e; } sleepSync(20); }
+  }
+}
+
+/** Called inside withJobLock by the job commands (src/job.mjs, src/job-actions.mjs, src/commands/*) and by addJob. Atomic via atomicWrite. */
 export function writeJob(c, job) {
   const s = status(c, `job:${job.id}`);
   if (!s.held || s.holder !== HOLDER) fail("JOB_LOCK_REQUIRED", `writeJob(${job.id}) needs withJobLock`);
   mkdirSync(jobDir(c, job.id), { recursive: true });
   job.updated = new Date().toISOString();
   const f = jobFile(c, job.id);
-  const tmp = `${f}.${process.pid}.${randomUUID()}.tmp`;
-  writeFileSync(tmp, JSON.stringify(job, null, 2) + "\n");
-  for (let i = 0; ; i++) {
-    try { renameSync(tmp, f); break; }
-    catch (e) { if (!["EPERM", "EBUSY"].includes(e.code) || i >= 2) { try { unlinkSync(tmp); } catch { /* best effort */ } throw e; } sleepSync(20); }
-  }
+  atomicWrite(f, JSON.stringify(job, null, 2) + "\n");
   return job;
 }
 

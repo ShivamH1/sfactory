@@ -9,6 +9,7 @@ const locked = (c, id, fn) => withJobLock(c, id, () => fn(readJob(c, id)));
 export const actions = {
   add(c, { kind, title }) {
     if (!kind || !title) fail("BAD_ARGS", 'usage: sfactory job add <milestone|fix> "<title>"');
+    if (kind !== "milestone" && kind !== "fix") fail("BAD_ARGS", 'kind must be "milestone" or "fix"');
     return addJob(c, kind, title);
   },
   set(c, { id, to, by = "session", reason = null }) {
@@ -28,6 +29,7 @@ export const actions = {
   park(c, { id, reason, pending, by = "session" }) {
     return locked(c, id, (job) => {
       if (typeof reason !== "string") fail("BAD_ARGS", "park needs --reason");
+      if (pending !== undefined && pending !== "decision" && pending !== "parallel") fail("BAD_ARGS", 'pending must be "decision" or "parallel"');
       const kind = pending === "parallel" ? "parallel" : "decision";
       const next = park(job, { by, reason, pending: kind });
       if (kind === "parallel") writeJobFile(c, job.id, "plan/parallel.md", `# Parallel proposal
@@ -53,6 +55,7 @@ Write the answer to decisions/${k}-answer.md, then run: sfactory job answer ${jo
       if (job.stage !== "decision-needed" || job.pending !== "decision") fail("ILLEGAL_TRANSITION", `${job.id} is not waiting for a decision`);
       const k = nextNo(c, job.id, (n) => `decisions/${n}.md`) - 1;
       if (text !== undefined) {
+        if (typeof text !== "string") fail("BAD_ARGS", "the answer must be text");
         if (!String(text).trim()) fail("ANSWER_REQUIRED", "the answer is empty");
         writeJobFile(c, job.id, `decisions/${k}-answer.md`, String(text).endsWith("\n") ? text : `${text}\n`);
       }

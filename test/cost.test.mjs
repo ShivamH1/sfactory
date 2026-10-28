@@ -62,3 +62,27 @@ test("cost: CLI refuses an unknown job and a loose --usd", async () => {
   const u = await run(["cost", "add", "m-1", "--stage", "building", "--agent", "claude", "--model", "x", "--in", "1", "--out", "1", "--usd", "1e3"]);
   assert.equal(u.code, 2); assert.match(u.err, /BAD_ARGS/);
 });
+
+test("cost: concurrent addCost from several processes loses no entry", async () => {
+  const { spawn } = await import("node:child_process");
+  const c = cfg();
+  const n = 5;
+  const script = `import { addCost } from ${JSON.stringify(new URL("../src/cost.mjs", import.meta.url).href)};
+const c = JSON.parse(process.argv[1]);
+for (let i = 0; i < 4; i++) addCost(c, "m-1", { stage: "building", agent: "claude", model: "m", usd: 1 });`;
+  const runs = Array.from({ length: n }, () => new Promise((res) => {
+    const p = spawn(process.execPath, ["--input-type=module", "-e", script, JSON.stringify(c)], { stdio: "pipe" });
+    let err = ""; p.stderr.on("data", (d) => (err += d));
+    p.on("close", (code) => res({ code, err }));
+  }));
+  const results = await Promise.all(runs);
+  for (const r of results) assert.equal(r.code, 0, r.err);
+  assert.equal(readCost(c, "m-1").entries.length, n * 4);
+});
+
+test("cost: addCost inside a held job lock does not deadlock", async () => {
+  const { withJobLock } = await import("../src/store.mjs");
+  const c = cfg();
+  withJobLock(c, "m-1", () => addCost(c, "m-1", { stage: "s", agent: "claude", model: "m", usd: 1 }));
+  assert.equal(readCost(c, "m-1").entries.length, 1);
+});
