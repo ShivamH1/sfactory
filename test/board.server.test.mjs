@@ -110,3 +110,53 @@ test("server: close frees the port", async () => {
   assert.equal(b2.port, port);
   await b2.close();
 });
+
+const raw = (b, path, body, headers = H) => fetch(`${b.url}${path}`, { method: "POST", headers, body });
+
+test("server: malformed bodies and fields are 400 BAD_ARGS", async () => {
+  const c = mk();
+  const j = addJob(c, "milestone", "Bad input");
+  toApproval(c, j.id);
+  await withBoard(c, {}, async (b) => {
+    for (const body of ["{not json", "[1,2]", "", "   ", "null", "7"]) {
+      const r = await raw(b, `jobs/${j.id}/approve`, body);
+      assert.equal(r.status, 400, JSON.stringify(body));
+      assert.equal((await r.json()).code, "BAD_ARGS");
+    }
+    for (const [route, body] of [
+      ["answer", { text: 5 }], ["request-changes", { notes: 5 }], ["rework", { notes: {} }], ["stop", { reason: 1 }],
+      ["approve", { by: 5 }], ["parallel", { yes: "no" }],
+    ]) {
+      const r = await post(b, `jobs/${j.id}/${route}`, body);
+      assert.equal(r.status, 400, route);
+      assert.equal((await r.json()).code, "BAD_ARGS");
+    }
+    assert.equal(readJob(c, j.id).stage, "awaiting-approval");
+    const m = await fetch(`${b.url}jobs/%E0/approve`, { method: "POST", headers: H, body: "{}" });
+    assert.equal(m.status, 400);
+    assert.equal((await m.json()).code, "BAD_ARGS");
+  });
+});
+
+test("server: by is used when given, blank falls back to board", async () => {
+  const c = mk();
+  const a = addJob(c, "milestone", "By one"), z = addJob(c, "milestone", "By two");
+  toApproval(c, a.id); toApproval(c, z.id);
+  await withBoard(c, {}, async (b) => {
+    assert.equal((await post(b, `jobs/${a.id}/approve`, { by: " ana " })).status, 200);
+    assert.equal(readJob(c, a.id).history.at(-1).by, "ana");
+    assert.equal((await post(b, `jobs/${z.id}/approve`, { by: "  " })).status, 200);
+    assert.equal(readJob(c, z.id).history.at(-1).by, "board");
+  });
+});
+
+test("server: a 500 answers the code and no message", async () => {
+  const c = mk();
+  const j = addJob(c, "milestone", "Corrupt");
+  writeJobFile(c, j.id, "job.json", "{ broken");
+  await withBoard(c, {}, async (b) => {
+    const r = await post(b, `jobs/${j.id}/approve`);
+    assert.equal(r.status, 500);
+    assert.deepEqual(await r.json(), { code: "JOB_CORRUPT" });
+  });
+});

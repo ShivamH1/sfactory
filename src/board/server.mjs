@@ -38,7 +38,7 @@ async function readBody(req) {
     chunks.push(chunk);
   }
   const text = Buffer.concat(chunks).toString("utf8");
-  if (!text.trim()) return {};
+  if (!text.trim()) throw new SfactoryError("BAD_ARGS", "the body must be a JSON object");
   let v;
   try { v = JSON.parse(text); } catch { throw new SfactoryError("BAD_ARGS", "the body is not JSON"); }
   if (!v || typeof v !== "object" || Array.isArray(v)) throw new SfactoryError("BAD_ARGS", "the body must be a JSON object");
@@ -55,7 +55,7 @@ export function startBoard(c, { port = c.board.port, host = "127.0.0.1", demoDir
       const allowed = [`127.0.0.1:${boundPort}`, `localhost:${boundPort}`];
       if (!allowed.includes(req.headers.host ?? "")) return sendJson(res, 403, { code: "BAD_HOST" });
       const url = new URL(req.url, "http://localhost");
-      const parts = url.pathname.split("/").filter(Boolean).map((s) => decodeURIComponent(s));
+      const parts = url.pathname.split("/").filter(Boolean).map((s) => { try { return decodeURIComponent(s); } catch { throw new SfactoryError("BAD_ARGS", "malformed encoding in the path"); } });
 
       if (req.method === "GET" && url.pathname === "/") return send(res, 200, page, "text/html; charset=utf-8");
       if (req.method === "GET" && url.pathname === "/jobs.json") return sendJson(res, 200, buildSnapshot(view, { demo: !!demoDir }));
@@ -63,7 +63,7 @@ export function startBoard(c, { port = c.board.port, host = "127.0.0.1", demoDir
       if (req.method === "GET" && parts.length === 3 && parts[0] === "jobs" && parts[2] === "file") {
         const rel = url.searchParams.get("path") ?? "";
         readJob(view, parts[1]);
-        if (!/\.(md|log)$/.test(rel) || /(^|[\\/])job\.json$/.test(rel)) return sendJson(res, 400, { code: "BAD_PATH" });
+        if (!/\.(md|log)$/.test(rel)) return sendJson(res, 400, { code: "BAD_PATH" });
         const text = readJobFile(view, parts[1], rel);
         if (text === null) return sendJson(res, 404, { code: "NOT_FOUND" });
         return send(res, 200, text, "text/plain; charset=utf-8");
@@ -73,12 +73,10 @@ export function startBoard(c, { port = c.board.port, host = "127.0.0.1", demoDir
         if (demoDir) return sendJson(res, 403, { code: "DEMO" });
         if (req.headers["x-sfactory-board"] !== "1") return sendJson(res, 403, { code: "NO_HEADER" });
         const body = await readBody(req);
-        const by = typeof body.by === "string" && body.by ? body.by : "board";
-        const args = { id: parts[1], by };
-        if (body.text !== undefined) args.text = body.text;
-        if (body.notes !== undefined) args.notes = body.notes;
-        if (body.yes !== undefined) args.yes = body.yes;
-        if (body.reason !== undefined) args.reason = body.reason;
+        for (const k of ["text", "notes", "reason", "by"]) if (body[k] !== undefined && typeof body[k] !== "string") throw new SfactoryError("BAD_ARGS", `"${k}" must be a string`);
+        if (body.yes !== undefined && typeof body.yes !== "boolean") throw new SfactoryError("BAD_ARGS", '"yes" must be true or false');
+        const args = { id: parts[1], by: body.by?.trim() || "board" };
+        for (const k of ["text", "notes", "yes", "reason"]) if (body[k] !== undefined) args[k] = body[k];
         // synchronous, under the job lock: nothing is awaited between here and the write
         const job = actions[ROUTES[parts[2]]](view, args);
         return sendJson(res, 200, { job });
@@ -87,7 +85,9 @@ export function startBoard(c, { port = c.board.port, host = "127.0.0.1", demoDir
       return sendJson(res, 404, { code: "NOT_FOUND" });
     } catch (e) {
       if (!(e instanceof SfactoryError)) log(`board: ${e?.code ?? e?.name ?? "error"}`);
-      return respondError(res, e);
+      respondError(res, e);
+      if (e && e.code === "TOO_LARGE") req.destroy(); // stop reading what the client is still sending
+      return;
     }
   });
 
