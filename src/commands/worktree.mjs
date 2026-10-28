@@ -8,9 +8,10 @@ import { readJob, writeJob, withJobLock, listJobs } from "../store.mjs";
 import { resolveRecord } from "../record.mjs";
 import { cut, remove, resolveBase } from "../worktree.mjs";
 import { fail } from "../errors.mjs";
-import { git, branchExists } from "../git.mjs";
-import { release } from "../lock.mjs";
+import { git, branchExists, isClean } from "../git.mjs";
+import { release, assertHolder, status, withLock } from "../lock.mjs";
 import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 
 const CUT_FIELDS = ["branch", "base", "worktree", "slug", "lockToken", "record"];
 
@@ -41,8 +42,10 @@ export function cutJob(c, id, { slug, afterAdd, fetch = true, baseOf, warn = (m)
   const undo = () => {
     const left = [];
     try { if (existsSync(made.worktree)) git(["worktree", "remove", "--force", made.worktree], { cwd: c.repoRoot }); } catch { left.push(`worktree ${made.worktree}`); }
-    // cut() added this worktree. Before branch -D: a registered worktree whose folder is gone (or that remove
-    // could not delete) still holds the branch, so prune the stale entry first.
+    // Unconditional here (unlike cut()'s own rollback): this undo runs only after cut() returned, so the worktree
+    // was added. Before branch -D, a registered worktree whose folder is gone still holds the branch, and only a
+    // prune frees it. `git worktree prune` is repo-wide: it drops every entry whose folder is gone, as git's own
+    // gc would, and touches no folder that exists.
     try { git(["worktree", "prune"], { cwd: c.repoRoot }); } catch { /* best effort: branch -D names what is left */ }
     try { if (branchExists(c.repoRoot, made.branch)) git(["branch", "-D", made.branch], { cwd: c.repoRoot }); } catch { left.push(`branch ${made.branch}`); }
     try { release(c, `worktree:${made.slug}`, { holder: made.id, token: made.lockToken }); } catch { left.push(`lock worktree:${made.slug}`); }
@@ -71,18 +74,51 @@ export function removeJob(c, id, { force = false } = {}) {
   });
 }
 
+/**
+ * The one merge the factory makes: a pushed parallel partner's branch into this card's branch, before this card
+ * pushes (design §6: cards cut from the same head merge the earlier one; never a rebase). A merge commit always
+ * (--no-ff), a fixed message, no trailer, under the commit lock. A conflict is aborted and named, never resolved.
+ */
+export async function mergePartner(c, id, partnerId) {
+  if (typeof partnerId !== "string" || !partnerId || partnerId === id) fail("BAD_ARGS", "merge needs --from <the partner card's id>");
+  const job = readJob(c, id), p = readJob(c, partnerId);
+  if (job.parallel !== "approved" && p.parallel !== "approved") fail("NOT_PARALLEL", `${id} and ${partnerId} are not an approved parallel pair`);
+  if (!["pushed", "merged"].includes(p.stage)) fail("PARTNER_NOT_PUSHED", `${partnerId} is ${p.stage}; merge it in once it has pushed`);
+  if (job.stage !== "pushing") fail("NOT_PUSHING", `${id} is ${job.stage}; the partner is merged in at pushing, before the push`);
+  if (!job.worktree || !existsSync(job.worktree)) fail("BAD_ARGS", `${id} has no worktree`);
+  const lockName = `worktree:${job.slug}`;
+  if (!status(c, lockName).held) fail("NOT_HOLDER", `${lockName} is not held; ${id} does not own its worktree`);
+  assertHolder(c, lockName, { holder: id, token: job.lockToken });
+  const prefix = c.worktrees.branchPrefix;
+  if (!p.branch || !prefix || !p.branch.startsWith(prefix)) fail("BRANCH_REFUSED", `${partnerId}'s branch "${p.branch}" is outside ${prefix}*`);
+  if (!isClean(job.worktree)) fail("DIRTY_TREE", `uncommitted changes in ${job.worktree}`);
+  const message = `merge: ${p.branch} into ${job.branch} (parallel milestones)`;
+  return withLock(c, "commit", { holder: id, waitMs: 60_000 }, async () => {
+    const r = spawnSync("git", ["merge", "--no-ff", "--no-edit", "-m", message, p.branch], { cwd: job.worktree, encoding: "utf8" });
+    if (r.error) fail("GIT_FAILED", `git not runnable: ${r.error.message}`);
+    if (r.status !== 0) {
+      const files = git(["diff", "--name-only", "--diff-filter=U"], { cwd: job.worktree, allowFail: true }).split(/\r?\n/).filter(Boolean);
+      git(["merge", "--abort"], { cwd: job.worktree, allowFail: true });
+      if (files.length) fail("MERGE_CONFLICT", `${p.branch} conflicts with ${job.branch} in: ${files.join(", ")}; the merge was aborted`);
+      fail("GIT_FAILED", `git merge ${p.branch} (in ${job.worktree}): ${(r.stderr || r.stdout).trim()}`);
+    }
+    return { branch: p.branch, head: git(["rev-parse", "HEAD"], { cwd: job.worktree }) };
+  });
+}
+
 /** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
-export const ACCEPTS = { verbs: ["cut", "remove", "base"], flags: ["slug", "force", "no-fetch", "base-of"] };
+export const ACCEPTS = { verbs: ["cut", "remove", "base", "merge"], flags: ["slug", "force", "no-fetch", "base-of", "from"] };
 
 register("worktree", async ({ positional: [verb, id], flags }, io) => {
   const c = loadConfig(findRepoRoot(io.cwd));
   if (verb === "base") { const b = resolveBase(c, { fetch: flags["no-fetch"] !== true }); io.stdout(`${b.branch} ${b.head}\n`); return 0; }
-  if (!id) fail("BAD_ARGS", "usage: sfactory worktree cut <id> [--slug s] [--base-of <partner id>] | sfactory worktree remove <id> [--force] | sfactory worktree base");
+  if (!id) fail("BAD_ARGS", "usage: sfactory worktree cut <id> [--slug s] [--base-of <partner id>] | sfactory worktree remove <id> [--force] | sfactory worktree merge <id> --from <partner id> | sfactory worktree base");
   if (verb === "cut") {
     const j = cutJob(c, id, { slug: flags.slug, fetch: flags["no-fetch"] !== true, warn: io.stderr, ...(flags["base-of"] !== undefined ? { baseOf: flags["base-of"] } : {}) });
     io.stdout(`${j.id} ${j.branch} ${j.worktree} (base ${j.base.branch} ${j.base.head.slice(0, 7)}) lock token ${j.lockToken}\n`);
     return 0;
   }
   if (verb === "remove") { removeJob(c, id, { force: flags.force === true }); io.stdout(`${id} worktree removed\n`); return 0; }
+  if (verb === "merge") { const m = await mergePartner(c, id, flags.from); io.stdout(`${id} merged ${m.branch} at ${m.head}\n`); return 0; }
   fail("UNKNOWN_COMMAND", `worktree ${verb}`);
 }, ACCEPTS);
