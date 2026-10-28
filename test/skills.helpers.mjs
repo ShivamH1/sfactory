@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { commands, usages } from "../src/registry.mjs";
 
 // Shared by test/skills.test.mjs and Task 7's skill tests; not a test file itself.
 export const READ_ONLY_TOOLS = new Set(["Read", "Grep", "Glob"]);
@@ -32,4 +33,36 @@ export function selfTest() {
     assert.equal(samples.length, SECRET_SHAPES.length);
     SECRET_SHAPES.forEach((re, i) => assert.match(samples[i], re, `shape ${i}`));
   });
+}
+
+/** The `sfactory …` command lines of a Markdown text: single-backtick spans, and lines inside fenced code that start with "sfactory ". */
+export function commandLines(text) {
+  const out = [];
+  for (const m of text.matchAll(/(?<!`)`(sfactory [^`\n]+)`(?!`)/g)) out.push(m[1]);
+  let fence = null;
+  for (const line of text.split("\n")) {
+    const f = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      if (f && f[0] === fence[0] && f.length >= fence.length && line.trim() === f) fence = null;
+      else if (/^\s*sfactory /.test(line)) out.push(line.trim());
+    } else if (f) fence = f;
+  }
+  return out;
+}
+
+/** Problems of one command line against the CLI's own usage tables (src/commands/*, registered with each command). */
+export function commandProblems(line) {
+  const words = line.split(/\s+/);
+  const verb = words[1];
+  if (!commands.has(verb)) return [`unknown command "sfactory ${verb}"`];
+  const u = usages.get(verb);
+  if (!u) return [`"sfactory ${verb}" has no usage table`];
+  const out = [];
+  if (u.verbs && words[2] && /^[a-z]/.test(words[2]) && !u.verbs.includes(words[2])) out.push(`unknown "sfactory ${verb} ${words[2]}"`);
+  for (const w of words) {
+    if (w === "--") break; // the rest are paths (sfactory commit … -- <paths>)
+    const f = /^--([a-z-]+)/.exec(w)?.[1];
+    if (f && !u.flags.includes(f)) out.push(`"sfactory ${verb}" has no --${f}`);
+  }
+  return out;
 }

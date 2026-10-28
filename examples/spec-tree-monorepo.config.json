@@ -1,14 +1,14 @@
 {
   "$schema": "https://raw.githubusercontent.com/ShivamH1/sfactory/main/schema/config.json",
-  "project": "thrive-rewards",
+  "project": "acme",
   "agents": {
     "mode": "mixed",
     "claude": { "plan": "opus/high", "review": "opus/high", "judge": "opus/high", "implement": "sonnet", "triage": "haiku" },
     "codex": { "implement": "implement", "review": "review" }
   },
-  "stateDir": "C:/tw-wt/_sfactory",
+  "stateDir": "../worktrees/_sfactory",
   "worktrees": {
-    "dir": "C:/tw-wt",
+    "dir": "../worktrees",
     "branchPrefix": "feature/",
     "baseRule": "newest-feature-branch",
     "integrationBranch": "development",
@@ -19,12 +19,12 @@
     "suite": "pnpm test",
     "suiteSerial": true,
     "build": "pnpm build",
-    "typecheck": ["pnpm --filter @thrive/web exec tsc -b --force", "pnpm --filter @thrive/admin exec tsc -b --force"],
+    "typecheck": ["pnpm --filter @acme/web exec tsc -b --force", "pnpm --filter @acme/admin exec tsc -b --force"],
     "migrate": "pnpm migrate:deploy",
     "services": [
-      { "name": "api", "cmd": "pnpm --filter @thrive/api exec tsx src/server.ts", "port": "api", "env": { "PORT": "{port.api}", "CORS_ORIGIN": "http://localhost:{port.web}", "WEB_APP_URL": "http://localhost:{port.web}" } },
-      { "name": "worker", "cmd": "pnpm --filter @thrive/api exec tsx src/worker.ts", "live": true },
-      { "name": "web", "cmd": "pnpm --filter @thrive/web dev --port {port.web}", "env": { "VITE_API_URL": "http://localhost:{port.api}" } }
+      { "name": "api", "cmd": "pnpm --filter @acme/api exec tsx src/server.ts", "port": "api", "env": { "PORT": "{port.api}", "CORS_ORIGIN": "http://localhost:{port.web}", "WEB_APP_URL": "http://localhost:{port.web}" } },
+      { "name": "worker", "cmd": "pnpm --filter @acme/api exec tsx src/worker.ts", "live": true },
+      { "name": "web", "cmd": "pnpm --filter @acme/web dev --port {port.web}", "env": { "VITE_API_URL": "http://localhost:{port.api}" } }
     ]
   },
   "ports": { "base": 4100, "step": 100, "names": ["api", "admin", "web"] },

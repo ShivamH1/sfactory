@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KNOWN_PLACEHOLDERS, PLACEHOLDERS } from "../src/placeholders.mjs";
-import { READ_ONLY_TOOLS, checkCommon, selfTest } from "./skills.helpers.mjs";
+import { READ_ONLY_TOOLS, checkCommon, selfTest, commandLines, commandProblems } from "./skills.helpers.mjs";
 import { main as _registerCommands } from "../src/cli.mjs"; // importing cli.mjs registers every command module
 import { commands } from "../src/registry.mjs";
 import { usages } from "../src/registry.mjs";
@@ -295,38 +295,6 @@ test("sdd: every dispatch block carries its agent's full field set", () => {
   for (const a of ["implementer", "spec-reviewer", "code-reviewer", "judge", "triage"]) assert.ok(byAgent.get(a) > 0, `a dispatch block for sfactory:${a}`);
   assert.ok(blocks.some((b) => b[1] === "sfactory:code-reviewer" && b[2]), "a code-reviewer re-review block");
 });
-
-/** The `sfactory …` command lines of a Markdown text: single-backtick spans, and lines inside fenced code that start with "sfactory ". */
-function commandLines(text) {
-  const out = [];
-  for (const m of text.matchAll(/(?<!`)`(sfactory [^`\n]+)`(?!`)/g)) out.push(m[1]);
-  let fence = null;
-  for (const line of text.split("\n")) {
-    const f = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
-    if (fence) {
-      if (f && f[0] === fence[0] && f.length >= fence.length && line.trim() === f) fence = null;
-      else if (/^\s*sfactory /.test(line)) out.push(line.trim());
-    } else if (f) fence = f;
-  }
-  return out;
-}
-
-/** Problems of one command line against the CLI's own usage tables (src/commands/*, registered with each command). */
-function commandProblems(line) {
-  const words = line.split(/\s+/);
-  const verb = words[1];
-  if (!commands.has(verb)) return [`unknown command "sfactory ${verb}"`];
-  const u = usages.get(verb);
-  if (!u) return [`"sfactory ${verb}" has no usage table`];
-  const out = [];
-  if (u.verbs && words[2] && /^[a-z]/.test(words[2]) && !u.verbs.includes(words[2])) out.push(`unknown "sfactory ${verb} ${words[2]}"`);
-  for (const w of words) {
-    if (w === "--") break; // the rest are paths (sfactory commit … -- <paths>)
-    const f = /^--([a-z-]+)/.exec(w)?.[1];
-    if (f && !u.flags.includes(f)) out.push(`"sfactory ${verb}" has no --${f}`);
-  }
-  return out;
-}
 
 test("commandLines: backtick spans and fenced lines are read; problems name bad verbs, sub-verbs and flags", () => {
   const t = ["Run `sfactory job show <JOB>` first.", "", "```bash", "sfactory job bogus m-1", "  sfactory commit --cwd a --m \"x\" -- --not-a-flag.txt", "```", "", "sfactory job set outside a fence"].join("\n");

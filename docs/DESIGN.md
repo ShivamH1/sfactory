@@ -114,15 +114,15 @@ Committed in the adopting repo's root. Every path is relative to the repo unless
 ```jsonc
 {
   "$schema": "https://raw.githubusercontent.com/ShivamH1/sfactory/main/schema/config.json",
-  "project": "thrive-rewards",
+  "project": "acme",
   "agents": {
     "mode": "mixed",                      // claude | codex | mixed
     "claude": { "plan": "opus/high", "review": "opus/high", "judge": "opus/high", "implement": "sonnet", "triage": "haiku" },
-    "codex":  { "implement": "implement", "review": "review" }   // profile names in ~/.codex/config.toml
+    "codex":  { "implement": "implement", "review": "review" }   // profile names: files ~/.codex/<name>.config.toml
   },
-  "stateDir": "C:/tw-wt/_sfactory",       // default: <repo>/.sfactory (gitignored by init)
+  "stateDir": "../worktrees/_sfactory",       // default: <repo>/.sfactory (gitignored by init)
   "worktrees": {
-    "dir": "C:/tw-wt",
+    "dir": "../worktrees",
     "branchPrefix": "feature/",
     "baseRule": "newest-feature-branch",  // newest-feature-branch | integration-branch | <branch name>
     "integrationBranch": "development",
@@ -133,12 +133,12 @@ Committed in the adopting repo's root. Every path is relative to the repo unless
     "suite": "pnpm test",
     "suiteSerial": true,                  // never two at once
     "build": "pnpm build",
-    "typecheck": ["pnpm --filter @thrive/web exec tsc -b --force", "pnpm --filter @thrive/admin exec tsc -b --force"],
+    "typecheck": ["pnpm --filter @acme/web exec tsc -b --force", "pnpm --filter @acme/admin exec tsc -b --force"],
     "migrate": "pnpm migrate:deploy",
     "services": [
-      { "name": "api",    "cmd": "pnpm --filter @thrive/api exec tsx src/server.ts", "port": "api",   "env": { "PORT": "{port.api}", "CORS_ORIGIN": "http://localhost:{port.web}", "WEB_APP_URL": "http://localhost:{port.web}" } },
-      { "name": "worker", "cmd": "pnpm --filter @thrive/api exec tsx src/worker.ts", "live": true },
-      { "name": "web",    "cmd": "pnpm --filter @thrive/web dev --port {port.web}", "env": { "VITE_API_URL": "http://localhost:{port.api}" } }
+      { "name": "api",    "cmd": "pnpm --filter @acme/api exec tsx src/server.ts", "port": "api",   "env": { "PORT": "{port.api}", "CORS_ORIGIN": "http://localhost:{port.web}", "WEB_APP_URL": "http://localhost:{port.web}" } },
+      { "name": "worker", "cmd": "pnpm --filter @acme/api exec tsx src/worker.ts", "live": true },
+      { "name": "web",    "cmd": "pnpm --filter @acme/web dev --port {port.web}", "env": { "VITE_API_URL": "http://localhost:{port.api}" } }
     ]
   },
   "ports": { "base": 4100, "step": 100, "names": ["api", "admin", "web"] },
@@ -164,7 +164,7 @@ Committed in the adopting repo's root. Every path is relative to the repo unless
 }
 ```
 
-The block above is the reference project's config, used as the worked example because it exercises every key. Nothing in the pipeline depends on any value in it: `project` is only the name the board shows and the key that keeps two projects' state apart on one machine. Every key has a generic default, and `sfactory init` writes the file from what it finds in the repo, so a new adopter never starts from this block. The same file for a plain Node project, with every default left out, is this:
+The block above is the worked example of a spec-tree monorepo (`examples/spec-tree-monorepo.config.json`, with generic names), used because it exercises every key. Nothing in the pipeline depends on any value in it: `project` is only the name the board shows and the key that keeps two projects' state apart on one machine. Every key has a generic default, and `sfactory init` writes the file from what it finds in the repo, so a new adopter never starts from this block. The same file for a plain Node project, with every default left out, is this:
 
 ```jsonc
 {
@@ -203,7 +203,7 @@ sfactory/
   board/dashboard.html
   schema/config.json
   examples/
-    thrive-rewards.config.json  minimal-node.config.json  python-uv.config.json
+    spec-tree-monorepo.config.json  minimal-node.config.json  python-uv.config.json
     jobs/                       a finished run's job folders, for the board and the tests
   docs/DESIGN.md  INSTALL.md  README.md  LICENSE (MIT)
   test/                         node --test over bin/
@@ -261,7 +261,7 @@ The session's `/sfactory` commands do the same things, so either surface works. 
 
 - Implement: `codex exec --cd <worktree> --profile <agents.codex.implement> --sandbox workspace-write` with the task brief on stdin and the output captured to `tasks/<n>/codex.log`. The sandbox and network flags are config because `pnpm install` and generated clients differ by project; `doctor` runs a probe once and records what works.
 - Review: `codex review` on the task's commit range, or the branch, with the review prompt; output to `tasks/<n>/code-review.md`.
-- Profiles: `INSTALL.md` gives the two `[profiles.*]` blocks to add to `~/.codex/config.toml`; the plugin never edits that file.
+- Profiles: `INSTALL.md` gives the two profile files, `~/.codex/implement.config.toml` and `~/.codex/review.config.toml`, selected with `-p`; the plugin never writes them.
 - Rules: `bin/sync-rules.mjs` keeps every file in `rules` identical to the first (so `AGENTS.md` equals `CLAUDE.md`) and refuses to run an agent while they differ.
 
 ## 14. Install
