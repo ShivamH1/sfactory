@@ -147,6 +147,18 @@ test/ plan.entry.test.mjs independence.deps.test.mjs push.guard.test.mjs job.cap
 
 ---
 
+**Amendment (2026-10-28, controller, from the Plan C reviews; binding for Task 8):**
+- The worktree is cut when a card ENTERS planning, not at building: on `backlog` -> `planning` run `sfactory worktree cut <id>` (milestone and fix cards alike) before brainstorming, skip it when `job.worktree` is already set (resume, changes requested), and hand WORKTREE to brainstorming and writing-plans; the brief, stories and plan are written and committed inside the worktree. At `awaiting-approval`, tell the person the brief and plan are on the card branch in WORKTREE (the board shows only job-folder files). `building` no longer cuts.
+- `fixcard` and `independence` take the plan as `<WORKTREE>/<record.plan>` (absolute path).
+- allowed-tools must cover what the skills really run: `Bash(sfactory *)`, `Bash(sfactory-* *)`, `Bash(git *)` (the sdd skill uses `git -C <WORKTREE> ...`, `git ... status --porcelain`, `git diff`), `Bash(bash *)` (the sdd `task-brief` script), `Read`, `Write` (job-folder files), `Agent`.
+- Agent activity: `sfactory job touch <id> --note "<start|finish> <role> ..."` at every agent start and finish (best effort; skipped outside working stages).
+- Every subagent dispatch passes a model ALIAS from `agents.claude.*`; per-dispatch effort cannot be set (config effort applies to Codex profiles only).
+- Codex never commits; its final message is its report; the orchestrator commits the declared paths with `sfactory commit` and runs the full suite through `sfactory suite` after each Codex task.
+- After each task commit `git -C <WORKTREE> status --porcelain` must be empty, else STOP the card ("task wrote outside its declared files").
+- Reviews are stored as `reviews/<n>-<stage>.md` in the job folder, verdict on the first line.
+- At the branch fix-round cap (`FIX_ROUNDS_EXHAUSTED`), park the card `decision-needed` with the open findings; never move to `verifying` while the judge, the bug-hunt or a scoped re-review says Needs fixes.
+- A second commit in this task, `fix(skills): Task 7 review minors`, carries: writing-plans hand-over touch moved before `job set awaiting-approval`; writing-plans CHANGES item 4 and brainstorming CHANGES item 8 marked "(superseded by 15)"; the sdd Fixing paragraph (branch fixer logs to `suite-<r>.log`; one meaning of `<k>`; branch-level TASK/FINDINGS are the brief and `review/round-<k>/brief.md`; codex/mixed re-reviewer is `sfactory codex review`); the sdd verdict rule names a scoped re-review NOT ADDRESSED as blocking; `cutJob` undo in src/commands/worktree.mjs runs `git worktree prune` before `branch -D` when it added the worktree.
+
 ### Task 9: Install docs, versions, package check, first run
 
 **Files:** Create `INSTALL.md`; rewrite `README.md`; modify `.claude-plugin/plugin.json` and `package.json` (version `0.2.0`), `examples/thrive-rewards.config.json` (anonymise if the owner says so).

@@ -57,9 +57,9 @@ Only `bin/job` writes `job.json`, and only along these edges.
 | Stage | Column | What runs | Leaves behind | Next |
 |---|---|---|---|---|
 | `backlog` | Backlog | nothing | `job.json` | `planning` |
-| `planning` | Plan | milestone: the adapted brainstorming skill with the person, then the adapted writing-plans skill; fix: a one-page brief | the record's brief and plan; `plan/questionnaire.md` | `awaiting-approval` (milestone) · `building` (fix) |
+| `planning` | Plan | the worktree is cut on entry; milestone: the adapted brainstorming skill with the person, then the adapted writing-plans skill; fix: a one-page brief | the record's brief and plan; `plan/questionnaire.md` | `awaiting-approval` (milestone) · `building` (fix) |
 | `awaiting-approval` | Needs you | parked | `plan/approval.md` on release | `building` |
-| `building` | In process | worktree cut; the task loop (§5); one log entry per task; commits at each boundary | `tasks/<n>/*`; the record's log | `reviewing` |
+| `building` | In process | the task loop (§5); one log entry per task; commits at each boundary | `tasks/<n>/*`; the record's log | `reviewing` |
 | `reviewing` | Review | whole-branch bug-hunt, then the judge against the brief's done-whens | `review/bug-hunt.md`, `review/judge.md` | `fixing` · `verifying` |
 | `fixing` | Fixed | findings fixed, full suite, back to the judge; at most `limits.fixRounds` rounds | `review/round-<k>/*` | `reviewing` · `stopped` |
 | `verifying` | Fixed | takes the `live` lock; the project's verify steps: migrations, services on the card's ports, scripted or headed walkthrough, staging calls | `verify/suite.log`, `verify/walkthrough.md` | `pushing` · `fixing` |
