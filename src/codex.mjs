@@ -39,7 +39,8 @@ export function codexOnPath(env = process.env, platform = process.platform) {
 export const codexHomeDir = (env = process.env) => env.CODEX_HOME || join(homedir(), ".codex");
 export const profileFile = (name, home = codexHomeDir()) => join(home, `${name}.config.toml`);
 
-const quoteWin = (a) => (/[\s"&|<>^%()]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);
+/** Quote for cmd.exe: backslashes before a quote are doubled, and so are trailing ones, so a path ending in a backslash cannot escape the closing quote. */
+export const quoteWin = (a) => (/[\s"&|<>^%()]/.test(a) ? `"${a.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"` : a);
 const NOOP = () => {};
 /**
  * Returns the child and the function that stops following the parent's signals. Off win32 the child is
@@ -76,7 +77,7 @@ export function usageOf(ev) {
 
 /** The model named in a profile file, or null. */
 export function profileModel(name, home = codexHomeDir()) {
-  try { return /^\s*model\s*=\s*"([^"]+)"/m.exec(readFileSync(profileFile(name, home), "utf8"))?.[1] ?? null; } catch { return null; }
+  try { return (() => { const m = /^\s*model\s*=\s*(?:"([^"]+)"|'([^']+)')/m.exec(readFileSync(profileFile(name, home), "utf8")); return m?.[1] ?? m?.[2] ?? null; })(); } catch { return null; }
 }
 
 async function runExecLike(c, { args, cwd, prompt, outDir, logName, timeoutMs, spawn, env }) {
@@ -123,11 +124,16 @@ export async function runCodexExec(c, { cwd, profile, prompt, sandbox = "workspa
   return runExecLike(c, { args, cwd, prompt, outDir, logName: "codex.jsonl", timeoutMs, spawn, env });
 }
 
-/** `codex exec -C <cwd> -p <profile> -s read-only review (--base|--commit) --json -o <file> -`: exec's own flags carry the profile and sandbox, which plain `codex review` lacks. */
+/**
+ * `codex exec -C <cwd> -p <profile> -s read-only review --json -o <file> -`: exec's own flags carry the profile and sandbox,
+ * which plain `codex review` lacks. A custom prompt cannot be combined with --base/--commit, so the target is the first
+ * line of the prompt instead.
+ */
 export async function runCodexReview(c, { cwd, base, commit, prompt, profile, outDir, timeoutMs = 3_600_000, spawn = nodeSpawn, which = () => codexOnPath(), codexHome = codexHomeDir(), env = process.env }) {
   if ((base == null) === (commit == null)) fail("BAD_ARGS", "codex review needs exactly one of base or commit");
   preflight({ profile, which, home: codexHome, requireProfile: true });
-  const args = ["exec", "-C", cwd, "-p", profile, "-s", "read-only", "review", ...(base != null ? ["--base", base] : ["--commit", commit]), "--json", "-o", join(outDir, "last-message.md"), "-"];
-  const r = await runExecLike(c, { args, cwd, prompt, outDir, logName: "codex-review.jsonl", timeoutMs, spawn, env });
+  const args = ["exec", "-C", cwd, "-p", profile, "-s", "read-only", "review", "--json", "-o", join(outDir, "last-message.md"), "-"];
+  const target = base != null ? `Review the changes on this branch against ${base}: run \`git diff ${base}...HEAD\` to see them.` : `Review commit ${commit}: run \`git show ${commit}\` to see it.`;
+  const r = await runExecLike(c, { args, cwd, prompt: `${target}\n\n${prompt}`, outDir, logName: "codex-review.jsonl", timeoutMs, spawn, env });
   return { ...r, text: r.lastMessage };
 }

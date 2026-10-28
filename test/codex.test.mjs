@@ -6,7 +6,7 @@ import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpRepo, tmpDir, writeConfig } from "./helpers.mjs";
 import { loadConfig } from "../src/config.mjs";
-import { filterEnv, runCodexExec, runCodexReview, usageOf, profileModel } from "../src/codex.mjs";
+import { filterEnv, runCodexExec, runCodexReview, usageOf, profileModel, quoteWin } from "../src/codex.mjs";
 import { readCost } from "../src/cost.mjs";
 import { main } from "../src/cli.mjs";
 import { runDoctor } from "../src/doctor.mjs";
@@ -117,10 +117,13 @@ test("review: runs exec review under the review profile and a read-only sandbox,
   const r = await runCodexReview(c, { cwd: "/w", base: "main", profile: "review", prompt: "review this", outDir: out, spawn, which: () => true, codexHome: home });
   assert.deepEqual([r.ok, r.text], [true, "findings\n"]);
   assert.deepEqual(r.usage, { inputTokens: 9, outputTokens: 1, cacheReadTokens: 0 });
-  assert.equal(joined(calls[0]), `exec -C /w -p review -s read-only review --base main --json -o ${join(out, "last-message.md")} -`);
-  assert.equal(calls[0].stdin, "review this");
+  assert.equal(joined(calls[0]), `exec -C /w -p review -s read-only review --json -o ${join(out, "last-message.md")} -`);
+  assert.ok(!joined(calls[0]).includes("--base") && !joined(calls[0]).includes("--commit"), "a custom prompt cannot be combined with --base/--commit");
+  assert.equal(calls[0].stdin, "Review the changes on this branch against main: run `git diff main...HEAD` to see them.\n\nreview this");
   await runCodexReview(c, { cwd: "/w", commit: "abc123", profile: "review", prompt: "p", outDir: tmpDir("sf-out-"), spawn, which: () => true, codexHome: home });
-  assert.match(joined(calls[1]), /-s read-only review --commit abc123 --json/);
+  assert.match(joined(calls[1]), /-s read-only review --json/);
+  assert.ok(!joined(calls[1]).includes("--commit"));
+  assert.equal(calls[1].stdin, "Review commit abc123: run `git show abc123` to see it.\n\np");
   const base = { cwd: "/w", profile: "review", prompt: "p", outDir: tmpDir("sf-out-"), spawn, which: () => true, codexHome: home };
   await assert.rejects(runCodexReview(c, { ...base, codexHome: homeWith(), base: "a" }), { code: "CODEX_PROFILE_MISSING" });
   await assert.rejects(runCodexReview(c, base), { code: "BAD_ARGS" });
@@ -156,6 +159,8 @@ test("profileModel reads the model from the profile file, null when absent", () 
   const d = tmpDir("sf-chome-");
   writeFileSync(join(d, "a.config.toml"), "# c\nmodel = \"m-9\"\nmodel_reasoning_effort = \"high\"\n");
   writeFileSync(join(d, "b.config.toml"), "model_reasoning_effort = \"high\"\n");
+  writeFileSync(join(d, "c.config.toml"), "model = 'lit-1'\n");
+  assert.equal(profileModel("c", d), "lit-1");
   assert.equal(profileModel("a", d), "m-9"); assert.equal(profileModel("b", d), null); assert.equal(profileModel("zz", d), null);
 });
 
@@ -202,8 +207,17 @@ test("cli codex: records cost (model from the profile file), validates --job bef
   const before = seen.length;
   assert.equal(await main(["codex", "exec", "--cwd", ".", "--profile", "implement", "--out", "o", "--job", "no-such-job"], io({ runners })), 2);
   assert.equal(seen.length, before, "a bad --job must fail before Codex runs");
-  assert.equal(await main(["codex", "exec", "--cwd", ".", "--out", "o"], io({ runners })), 2);
-  assert.equal(await main(["codex", "review", "--cwd", ".", "--base", "main", "--out", "o"], io({ runners })), 2);
+  // the profile defaults from the config when the flag is absent
+  const n = seen.length;
+  assert.equal(await main(["codex", "exec", "--cwd", ".", "--out", "o"], io({ runners })), 0, errs.join(""));
+  assert.equal(seen[n].profile, "implement");
+  assert.equal(await main(["codex", "review", "--cwd", ".", "--base", "main", "--out", "o"], io({ runners })), 0, errs.join(""));
+  assert.equal(seen[n + 1].profile, "review");
+  // a review that timed out says so
+  const timedRunners = { ...runners, review: async () => ({ ok: false, text: "", timedOut: true, logPath: "l" }) };
+  errs.length = 0;
+  assert.equal(await main(["codex", "review", "--cwd", ".", "--base", "main", "--out", "o"], io({ runners: timedRunners })), 1);
+  assert.match(errs.join(""), /timed out/);
 });
 
 test("doctor honours CODEX_HOME for the profile files", () => {
@@ -224,4 +238,12 @@ test("live (opt-in): runCodexExec read-only and the exec review form", { skip: p
   assert.equal(r.ok, true, r.lastMessage);
   const v = await runCodexReview(c, { cwd: root, base: "main", profile: "review", prompt: "review the diff briefly", outDir: tmpDir("sf-live-"), timeoutMs: 300_000 });
   assert.equal(v.ok, true, v.text);
+});
+
+test("quoteWin: a trailing backslash cannot escape the closing quote; embedded quotes are escaped", () => {
+  assert.equal(quoteWin("plain"), "plain");
+  assert.equal(quoteWin("C:\\my dir\\"), '"C:\\my dir\\\\"');
+  assert.equal(quoteWin("a b"), '"a b"');
+  assert.equal(quoteWin('say "hi" now'), '"say \\"hi\\" now"');
+  assert.equal(quoteWin('x\\"y z'), '"x\\\\\\"y z"');
 });

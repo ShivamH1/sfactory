@@ -23,7 +23,8 @@ register("codex", async ({ positional: [verb], flags }, io) => {
   const prompt = await readStdin(io);
   if (!prompt.trim()) fail("BAD_ARGS", "the prompt (stdin) is empty");
   const run = io.runners ?? { exec: runCodexExec, review: runCodexReview };
-  const profile = need(flags, "profile");
+  const profile = typeof flags.profile === "string" ? flags.profile : c.agents?.codex?.[verb === "exec" ? "implement" : "review"];
+  if (typeof profile !== "string" || !profile) fail("BAD_ARGS", `codex needs --profile (or agents.codex.${verb === "exec" ? "implement" : "review"} in the config)\n${USAGE}`);
   if (typeof flags.job === "string") readJob(c, flags.job); // a bad job id fails before Codex is run
   const record = (usage) => {
     if (!usage || typeof flags.job !== "string") return;
@@ -37,6 +38,7 @@ register("codex", async ({ positional: [verb], flags }, io) => {
   }
   const r = await run.review(c, { cwd, prompt, outDir, profile, ...(typeof flags.base === "string" ? { base: flags.base } : {}), ...(typeof flags.commit === "string" ? { commit: flags.commit } : {}) });
   record(r.usage);
+  if (r.timedOut) io.stderr("codex review timed out\n");
   io.stdout(r.text.endsWith("\n") ? r.text : r.text + "\n");
   return r.ok ? 0 : 1;
 });
