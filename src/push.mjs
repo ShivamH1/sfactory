@@ -24,7 +24,7 @@ export function push(c, { cwd, remote = "origin" }) {
   if (!prefix) fail("BRANCH_REFUSED", "branchPrefix is empty; refusing to push");
   const branch = currentBranch(cwd);
   if (!branch || !branch.startsWith(prefix)) fail("BRANCH_REFUSED", `only ${prefix}* branches are pushed; on "${branch || "(detached)"}"`);
-  const integ = c.worktrees.integrationBranch;
+  const integ = integration({ ...c, repoRoot: cwd });
   if (PROTECTED.includes(branch) || (integ && branch === integ)) fail("BRANCH_REFUSED", `"${branch}" is a protected branch and is never pushed by the factory`);
   if (!isClean(cwd)) fail("DIRTY_TREE", `uncommitted changes in ${cwd}`);
   if (c.git.trailers !== true) {

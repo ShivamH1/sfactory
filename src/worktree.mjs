@@ -9,7 +9,7 @@ import { acquireSync, assertHolder, release } from "./lock.mjs";
 export function resolveBase(c, { fetch = true } = {}) {
   const cwd = c.repoRoot;
   if (fetch && git(["remote"], { cwd }).split(/\s+/).includes("origin")) {
-    const r = spawnSync("git", ["fetch", "--quiet", "origin"], { cwd, encoding: "utf8", timeout: 60_000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+    const r = fetchOrigin(cwd);
     if (r.error || r.status !== 0) process.stderr.write(`warning: git fetch origin failed (${oneLine(r.error?.message ?? r.stderr)}); using local refs\n`);
   }
   const rule = c.worktrees.baseRule;
@@ -17,14 +17,37 @@ export function resolveBase(c, { fetch = true } = {}) {
   if (rule === "newest-feature-branch") branch = newestBranch(cwd, c.worktrees.branchPrefix) ?? integration(c);
   else if (rule === "integration-branch") branch = integration(c);
   else branch = rule;
-  if (!branchExists(cwd, branch)) fail("BASE_NOT_FOUND", `base branch ${branch} does not exist`);
-  const local = headOf(cwd, branch);
   const remote = remoteHead(cwd, branch);
-  if (!remote || remote === local) return { branch, head: local };
-  if (branchContains(cwd, remote, local)) return { branch, head: remote };
+  if (!branchExists(cwd, branch)) {
+    if (!remote) fail("BASE_NOT_FOUND", `base branch ${branch} does not exist`);
+    return { branch, ref: `origin/${branch}`, head: remote };
+  }
+  const local = headOf(cwd, branch);
+  if (!remote || remote === local) return { branch, ref: branch, head: local };
+  if (branchContains(cwd, remote, local)) return { branch, ref: `origin/${branch}`, head: remote };
   if (!branchContains(cwd, local, remote)) process.stderr.write(`warning: ${branch} and origin/${branch} have diverged; using local ${branch}\n`);
-  return { branch, head: local };
+  return { branch, ref: branch, head: local };
 }
+/**
+ * git fetch that can never prompt. It runs under a small node wrapper so that, on timeout, the whole
+ * process tree (git-remote-https and friends) is killed with killTree, not just git.
+ */
+const FETCH_WRAPPER = `
+import { spawn } from "node:child_process";
+import { killTree } from ${JSON.stringify(new URL("./suite.mjs", import.meta.url).href)};
+const p = spawn("git", ["fetch", "--quiet", "origin"], { stdio: ["ignore", "ignore", "pipe"] });
+let err = "";
+p.stderr.on("data", (d) => { err += d; });
+const t = setTimeout(() => { killTree(p); process.stderr.write("fetch timed out"); process.exit(124); }, Number(process.env.SF_FETCH_TIMEOUT_MS) || 60000);
+p.on("error", (e) => { clearTimeout(t); process.stderr.write(e.message); process.exit(1); });
+p.on("close", (code) => { clearTimeout(t); process.stderr.write(err); process.exit(code ?? 1); });
+`;
+export function fetchOrigin(cwd, { timeoutMs = 60_000 } = {}) {
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never", SF_FETCH_TIMEOUT_MS: String(timeoutMs) };
+  if (!process.env.GIT_SSH_COMMAND) env.GIT_SSH_COMMAND = "ssh -o BatchMode=yes";
+  return spawnSync(process.execPath, ["--input-type=module", "-e", FETCH_WRAPPER], { cwd, encoding: "utf8", timeout: timeoutMs + 15_000, env });
+}
+const hasBranch = (cwd, b) => branchExists(cwd, b) || remoteHead(cwd, b) !== null;
 /** One line, URL credentials (scheme://user:pass@) removed, capped. */
 export function oneLine(s) {
   const first = String(s ?? "").trim().split(/\r?\n/)[0] ?? "";
@@ -33,7 +56,7 @@ export function oneLine(s) {
 }
 export function integration(c) {
   if (c.worktrees.integrationBranch) return c.worktrees.integrationBranch;
-  return ["development", "develop", "main", "master"].find((b) => branchExists(c.repoRoot, b)) ?? "main";
+  return ["development", "develop", "main", "master"].find((b) => hasBranch(c.repoRoot, b)) ?? "main";
 }
 
 /**
@@ -61,8 +84,8 @@ export function cut(c, job, { slug, afterAdd, fetch = true } = {}) {
     git(["worktree", "add", "-b", branch, dir, base.head], { cwd: c.repoRoot });
     worktreeAdded = true;
     if (afterAdd) afterAdd();
-    const after = headOf(c.repoRoot, base.branch);
-    if (after !== base.head) fail("BASE_MOVED", `${base.branch} moved from ${base.head} to ${after} during the cut; re-run`);
+    const after = headOf(c.repoRoot, base.ref);
+    if (after !== base.head) fail("BASE_MOVED", `${base.ref} moved from ${base.head} to ${after} during the cut; re-run`);
     const baseDir = worktreeOfBranch(c.repoRoot, base.branch);
     for (const rel of c.worktrees.copyFromBase) {
       const from = baseDir ? join(baseDir, rel) : null;

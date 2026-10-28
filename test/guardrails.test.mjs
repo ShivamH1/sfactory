@@ -8,7 +8,7 @@ import { newJob, transition } from "../src/job.mjs";
 import { validateConfig, loadConfig } from "../src/config.mjs";
 import { allocate } from "../src/ports.mjs";
 import { acquire, status } from "../src/lock.mjs";
-import { resolveBase } from "../src/worktree.mjs";
+import { resolveBase, cut } from "../src/worktree.mjs";
 import { headOf } from "../src/git.mjs";
 import { checkFixCard, globToRegExp } from "../src/fixcard.mjs";
 import { parsePlan } from "../src/plan.mjs";
@@ -229,4 +229,60 @@ test("worktree: oneLine keeps the first line only and redacts URL credentials", 
   const out = oneLine("fatal: unable to access 'https://user:pa55@host.example/r.git/': boom\nsecond line https://u:p@h/");
   assert.equal(out, "fatal: unable to access 'https://***@host.example/r.git/': boom");
   assert.ok(!out.includes("pa55") && !out.includes("\n"));
+});
+
+test("round 2: integration branch known only as origin/development (no local one) is development for push and resolveBase", () => {
+  const { r } = repoWithRemote();
+  sh("git", ["checkout", "-q", "-b", "development"], r);
+  commit(r, "d.txt", "dev work\n\nCo-Authored-By: Someone <s@example.com>");
+  sh("git", ["push", "-q", "origin", "development"], r);
+  sh("git", ["checkout", "-q", "-b", "feature/dv2"], r);
+  commit(r, "f.txt", "clean");
+  sh("git", ["branch", "-D", "development"], r);
+  const c = cfg();
+  assert.equal(integration({ repoRoot: r, worktrees: { integrationBranch: null } }), "development");
+  assert.equal(push(c, { cwd: r }).branch, "feature/dv2");
+  const rb = resolveBase({ repoRoot: r, worktrees: { baseRule: "integration-branch", integrationBranch: null, branchPrefix: "feature/" } }, { fetch: false });
+  assert.equal(rb.ref, "origin/development");
+});
+
+test("round 2: cut with a local base lagging origin succeeds and is based on origin's head", () => {
+  const { r, bare } = repoWithRemote();
+  const other = tmpDir("sf-other-"); sh("git", ["clone", "-q", "-b", "main", bare, other], other);
+  sh("git", ["config", "user.email", "t@example.com"], other); sh("git", ["config", "user.name", "t"], other);
+  const moved = commit(other, "m.txt", "moved"); sh("git", ["push", "-q", "origin", "main"], other);
+  const wt = tmpDir("sf-wt-");
+  const c = { repoRoot: r, stateDir: tmpDir("sf-g-"), limits: { lockStaleMs: 1000 }, worktrees: { baseRule: "integration-branch", integrationBranch: "main", branchPrefix: "feature/", dir: wt, copyFromBase: [], afterCut: [] } };
+  const job = cut(c, newJob({ id: "m-1", kind: "milestone", title: "Lagging" }), {});
+  assert.equal(sh("git", ["rev-parse", "HEAD"], job.worktree), moved);
+});
+
+test("round 2: push protects a derived integration branch (integrationBranch null)", () => {
+  const { r } = repoWithRemote();
+  sh("git", ["checkout", "-q", "-b", "development"], r);
+  sh("git", ["push", "-q", "origin", "development"], r);
+  const c = cfg(); c.worktrees.branchPrefix = "";
+  c.worktrees.branchPrefix = "dev";
+  assert.throws(() => push(c, { cwd: r }), (e) => e.code === "BRANCH_REFUSED" && /protected/.test(e.message));
+});
+
+test("round 2: a fetch that outlives its timeout is killed with its children; the environment forbids prompts", async () => {
+  const { fetchOrigin } = await import("../src/worktree.mjs");
+  const { readFileSync, existsSync } = await import("node:fs");
+  const d = tmpDir("sf-ssh-");
+  const pidFile = join(d, "pid"), envFile = join(d, "env");
+  writeFileSync(join(d, "slow.mjs"), `import{writeFileSync}from"node:fs";writeFileSync(${JSON.stringify(pidFile)},String(process.pid));writeFileSync(${JSON.stringify(envFile)},String(process.env.GCM_INTERACTIVE)+","+process.env.GIT_TERMINAL_PROMPT);setTimeout(()=>{},60000);`);
+  const r = tmpRepo();
+  sh("git", ["remote", "add", "origin", "ssh://example.invalid/x.git"], r);
+  const old = process.env.GIT_SSH_COMMAND;
+  process.env.GIT_SSH_COMMAND = `"${process.execPath}" "${join(d, "slow.mjs")}"`;
+  let res;
+  try { res = fetchOrigin(r, { timeoutMs: 4000 }); } finally { if (old === undefined) delete process.env.GIT_SSH_COMMAND; else process.env.GIT_SSH_COMMAND = old; }
+  assert.equal(res.status, 124);
+  assert.match(res.stderr, /timed out/);
+  assert.equal(readFileSync(envFile, "utf8"), "never,0");
+  const pid = Number(readFileSync(pidFile, "utf8"));
+  await new Promise((r2) => setTimeout(r2, 500));
+  let alive = true; try { process.kill(pid, 0); } catch { alive = false; }
+  assert.equal(alive, false, "the ssh child is gone");
 });
