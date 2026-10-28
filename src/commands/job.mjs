@@ -6,13 +6,18 @@ import { actions } from "../job-actions.mjs";
 import { fail } from "../errors.mjs";
 import { WORKING } from "../job.mjs";
 import { jobDir } from "../store.mjs";
+import { assertNotSecret } from "../commit.mjs";
 
-/** The person's notes for request-changes: exactly one of --notes "<text>" and --notes-file <path> (read relative to the cwd). */
-function changeNotes(flags, cwd) {
+/**
+ * The person's notes for request-changes: exactly one of --notes "<text>" and --notes-file <path> (read relative to
+ * the cwd). A path covered by secrets.neverHandToAgents is refused before it is read (SECRET_PATH), as commit refuses it.
+ */
+function changeNotes(c, flags, cwd) {
   const file = flags["notes-file"];
   if ((flags.notes !== undefined) === (file !== undefined)) fail("BAD_ARGS", 'usage: sfactory job request-changes <id> (--notes "<text>" | --notes-file <path>)');
   if (file === undefined) return flags.notes;
   if (typeof file !== "string") fail("BAD_ARGS", "--notes-file needs a path");
+  assertNotSecret(c, [file], { cwd });
   try { return readFileSync(resolve(cwd, file), "utf8"); } catch (e) { fail("BAD_ARGS", `--notes-file ${file}: ${e.code ?? e.message}`); }
 }
 
@@ -46,7 +51,7 @@ register("job", async ({ positional, flags }, io) => {
   const c = loadConfig(findRepoRoot(io.cwd));
   const args = { ...sub[name](rest, flags), ...(typeof flags.by === "string" ? { by: flags.by } : {}) };
   if (name === "add" && (!args.kind || !rest.slice(1).length)) fail("BAD_ARGS", 'usage: sfactory job add <milestone|fix> "<title>" [--log <n>, fix only]');
-  if (name === "request-changes") args.notes = changeNotes(flags, io.cwd);
+  if (name === "request-changes") args.notes = changeNotes(c, flags, io.cwd);
   const out = actions[name === "request-changes" ? "requestChanges" : name](c, args);
   if (name === "request-changes") { io.stdout(`${out.id} ${out.stage} ${join(jobDir(c, out.id), out.history.at(-1).file)}\n`); return 0; }
   if (name === "list") {

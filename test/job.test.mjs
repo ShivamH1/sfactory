@@ -272,3 +272,21 @@ test("job cmd: add fix --log <n> records logOf; a milestone, zero or a non-numbe
     assert.equal(r.code, 2, bad.join(" ")); assert.match(r.err, /BAD_ARGS/);
   }
 });
+
+test("job cmd: request-changes --notes-file refuses a path listed in secrets.neverHandToAgents, and reads nothing from it", async () => {
+  const { writeFileSync, existsSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = tmpRepo();
+  writeConfig(root, { project: "p", agents: { mode: "claude" }, commands: { suite: "x" }, secrets: { neverHandToAgents: ["private/keys.txt"] } });
+  const c = loadConfig(root);
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(join(root, "private"), { recursive: true });
+  writeFileSync(join(root, "private", "keys.txt"), "TOKEN-VALUE\n");
+  await run(root, ["job", "add", "milestone", "M"]);
+  for (const s of ["planning", "awaiting-approval"]) await run(root, ["job", "set", "m-1", s]);
+  for (const p of ["private/keys.txt", "private"]) {
+    const r = await run(root, ["job", "request-changes", "m-1", "--notes-file", p]);
+    assert.equal(r.code, 2, p); assert.match(r.err, /SECRET_PATH/);
+  }
+  assert.equal(existsSync(join(c.stateDir, "jobs", "m-1", "plan", "changes-1.md")), false);
+});
