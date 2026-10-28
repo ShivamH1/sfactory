@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Extract one task's full text from an implementation plan into a file the
+# implementer reads in one call, so the task text never has to be pasted
+# through the orchestrator's context.
+#
+# Usage: task-brief PLAN_FILE TASK_ID OUTFILE
+# OUTFILE is the task's brief in the card's job folder:
+# <stateDir>/jobs/<id>/tasks/<TASK_ID>/brief.md (its folder is created).
+#
+# A task runs from its heading ("## Task N:" or "### Task N:") to the next
+# heading at the same level or above; fenced code (``` or ~~~, closed only by
+# a fence of the same character at least as long) is never read as a heading.
+set -euo pipefail
+
+if [ $# -ne 3 ]; then
+  echo "usage: task-brief PLAN_FILE TASK_ID OUTFILE" >&2
+  exit 2
+fi
+
+plan=$1
+n=$2
+out=$3
+[ -f "$plan" ] || { echo "no such plan file: $plan" >&2; exit 2; }
+printf '%s' "$n" | grep -Eq '^[0-9]+[a-z]?$' || { echo "bad task id: $n" >&2; exit 2; }
+mkdir -p "$(dirname "$out")"
+
+awk -v n="$n" '
+  function run(s, c,   k) { k = 0; while (substr(s, k + 1, 1) == c) k++; return k }
+  {
+    t = $0; sub(/^ ? ? ?/, "", t)
+    c = substr(t, 1, 1)
+    k = (c == "`" || c == "~") ? run(t, c) : 0
+    if (infence) {
+      if (c == fc && k >= fl && substr(t, k + 1) ~ /^[ \t]*$/) infence = 0
+    } else if (k >= 3) {
+      infence = 1; fc = c; fl = k
+    } else if (t ~ /^#+[ \t]/) {
+      level = run(t, "#")
+      if (tolower(t) ~ ("^#+[ \t]+task[ \t]+" n "[ \t]*:")) { intask = 1; tasklevel = level }
+      else if (intask && level <= tasklevel) intask = 0
+    }
+    if (intask) print
+  }
+' "$plan" > "$out"
+
+if [ ! -s "$out" ]; then
+  echo "task ${n} not found in ${plan} (no heading matching 'Task ${n}:')" >&2
+  exit 3
+fi
+
+echo "wrote ${out}: $(wc -l < "$out" | tr -d ' ') lines"

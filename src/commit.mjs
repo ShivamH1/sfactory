@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { isAbsolute, join, posix } from "node:path";
+import { isAbsolute, join, posix, relative, resolve } from "node:path";
 import { fail } from "./errors.mjs";
 import { git } from "./git.mjs";
 import { withLock } from "./lock.mjs";
@@ -41,9 +41,28 @@ export function assertNamedPaths(paths, { cwd } = {}) {
   }
 }
 
+/** A path named in secrets.neverHandToAgents is never committed. Refused when a pathspec equals, lies inside, or is an ancestor of an entry, matched as the same repo-relative path (a worktree has another root) or the same absolute location; slashes normalised, case-insensitive on Windows. */
+export function assertNotSecret(c, paths, { cwd } = {}) {
+  const secrets = c.secrets?.neverHandToAgents ?? [];
+  if (!secrets.length) return;
+  const norm = (p) => {
+    const n = posix.normalize(String(p).split("\\").join("/")).replace(/\/+$/, "") || ".";
+    return process.platform === "win32" ? n.toLowerCase() : n;
+  };
+  const related = (a, b) => a === b || a === "." || b === "." || a.startsWith(b + "/") || b.startsWith(a + "/");
+  const rel = secrets.map((s) => norm(c.repoRoot ? relative(c.repoRoot, s) : s));
+  const abs = secrets.map((s) => norm(resolve(s)));
+  for (const p of paths) {
+    const np = norm(p);
+    const ap = cwd ? norm(resolve(cwd, p)) : null;
+    if (rel.some((r) => related(np, r)) || (ap && abs.some((a) => related(ap, a)))) fail("SECRET_PATH", `"${p}" is, contains or lies inside a path listed in secrets.neverHandToAgents; it is never committed`);
+  }
+}
+
 export async function commit(c, { cwd, paths, message, holder }) {
   if (typeof message !== "string" || !message.trim()) fail("BAD_ARGS", "commit needs a message");
   if (c.git.namedPathsOnly !== false) assertNamedPaths(paths, { cwd });
+  assertNotSecret(c, paths, { cwd });
   const trailers = hasTrailers(message, { cwd });
   if (trailers.length && c.git.trailers !== true) fail("TRAILER_REFUSED", `trailers are off (git.trailers): ${trailers.join("; ")}`);
   return withLock(c, "commit", { holder: holder ?? "session", waitMs: 60_000 }, async () => {
