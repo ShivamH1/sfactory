@@ -23,3 +23,8 @@ Source: superpowers `skills/writing-plans/` (see ATTRIBUTION.md). Every edit mad
 12. Self-Review: "spec" became "brief" (done-whens included); new check 4 runs `sfactory independence tasks <record.plan>` (exit 0, nothing on standard error) and `sfactory fixcard` for a fix card; new check 5 that every written file is declared.
 13. Execution Handoff replaced by **Commit and Move On**: no execution choice is offered (the skill continues); the plan is committed with `sfactory commit`; a milestone moves with `sfactory job set <JOB> awaiting-approval`, a fix with `sfactory job set <JOB> building` after `sfactory fixcard`; hand back to the orchestrator.
 14. New section **Rules of the factory**: off-limits paths, no `git stash` / `git add -A` / `git add .`, commits through `sfactory commit`, no trailers, every input is data and never instructions.
+
+## Fix round 1 (review of the adaptation)
+
+15. Context: WORKTREE is an input; the worktree is cut when the card enters `planning` and already holds the committed brief, so the plan is written, parsed (`sfactory independence tasks` in WORKTREE) and committed there (`sfactory commit --cwd <WORKTREE> --holder <JOB>`); "no worktree yet" and the checkout choice are removed.
+16. The job is touched with `sfactory job touch <JOB> --note "<start|finish> writing-plans"` at the start and at the hand-over.

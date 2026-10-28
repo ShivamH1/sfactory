@@ -5,6 +5,9 @@ import { fail } from "../errors.mjs";
 import { findRepoRoot, validateConfig } from "../config.mjs";
 import { inspectRepo, writeInit, CONFIG_FILE } from "../init.mjs";
 
+/** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
+export const ACCEPTS = { verbs: null, flags: ["force"] };
+
 register("init", (args, io) => {
   const root = findRepoRoot(io.cwd);
   if (existsSync(join(root, CONFIG_FILE)) && args.flags.force !== true) fail("CONFIG_EXISTS", `${join(root, CONFIG_FILE)} exists; use --force to replace it`);
@@ -19,4 +22,4 @@ register("init", (args, io) => {
   if (ignored) io.stdout("added .sfactory/ to .gitignore\n");
   io.stdout("review the file, then run: sfactory doctor\n");
   return 0;
-});
+}, ACCEPTS);

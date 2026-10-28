@@ -14,6 +14,9 @@ function parsePort(v) {
   return n;
 }
 
+/** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
+export const ACCEPTS = { verbs: null, flags: ["port", "demo", "once"] };
+
 register("board", async ({ flags }, io) => {
   if (flags.port === true) fail("BAD_ARGS", "--port needs a number");
   const demo = flags.demo === true;
@@ -31,4 +34,4 @@ register("board", async ({ flags }, io) => {
   await new Promise((resolve) => { process.once("SIGINT", resolve); process.once("SIGTERM", resolve); });
   await close();
   return 0;
-});
+}, ACCEPTS);

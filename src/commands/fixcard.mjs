@@ -6,6 +6,9 @@ import { findRepoRoot, loadConfig } from "../config.mjs";
 import { parsePlan } from "../plan.mjs";
 import { checkFixCard } from "../fixcard.mjs";
 
+/** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
+export const ACCEPTS = { verbs: null, flags: [] };
+
 register("fixcard", async ({ positional: [file] }, io) => {
   if (!file) fail("BAD_ARGS", "usage: sfactory fixcard <plan>");
   const c = loadConfig(findRepoRoot(io.cwd));
@@ -17,4 +20,4 @@ register("fixcard", async ({ positional: [file] }, io) => {
   for (const h of r.hits) io.stdout(`${h.file}  matches ${h.pattern}\n`);
   io.stdout("refile this card as a milestone\n");
   return 1;
-});
+}, ACCEPTS);

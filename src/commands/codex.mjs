@@ -6,7 +6,7 @@ import { fail } from "../errors.mjs";
 import { runCodexExec, runCodexReview, profileModel } from "../codex.mjs";
 import { resolve } from "node:path";
 
-const USAGE = "usage: sfactory codex exec --cwd <dir> --profile <p> --out <dir> [--sandbox s] [--job id --stage s --model m] < prompt\n       sfactory codex review --cwd <dir> (--base <b>|--commit <sha>) --profile <p> --out <dir> [--job id] < prompt";
+const USAGE = "usage: sfactory codex exec --cwd <dir> --profile <p> --out <dir> [--sandbox s] [--job id --stage s --model m] < prompt\n       sfactory codex review --cwd <dir> (--base <b>|--commit <sha>) --profile <p> --out <dir> [--job id --stage s --model m] < prompt";
 
 async function readStdin(io) {
   if (io.stdin) return io.stdin();
@@ -15,6 +15,9 @@ async function readStdin(io) {
   return Buffer.concat(chunks).toString("utf8");
 }
 const need = (flags, name) => { if (typeof flags[name] !== "string") fail("BAD_ARGS", `codex needs --${name}\n${USAGE}`); return flags[name]; };
+
+/** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
+export const ACCEPTS = { verbs: ["exec", "review"], flags: ["cwd", "profile", "out", "sandbox", "job", "stage", "model", "base", "commit"] };
 
 register("codex", async ({ positional: [verb], flags }, io) => {
   if (verb !== "exec" && verb !== "review") fail(verb ? "UNKNOWN_COMMAND" : "BAD_ARGS", verb ? `codex ${verb}` : USAGE);
@@ -45,4 +48,4 @@ ${USAGE}`);
   if (r.timedOut) io.stderr("codex review timed out\n");
   io.stdout(r.text.endsWith("\n") ? r.text : r.text + "\n");
   return r.ok ? 0 : 1;
-});
+}, ACCEPTS);

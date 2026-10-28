@@ -23,6 +23,9 @@ const sub = {
   list: () => ({}),
 };
 
+/** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
+export const ACCEPTS = { verbs: Object.keys(sub), flags: ["by", "json", "reason", "pending", "yes", "no", "notes", "note"] };
+
 register("job", async ({ positional, flags }, io) => {
   const [name, ...rest] = positional;
   if (!Object.hasOwn(sub, name ?? "")) fail("UNKNOWN_COMMAND", `job ${name ?? ""}; one of ${Object.keys(sub).join(", ")}`);
@@ -35,4 +38,4 @@ register("job", async ({ positional, flags }, io) => {
     return 0;
   }
   return done(io, out, name === "show" ? { json: true } : flags);
-});
+}, ACCEPTS);

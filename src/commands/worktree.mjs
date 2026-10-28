@@ -47,6 +47,9 @@ export function removeJob(c, id, { force = false } = {}) {
   });
 }
 
+/** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
+export const ACCEPTS = { verbs: ["cut", "remove", "base"], flags: ["slug", "force", "no-fetch"] };
+
 register("worktree", async ({ positional: [verb, id], flags }, io) => {
   const c = loadConfig(findRepoRoot(io.cwd));
   if (verb === "base") { const b = resolveBase(c, { fetch: flags["no-fetch"] !== true }); io.stdout(`${b.branch} ${b.head}\n`); return 0; }
@@ -58,4 +61,4 @@ register("worktree", async ({ positional: [verb, id], flags }, io) => {
   }
   if (verb === "remove") { removeJob(c, id, { force: flags.force === true }); io.stdout(`${id} worktree removed\n`); return 0; }
   fail("UNKNOWN_COMMAND", `worktree ${verb}`);
-});
+}, ACCEPTS);

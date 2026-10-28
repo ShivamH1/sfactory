@@ -8,7 +8,7 @@ export const PLACEHOLDERS = {
   worktree: { doc: "Absolute path of the card's worktree.", producer: "worktree.mjs (job record)" },
   secrets: { doc: "A description of the paths under secrets.neverHandToAgents, never the paths themselves.", producer: "prompt renderer (constant sentence)" },
   files: { doc: "The files the task may touch, one per line.", producer: "plan.mjs (task file list)" },
-  test_command: { doc: "The suite command from config.", producer: "config.mjs (commands.suite)" },
+  test_command: { doc: "The focused tests the task runs (named from its brief), never the full suite: the orchestrator runs the full suite (commands.suite) under the suite lock after Codex finishes and adds its count.", producer: "orchestrator (sdd skill, from the task brief)" },
   brief: { doc: "Path of the brief in the record.", producer: "config record paths" },
   plan: { doc: "Path of the plan in the record.", producer: "config record paths" },
   log: { doc: "Path of the decision log in the record.", producer: "config record paths" },

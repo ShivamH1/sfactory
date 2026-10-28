@@ -7,6 +7,9 @@ import { readJob, writeJob, withJobLock } from "../store.mjs";
 import { allocate, isFree } from "../ports.mjs";
 import { fail } from "../errors.mjs";
 
+/** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
+export const ACCEPTS = { verbs: ["allocate", "free"], flags: [] };
+
 register("ports", async ({ positional: [verb, arg] }, io) => {
   const c = loadConfig(findRepoRoot(io.cwd));
   if (verb === "allocate") {
@@ -29,4 +32,4 @@ register("ports", async ({ positional: [verb, arg] }, io) => {
     return free ? 0 : 1;
   }
   fail("UNKNOWN_COMMAND", `ports ${verb}`);
-});
+}, ACCEPTS);

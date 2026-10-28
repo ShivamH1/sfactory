@@ -6,6 +6,9 @@ import { jobDir, readJob } from "../store.mjs";
 import { runSuite } from "../suite.mjs";
 import { fail } from "../errors.mjs";
 
+/** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
+export const ACCEPTS = { verbs: null, flags: ["cwd", "job", "log"] };
+
 register("suite", async ({ flags }, io) => {
   const c = loadConfig(findRepoRoot(io.cwd));
   const job = flags.job;
@@ -19,4 +22,4 @@ register("suite", async ({ flags }, io) => {
   io.stdout(`${r.ok ? `ok (${r.durationMs} ms)` : r.signal ? `red (signal ${r.signal})` : `red (exit ${r.code})`}\n`);
   if (r.tail) io.stdout(`${r.tail}\n`);
   return r.code ?? 1;
-});
+}, ACCEPTS);

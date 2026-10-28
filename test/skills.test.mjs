@@ -5,11 +5,11 @@ import { readdirSync, readFileSync, existsSync, mkdtempSync, writeFileSync, rmSy
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { KNOWN_PLACEHOLDERS } from "../src/placeholders.mjs";
+import { KNOWN_PLACEHOLDERS, PLACEHOLDERS } from "../src/placeholders.mjs";
 import { READ_ONLY_TOOLS, checkCommon, selfTest } from "./skills.helpers.mjs";
 import { main as _registerCommands } from "../src/cli.mjs"; // importing cli.mjs registers every command module
 import { commands } from "../src/registry.mjs";
-import { actions } from "../src/job-actions.mjs";
+import { usages } from "../src/registry.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -219,10 +219,47 @@ test("brainstorming: the brief goes to record.brief, stories first, questionnair
   assert.match(t, /record\.brief/);
   assert.match(t, /record\.stories/);
   assert.match(t, /plan\/questionnaire\.md/);
-  assert.match(t, /sfactory commit --cwd <checkout> --holder <JOB>/);
-  assert.match(t, /sfactory job set <JOB> awaiting-approval/);
   assert.match(t, /sfactory:writing-plans/);
   assert.ok(!/visual companion|visual-companion|start-server/i.test(t), "the visual companion is removed");
+});
+
+test("planning happens in the card's worktree: brainstorming and writing-plans write and commit with --cwd <WORKTREE>", () => {
+  for (const s of ["brainstorming", "writing-plans"]) {
+    const t = read(join(skillsRoot, s, "SKILL.md"));
+    assert.match(t, /\*\*WORKTREE\*\*/, `${s}: WORKTREE is an input`);
+    assert.match(t, /sfactory commit --cwd <WORKTREE> --holder <JOB>/, `${s}: commits in the worktree`);
+    assert.ok(!t.includes("<checkout>"), `${s}: no other checkout`);
+    assert.match(t, /cut when the card enters `planning`/, `${s}: the worktree exists from planning`);
+  }
+  assert.match(read(join(skillsRoot, "brainstorming", "SKILL.md")), /sfactory job set <JOB> awaiting-approval/);
+  assert.match(read(join(skillsRoot, "sdd", "SKILL.md")), /cut when the card entered `planning`/);
+});
+
+test("every agent start and finish is a job touch; no agents.log", () => {
+  const t = read(join(skillsRoot, "sdd", "SKILL.md"));
+  assert.match(t, /sfactory job touch <JOB> --note "<start\|finish> <role> task <n> <alias\|profile>"/);
+  assert.ok(!t.includes("agents.log"), "the agents.log stand-in is gone");
+  for (const s of ["brainstorming", "writing-plans"]) assert.match(read(join(skillsRoot, s, "SKILL.md")), /sfactory job touch <JOB> --note/, `${s}: touches the job`);
+});
+
+test("sdd: the branch fixer is chosen per design §3 and the branch cap has one rule", () => {
+  const t = read(join(skillsRoot, "sdd", "SKILL.md"));
+  const fixing = t.slice(t.indexOf("**Fixing.**"));
+  assert.ok(t.indexOf("**Fixing.**") > 0, "a Fixing paragraph");
+  assert.match(fixing, /`claude` and `mixed`: a fresh `sfactory:implementer`/);
+  assert.match(fixing, /`codex`: `sfactory codex exec`/);
+  assert.match(t, /Never move the card to `verifying` while the latest judge verdict is ❌/);
+  assert.match(t, /FIX_ROUNDS_EXHAUSTED[^\n]*sfactory job park <JOB>/);
+  assert.ok(!/Residual findings at the cap are adjudicated/.test(t), "no second rule at the branch cap");
+  assert.match(t, /The judge — the vendor that did not write the code, except in `codex` mode/);
+  for (const m of t.matchAll(/`(sfactory codex review [^`]*)`/g)) assert.match(m[1], /--stage /, `codex review records its stage: ${m[1]}`);
+  for (const m of t.matchAll(/`(sfactory codex exec [^`]*)`/g)) assert.match(m[1], /--stage /, `codex exec records its stage: ${m[1]}`);
+  assert.match(t, /P=\(/, "the task paths are a bash array");
+  assert.match(t, /"\$\{P\[@\]\}"/, "and expanded quoted");
+  assert.match(t, /suite-<r>\.log/);
+  assert.ok(!t.includes("suite-0.log"), "one suite log name pattern");
+  assert.match(t, /untracked artefacts? (?:the|a) suite leaves/i);
+  assert.match(t, /BLOCKED[^\n]*Codex/);
 });
 
 test("sdd: roles by mode, the job folder, the cap, the judge, and every Codex placeholder rendered", () => {
@@ -233,44 +270,85 @@ test("sdd: roles by mode, the job folder, the cap, the judge, and every Codex pl
     assert.ok(t.includes(s), `names ${s}`);
   for (const p of KNOWN_PLACEHOLDERS) assert.ok(t.includes(`{{${p}}}`), `renders {{${p}}}`);
   assert.ok(!/requesting-code-review|finishing-a-development-branch|sdd-workspace|review-package/.test(t), "upstream skills and scripts are not referenced");
-  // Every field a static agent's body says the dispatch message supplies is named in the skill.
-  for (const a of ["implementer", "spec-reviewer", "code-reviewer", "judge", "triage"]) {
-    const fields = /supplies these fields: ([^\n]*?)\. /.exec(read(join(root, "agents", `${a}.md`)))?.[1] ?? "";
-    const names = fields.split(",").map((x) => x.trim().split(" ")[0]).filter(Boolean);
-    assert.ok(names.length >= 6, `${a}: fields read`);
-    for (const f of names) assert.ok(t.includes(f), `${a}: field ${f}`);
-  }
 });
 
-/** Sub-verbs and flags the CLI defines (src/commands/*); a skill may name only these. */
-const SUBS = {
-  job: Object.keys(actions).filter((k) => k !== "requestChanges"),
-  codex: ["exec", "review"], independence: ["milestones", "tasks"], worktree: ["cut", "remove", "base"],
-  lock: ["acquire", "release", "status", "clear"], services: ["up", "down", "status"], ports: ["allocate", "free"], cost: ["add", "show"],
-};
-const FLAGS = {
-  commit: ["cwd", "holder", "m", "message"], suite: ["cwd", "job", "log"], push: ["cwd"], fixcard: [], doctor: [], board: ["port", "demo", "once"],
-  codex: ["cwd", "profile", "out", "sandbox", "job", "stage", "model", "base", "commit"], independence: ["max", "allow-undeclared"],
-  job: ["reason", "by", "json", "pending", "yes", "no", "notes"], cost: ["stage", "agent", "model", "in", "out", "cache-read", "usd"],
-  worktree: ["slug", "force", "no-fetch"], lock: ["holder", "token", "wait", "pid", "stale-ms", "durable", "guard"], services: [], ports: [],
-};
+/** The field names an agent's body says the dispatch message supplies (parentheticals dropped). */
+const agentFields = (a) => (/supplies these fields: ([^\n]*?)\. /.exec(read(join(root, "agents", `${a}.md`)))?.[1] ?? "")
+  .replace(/\([^)]*\)/g, "").split(",").map((x) => x.trim()).filter(Boolean);
 
-test("skills: every sfactory command line uses a registered verb, a defined sub-verb and defined flags", () => {
-  let seen = 0;
+test("sdd: every dispatch block carries its agent's full field set", () => {
+  const t = read(join(skillsRoot, "sdd", "SKILL.md"));
+  // A dispatch block may sit inside a list item, indented: "   ```" / "   # sfactory:judge" / … / "   ```".
+  const blocks = [...t.matchAll(/^( *)```\n\1# (sfactory:[a-z-]+)( re-review)?\n([\s\S]*?)^\1```/gm)].map((m) => [m[0], m[2], m[3], m[4]]);
+  const byAgent = new Map();
+  for (const [, agent, rereview, body] of blocks) {
+    const name = agent.slice("sfactory:".length);
+    const fields = agentFields(name);
+    assert.ok(fields.length >= 6, `${name}: fields read`);
+    const present = new Set([...body.matchAll(/^ *([A-Z_]+): /gm)].map((m) => m[1]));
+    for (const f of fields) {
+      if (f === "FINDINGS" && !rereview) continue; // a re-review only
+      assert.ok(present.has(f), `${agent}${rereview ?? ""}: field ${f}`);
+    }
+    byAgent.set(name, (byAgent.get(name) ?? 0) + 1);
+  }
+  for (const a of ["implementer", "spec-reviewer", "code-reviewer", "judge", "triage"]) assert.ok(byAgent.get(a) > 0, `a dispatch block for sfactory:${a}`);
+  assert.ok(blocks.some((b) => b[1] === "sfactory:code-reviewer" && b[2]), "a code-reviewer re-review block");
+});
+
+/** The `sfactory …` command lines of a Markdown text: single-backtick spans, and lines inside fenced code that start with "sfactory ". */
+function commandLines(text) {
+  const out = [];
+  for (const m of text.matchAll(/(?<!`)`(sfactory [^`\n]+)`(?!`)/g)) out.push(m[1]);
+  let fence = null;
+  for (const line of text.split("\n")) {
+    const f = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      if (f && f[0] === fence[0] && f.length >= fence.length && line.trim() === f) fence = null;
+      else if (/^\s*sfactory /.test(line)) out.push(line.trim());
+    } else if (f) fence = f;
+  }
+  return out;
+}
+
+/** Problems of one command line against the CLI's own usage tables (src/commands/*, registered with each command). */
+function commandProblems(line) {
+  const words = line.split(/\s+/);
+  const verb = words[1];
+  if (!commands.has(verb)) return [`unknown command "sfactory ${verb}"`];
+  const u = usages.get(verb);
+  if (!u) return [`"sfactory ${verb}" has no usage table`];
+  const out = [];
+  if (u.verbs && words[2] && /^[a-z]/.test(words[2]) && !u.verbs.includes(words[2])) out.push(`unknown "sfactory ${verb} ${words[2]}"`);
+  for (const w of words) {
+    if (w === "--") break; // the rest are paths (sfactory commit … -- <paths>)
+    const f = /^--([a-z-]+)/.exec(w)?.[1];
+    if (f && !u.flags.includes(f)) out.push(`"sfactory ${verb}" has no --${f}`);
+  }
+  return out;
+}
+
+test("commandLines: backtick spans and fenced lines are read; problems name bad verbs, sub-verbs and flags", () => {
+  const t = ["Run `sfactory job show <JOB>` first.", "", "```bash", "sfactory job bogus m-1", "  sfactory commit --cwd a --m \"x\" -- --not-a-flag.txt", "```", "", "sfactory job set outside a fence"].join("\n");
+  assert.deepEqual(commandLines(t), ["sfactory job show <JOB>", "sfactory job bogus m-1", "sfactory commit --cwd a --m \"x\" -- --not-a-flag.txt"]);
+  assert.deepEqual(commandProblems("sfactory job bogus m-1"), ['unknown "sfactory job bogus"']);
+  assert.deepEqual(commandProblems("sfactory suite --cwd a --nope"), ['"sfactory suite" has no --nope']);
+  assert.deepEqual(commandProblems("sfactory commit --cwd a --m \"x\" -- --not-a-flag.txt"), []);
+  assert.deepEqual(commandProblems("sfactory nosuch"), ['unknown command "sfactory nosuch"']);
+});
+
+test("skills: every sfactory command line, in backticks or in a fence, uses a registered verb, a defined sub-verb and defined flags", () => {
+  let seen = 0, fenced = 0;
   for (const s of SKILLS) for (const p of skillDocs(s)) {
-    for (const m of read(p).matchAll(/`(sfactory [^`]+)`/g)) {
-      const words = m[1].split(/\s+/);
-      const verb = words[1];
-      assert.ok(commands.has(verb), `${rel(p)}: unknown command "sfactory ${verb}"`);
-      if (SUBS[verb] && words[2] && /^[a-z]/.test(words[2])) assert.ok(SUBS[verb].includes(words[2]), `${rel(p)}: unknown "sfactory ${verb} ${words[2]}"`);
-      for (const w of words) {
-        const f = /^--([a-z-]+)/.exec(w)?.[1];
-        if (f) assert.ok((FLAGS[verb] ?? []).includes(f), `${rel(p)}: "sfactory ${verb}" has no --${f}`);
-      }
+    const text = read(p);
+    for (const line of commandLines(text)) {
+      assert.deepEqual(commandProblems(line), [], `${rel(p)}: ${line}`);
       seen++;
+      if (!text.includes("`" + line + "`")) fenced++;
     }
   }
   assert.ok(seen > 20, `only ${seen} command lines found`);
+  assert.ok(fenced > 0, "no fenced command line was read");
 });
 
 const hasBash = (() => { try { execFileSync("bash", ["--version"], { stdio: "ignore" }); return true; } catch { return false; } })();
@@ -286,5 +364,20 @@ test("sdd/scripts/task-brief: one task, up to the next heading of its level, fen
     assert.equal(read(join(dir, "3a.md")), ["### Task 3a: three-a", "x", "", ""].join("\n"));
     assert.throws(() => run("3", join(dir, "3.md")), "Task 3 is not Task 3a");
     assert.throws(() => run("1; rm", join(dir, "bad.md")), "a bad task id is refused");
+    // A plan saved with CRLF line ends: the task is found and the brief carries no carriage returns.
+    const crlf = join(dir, "crlf.md");
+    writeFileSync(crlf, ["# P", "", "### Task 1: one", "body", "", "### Task 2: two", "x", ""].join("\r\n"));
+    execFileSync("bash", [join(skillsRoot, "sdd", "scripts", "task-brief"), crlf, "1", join(dir, "c1.md")], { stdio: ["ignore", "pipe", "pipe"] });
+    const c1 = readFileSync(join(dir, "c1.md"), "latin1");
+    assert.equal(c1, ["### Task 1: one", "body", "", ""].join("\n"));
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("codex-implement: Codex runs focused tests only; the full suite and its count are the orchestrator's", () => {
+  const t = read(join(root, "prompts", "codex-implement.md"));
+  assert.ok(!t.includes("run the full suite once before committing"), "Codex never runs the full suite");
+  assert.match(t, /run only the focused tests \(\{\{test_command\}\}\)/i);
+  assert.match(t, /the orchestrator runs the full suite and adds its count/);
+  assert.match(PLACEHOLDERS.test_command.doc, /focused tests/);
+  assert.match(PLACEHOLDERS.test_command.doc, /orchestrator runs the full suite/);
 });

@@ -9,6 +9,9 @@ const int = (v, flag, min) => {
   return n;
 };
 
+/** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
+export const ACCEPTS = { verbs: ["acquire", "release", "status", "clear"], flags: ["holder", "token", "wait", "pid", "stale-ms", "durable", "guard"] };
+
 register("lock", async ({ positional: [verb, name], flags }, io) => {
   const c = loadConfig(findRepoRoot(io.cwd));
   if (!name) fail("BAD_ARGS", "usage: sfactory lock <acquire|release|status> <name> [--holder id] [--token t] [--wait ms] [--pid n] [--stale-ms n] [--durable] (flags without a value go last)");
@@ -34,4 +37,4 @@ register("lock", async ({ positional: [verb, name], flags }, io) => {
     return 0;
   }
   fail("UNKNOWN_COMMAND", `lock ${verb}`);
-});
+}, ACCEPTS);

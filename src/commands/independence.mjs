@@ -18,6 +18,9 @@ function tryConfig(io) {
   }
 }
 
+/** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
+export const ACCEPTS = { verbs: ["milestones", "tasks"], flags: ["max", "allow-undeclared"] };
+
 register("independence", async ({ positional, flags }, io) => {
   const [sub, ...args] = positional;
   if (sub === "milestones") {
@@ -45,4 +48,4 @@ register("independence", async ({ positional, flags }, io) => {
     return 0;
   }
   fail("BAD_ARGS", "usage: sfactory independence milestones <planA> <planB> | tasks <plan> [--max n] [--allow-undeclared]");
-});
+}, ACCEPTS);

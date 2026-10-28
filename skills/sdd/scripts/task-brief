@@ -27,6 +27,7 @@ mkdir -p "$(dirname "$out")"
 awk -v n="$n" '
   function run(s, c,   k) { k = 0; while (substr(s, k + 1, 1) == c) k++; return k }
   {
+    sub(/\r$/, "")   # a plan saved with CRLF line ends: the brief is written with LF
     t = $0; sub(/^ ? ? ?/, "", t)
     c = substr(t, 1, 1)
     k = (c == "`" || c == "~") ? run(t, c) : 0

@@ -4,6 +4,9 @@ import { commit } from "../commit.mjs";
 import { fail } from "../errors.mjs";
 
 // Single-dash -m is not parsed by parseArgs: use --m or --message.
+/** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
+export const ACCEPTS = { verbs: null, flags: ["cwd", "holder", "m", "message"] };
+
 register("commit", async ({ flags }, io) => {
   const message = flags.message ?? flags.m;
   const paths = flags.rest ?? [];
@@ -14,4 +17,4 @@ register("commit", async ({ flags }, io) => {
   const sha = await commit(c, { cwd, paths, message, holder: typeof flags.holder === "string" ? flags.holder : "session" });
   io.stdout(`${sha}\n`);
   return 0;
-});
+}, ACCEPTS);

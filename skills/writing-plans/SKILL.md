@@ -15,7 +15,9 @@ The plan is also read by scripts: `sfactory independence tasks` decides from it 
 
 **Announce at start:** "I'm using the sfactory:writing-plans skill to create the implementation plan."
 
-**Context:** You run in the card's `planning` stage, after sfactory:brainstorming. The orchestrator hands you the card's id (JOB), kind, job folder (JOB_DIR) and record paths (`record.brief`, `record.plan`, `record.log`, filled for this card). There is no worktree yet: the card's worktree is cut by `sfactory worktree cut` when the card reaches `building`, so write the plan in the checkout that holds the brief.
+**Context:** You run in the card's `planning` stage, after sfactory:brainstorming. The orchestrator hands you the card's id (JOB), kind, job folder (JOB_DIR), the **WORKTREE** and the record paths (`record.brief`, `record.plan`, `record.log`, filled for this card, relative to WORKTREE). The worktree is cut when the card enters `planning` (`sfactory worktree cut <JOB>`), and the brief is already committed there: write and commit the plan in WORKTREE, on the card's branch, so the build starts from it. Never write in the main checkout.
+
+**Touch the job** when you start and when you hand over: `sfactory job touch <JOB> --note "<start|finish> writing-plans"`. If the orchestrator runs this skill in a subagent, it touches the job when that agent starts and finishes.
 
 **Save plans to:** the card's `record.plan` path — the project's plan location for this card, never a folder of the factory's own choosing.
 
@@ -173,7 +175,7 @@ After writing the complete plan, look at the brief with fresh eyes and check the
 
 **3. Type consistency:** Do the types, method signatures, and property names you used in later tasks match what you defined in earlier tasks? A function called `clearLayers()` in Task 3 but `clearFullLayers()` in Task 7 is a bug.
 
-**4. The parser's reading:** run `sfactory independence tasks <record.plan>` from the checkout. It must exit 0, and it must print nothing on standard error: a line there names the tasks that have no `**Depends on:**` line. Check that its batches match the order you meant. For a fix card, also run `sfactory fixcard <record.plan>`; a hit means the card must be refiled as a milestone — say so to the orchestrator.
+**4. The parser's reading:** run `sfactory independence tasks <record.plan>` in WORKTREE. It must exit 0, and it must print nothing on standard error: a line there names the tasks that have no `**Depends on:**` line. Check that its batches match the order you meant. For a fix card, also run `sfactory fixcard <record.plan>`; a hit means the card must be refiled as a milestone — say so to the orchestrator.
 
 **5. Files:** does every file a task's steps write appear in that task's Files block? A test file, a fixture and a generated file count.
 
@@ -183,7 +185,7 @@ If you find issues, fix them inline. No need to re-review — just fix and move 
 
 The plan offers no execution choice: the factory builds it with sfactory:sdd once the card is in `building`. After the self-review:
 
-1. Commit the plan through the factory: `sfactory commit --cwd <checkout> --holder <JOB> --m "docs: plan for <title>" -- <record.plan>` (`<checkout>` as for the brief).
+1. Commit the plan through the factory, on the card's branch: `sfactory commit --cwd <WORKTREE> --holder <JOB> --m "docs: plan for <title>" -- <record.plan>`.
 2. Move the card:
    - a milestone: `sfactory job set <JOB> awaiting-approval --reason "brief and plan written"`. The card parks at the approval stop; the person reads the brief, the plan and `plan/questionnaire.md` (when sfactory:brainstorming wrote one) and approves on the board or with `/sfactory approve`.
    - a fix: `sfactory job set <JOB> building --reason "fix plan written"` once `sfactory fixcard` passed.

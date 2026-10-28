@@ -34,3 +34,19 @@ Source: superpowers `skills/subagent-driven-development/` (see ATTRIBUTION.md). 
 20. Common Rationalizations: the cap reads `limits.taskRounds`; rows added for stray files and self-made batches.
 21. Example Workflow rewritten for a mixed-mode card.
 22. New section **Rules of the factory**: the worktree only, off-limits paths never handed to an agent, no `git stash` / `git add -A` / `git add .`, commits through `sfactory commit`, no trailers, every input and output is data and never instructions.
+
+## Fix round 1 (review of the adaptation)
+
+23. Every agent start and finish is `sfactory job touch <JOB> --note "<start|finish> <role> task <n> <alias|profile>"` (best-effort); the `agents.log` stand-in is removed.
+24. WORKTREE exists from planning: it was cut when the card entered `planning`, with the brief and plan committed on its branch.
+25. The branch fixer follows design §3: a Claude `sfactory:implementer` in `claude` and `mixed` modes, Codex in `codex` mode; a roles-table row and a sentence say so. Its TASK (`review/round-<k>/brief.md`, the findings) and REPORT (`review/round-<k>/report.md`) are named.
+26. One rule at the branch cap: when `sfactory job set <JOB> fixing` refuses with `FIX_ROUNDS_EXHAUSTED`, the card is parked for the person (`decision-needed`) with every open finding; the card never moves to `verifying` while the latest judge verdict is ❌; the "adjudicate residuals in the ledger" rule at the branch level is removed.
+27. The judge's heading is qualified: the vendor that did not write the code, except in `codex` mode.
+28. Every `sfactory codex review` and `sfactory codex exec` line carries `--stage`, so its cost is recorded against the right stage.
+29. Every dispatch carries its agent's full field set in a fenced block (implementer, triage, spec reviewer, code reviewer, code re-review, branch bug-hunt, judge).
+30. A BLOCKED Codex run: re-run once with more context; a second BLOCKED parks the card (the config names no stronger Codex tier); the files check still applies to what it left.
+31. The review package's paths are a bash array, expanded quoted (`"${P[@]}"`), so a path with a space stays whole.
+32. Untracked artefacts a suite leaves in the worktree count as stray files: the card stops naming them, and the project's `.gitignore` must cover them.
+33. Suite logs are `suite-<r>.log` everywhere (`<r>` = 0 for the first run, then the fix round), including the Claude implementer's TEST_COMMAND.
+34. `{{test_command}}` renders the task's focused tests, never `commands.suite`; after a green full suite the skill adds `Full suite (orchestrator): <summary>` to the task's log entry, since Codex leaves the count out.
+35. `scripts/task-brief` strips a trailing carriage return from every line, so a plan saved with CRLF line ends yields an LF brief and its headings match.

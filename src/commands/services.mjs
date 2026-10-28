@@ -4,6 +4,9 @@ import { readJob } from "../store.mjs";
 import { servicesUp, servicesDown, servicesStatus } from "../services.mjs";
 import { fail } from "../errors.mjs";
 
+/** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
+export const ACCEPTS = { verbs: ["up", "down", "status"], flags: [] };
+
 register("services", async ({ positional: [verb, id] }, io) => {
   if (!["up", "down", "status"].includes(verb ?? "") || !id) fail("BAD_ARGS", "usage: sfactory services up|down|status <id>");
   const c = loadConfig(findRepoRoot(io.cwd));
@@ -23,4 +26,4 @@ register("services", async ({ positional: [verb, id] }, io) => {
   if (!rows.length) io.stdout("no services recorded\n");
   for (const s of rows) io.stdout(`${s.name} pid=${s.pid} ${s.state === "ours" ? "alive" : s.state}\n`);
   return 0;
-});
+}, ACCEPTS);

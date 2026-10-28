@@ -9,7 +9,16 @@ Help turn a card's idea into a fully formed design and brief through natural col
 
 Start by understanding the current project context, then ask questions one at a time to refine the idea. Once you understand what you're building, present the design and get the person's agreement.
 
-**Where this runs:** the sfactory orchestrator invokes this skill for one card in the `planning` stage. It hands you the card's id (JOB), its kind (`milestone` or `fix`), its title, its job folder (JOB_DIR, `<stateDir>/jobs/<id>/`) and its record paths: `record.brief`, `record.plan`, `record.log` and, when the project keeps them, `record.stories` (a glob) — each with `{id}`, `{n}` and `{slug}` already filled for this card. The brief you write is the project's own document; the job folder holds only the factory's state.
+**Where this runs:** the sfactory orchestrator invokes this skill for one card in the `planning` stage. It hands you:
+
+- **JOB** — the card's id; its kind (`milestone` or `fix`) and its title.
+- **JOB_DIR** — its job folder, `<stateDir>/jobs/<id>/`.
+- **WORKTREE** — the card's worktree, absolute. It is cut when the card enters `planning` (`sfactory worktree cut <JOB>`), so the brief, the stories and the plan are written and committed on the card's own branch and the build starts from them. Read and write the project inside WORKTREE only; never in the main checkout.
+- **The record paths** — `record.brief`, `record.plan`, `record.log` and, when the project keeps them, `record.stories` (a glob) — each with `{id}`, `{n}` and `{slug}` already filled for this card, relative to WORKTREE.
+
+The brief you write is the project's own document; the job folder holds only the factory's state.
+
+**Touch the job** when you start, each time you go back to work after waiting on the person, and when you hand over: `sfactory job touch <JOB> --note "<start|finish> brainstorming"`. The board's live pulse reads that stamp; a long dialogue without it looks idle.
 
 <HARD-GATE>
 Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have presented a design and the person has agreed to it. This applies to EVERY card regardless of perceived simplicity. Code is written only in the `building` stage, after the card's approval gate.
@@ -71,7 +80,7 @@ digraph brainstorming {
 When the config sets `record.stories`, the project writes user stories before briefs:
 
 - Read every stories document matching the `record.stories` glob that covers this card's feature, before asking your first question. Its flows, decisions and entity model bind the brief: a brief that contradicts the stories' entity model is wrong, not creative.
-- If no stories document covers the feature yet, write its stories first (a new file matching the `record.stories` glob, in the project's existing style), present them to the person, and only then go on to the design. Commit them with `sfactory commit` as for the brief.
+- If no stories document covers the feature yet, write its stories first (a new file matching the `record.stories` glob, in the project's existing style), present them to the person, and only then go on to the design. Commit them in the worktree as for the brief: `sfactory commit --cwd <WORKTREE> --holder <JOB> --m "docs: stories for <title>" -- <the stories file>`.
 - When `record.stories` is not set, skip this step.
 
 ## The Process
@@ -124,9 +133,9 @@ When the config sets `record.stories`, the project writes user stories before br
 - Use elements-of-style:writing-clearly-and-concisely skill if available
 - Commit the brief through the factory, naming the path, so the commit lock and the no-trailer rule apply:
 
-  `sfactory commit --cwd <checkout> --holder <JOB> --m "docs: brief for <title>" -- <record.brief>`
+  `sfactory commit --cwd <WORKTREE> --holder <JOB> --m "docs: brief for <title>" -- <record.brief>`
 
-  `<checkout>` is the card's worktree when it already has one, else the repository root. Never `git commit`, never `git add -A` or `git add .`.
+  The commit lands on the card's branch, in its worktree. Never `git commit`, never `git add -A` or `git add .`.
 
 **Brief Self-Review:**
 After writing the brief, look at it with fresh eyes:

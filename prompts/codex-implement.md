@@ -16,8 +16,8 @@ If the requirements, the approach, a dependency or an assumption is unclear, say
 
 1. Implement exactly what the task specifies, nothing extra (no overbuilding).
 2. Write tests, test first when the task says so. A shape assertion counts only once seen red: remove the predicate, watch it fail, restore it.
-3. Run the focused test while iterating; run the full suite once before committing ({{test_command}}). Test output must be pristine: no stray warnings or noise.
-4. Write this task's entry in {{log}}: what changed, where the plan differed from the real files (no deviations is itself a fact), what you saw red, the full-suite count. A task that is not in the log is not done.
+3. Run only the focused tests ({{test_command}}), while iterating and once more at the end. Never run the full suite: the orchestrator runs the full suite and adds its count after you finish, under a lock outside your sandbox. Test output must be pristine: no stray warnings or noise.
+4. Write this task's entry in {{log}}: what changed, where the plan differed from the real files (no deviations is itself a fact), what you saw red, the focused tests you ran and their result. Leave the full-suite count out: the orchestrator runs the full suite and adds its count. A task that is not in the log is not done.
 5. List the changed files (below).
 6. Self-review: completeness, names that say what things do, no overbuilding, tests that check behaviour and not mocks, every changed file in the list.
 7. Report.
