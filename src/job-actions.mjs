@@ -29,13 +29,18 @@ export const actions = {
       return writeJob(c, transition(job, "building", { by, reason: "approved" }));
     });
   },
-  park(c, { id, reason, pending, by = "session" }) {
+  park(c, { id, reason, pending, with: partner, by = "session" }) {
     return locked(c, id, (job) => {
       if (typeof reason !== "string") fail("BAD_ARGS", "park needs --reason");
       if (pending !== undefined && pending !== "decision" && pending !== "parallel") fail("BAD_ARGS", 'pending must be "decision" or "parallel"');
       const kind = pending === "parallel" ? "parallel" : "decision";
+      // A parallel proposal names the one card it would run beside; worktree cut --base-of and merge --from check it.
+      if (kind === "parallel" && (typeof partner !== "string" || !partner)) fail("BAD_ARGS", "a parallel park needs --with <the partner card's id>");
+      if (kind !== "parallel" && partner !== undefined) fail("BAD_ARGS", "--with names a parallel partner; it goes with --pending parallel only");
+      if (kind === "parallel") { if (partner === job.id) fail("BAD_ARGS", "--with names another card"); readJob(c, partner); }
       const next = park(job, { by, reason, pending: kind });
-      if (kind === "parallel") writeJobFile(c, job.id, "plan/parallel.md", `# Parallel proposal
+      if (kind === "parallel") next.parallelWith = partner;
+      if (kind === "parallel") writeJobFile(c, job.id, "plan/parallel.md", `# Parallel proposal: ${job.id} beside ${partner}
 
 ${reason}
 

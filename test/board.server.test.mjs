@@ -64,7 +64,7 @@ test("server: answer releases a parked job; parallel no queues; request-changes"
   for (const s of ["planning", "building"]) actions.set(c, { id: f.id, to: s });
   actions.park(c, { id: f.id, reason: "which?" });
   const m = addJob(c, "milestone", "Par");
-  actions.park(c, { id: m.id, reason: "ok?", pending: "parallel" });
+  actions.park(c, { id: m.id, reason: "ok?", pending: "parallel", with: f.id });
   const a = addJob(c, "milestone", "Plan");
   toApproval(c, a.id);
   await withBoard(c, {}, async (b) => {

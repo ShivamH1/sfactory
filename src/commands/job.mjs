@@ -24,7 +24,7 @@ const sub = {
   add: (p, f) => ({ kind: p[0], title: p.slice(1).join(" "), ...(f.log !== undefined ? { logOf: f.log } : {}) }),
   set: (p, f) => ({ id: p[0], to: p[1], reason: str(f.reason) ?? null }),
   approve: (p) => ({ id: p[0] }),
-  park: (p, f) => ({ id: p[0], reason: f.reason, pending: f.pending }),
+  park: (p, f) => ({ id: p[0], reason: f.reason, pending: f.pending, ...(f.with !== undefined ? { with: f.with } : {}) }),
   answer: (p) => ({ id: p[0] }),
   parallel: (p, f) => ({ id: p[0], yes: f.yes === f.no ? undefined : Boolean(f.yes) }),
   stop: (p, f) => ({ id: p[0], reason: str(f.reason) }),
@@ -38,7 +38,7 @@ const sub = {
 };
 
 /** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
-export const ACCEPTS = { verbs: Object.keys(sub), flags: ["by", "json", "reason", "pending", "yes", "no", "notes", "notes-file", "note", "log"] };
+export const ACCEPTS = { verbs: Object.keys(sub), flags: ["by", "json", "reason", "pending", "yes", "no", "notes", "notes-file", "note", "log", "with"] };
 
 register("job", async ({ positional, flags }, io) => {
   const [name, ...rest] = positional;

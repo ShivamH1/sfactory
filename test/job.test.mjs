@@ -136,7 +136,7 @@ test("job cmd: park, answer requires the answer file, parallel yes/no", async ()
   assert.equal(jobFileExists(c, "f-1", "decisions/3.md"), false);
 
   await run(root, ["job", "add", "milestone", "M2"]);
-  r = await run(root, ["job", "park", "m-1", "--reason", "parallel check passed", "--pending", "parallel"]);
+  r = await run(root, ["job", "park", "m-1", "--reason", "parallel check passed", "--pending", "parallel", "--with", "f-1"]);
   assert.equal(r.code, 0);
   assert.equal(jobFileExists(c, "m-1", "plan/parallel.md"), true);
   r = await run(root, ["job", "parallel", "m-1", "--no"]);

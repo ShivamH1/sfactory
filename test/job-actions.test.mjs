@@ -47,7 +47,7 @@ test("actions: park, answer requires the answer file, parallel yes/no", () => {
   throwsCode(() => actions.park(c, { id: "f-1" }), "BAD_ARGS");
 
   actions.add(c, { kind: "milestone", title: "M2" });
-  actions.park(c, { id: "m-1", reason: "parallel check passed", pending: "parallel" });
+  actions.park(c, { id: "m-1", reason: "parallel check passed", pending: "parallel", with: "f-1" });
   assert.equal(jobFileExists(c, "m-1", "plan/parallel.md"), true);
   throwsCode(() => actions.parallel(c, { id: "m-1" }), "BAD_ARGS");
   const j = actions.parallel(c, { id: "m-1", yes: false });
@@ -202,12 +202,31 @@ test("actions: a parallel proposal from planning - yes returns to planning, no q
   actions.add(c, { kind: "milestone", title: "A" });
   actions.add(c, { kind: "milestone", title: "B" });
   for (const id of ["m-1", "m-2"]) actions.set(c, { id, to: "planning" });
-  actions.park(c, { id: "m-1", reason: "rows: files ok", pending: "parallel" });
+  actions.park(c, { id: "m-1", reason: "rows: files ok", pending: "parallel", with: "m-2" });
   assert.match(readJobFile(c, "m-1", "plan/parallel.md"), /rows: files ok/);
   let j = actions.parallel(c, { id: "m-1", yes: true });
   assert.equal(j.stage, "planning"); assert.equal(j.parallel, "approved");
-  actions.park(c, { id: "m-2", reason: "rows: files FAIL", pending: "parallel" });
+  actions.park(c, { id: "m-2", reason: "rows: files FAIL", pending: "parallel", with: "m-1" });
   j = actions.parallel(c, { id: "m-2", yes: false });
   assert.equal(j.stage, "backlog"); assert.equal(j.parallel, "queued");
   unheld(c, "m-1"); unheld(c, "m-2");
+});
+
+test("actions: a parallel park names its partner (--with): recorded as parallelWith, kept by yes and by no; refused without it, for itself or an unknown card", () => {
+  const c = cfg();
+  for (const t of ["A", "B", "C"]) actions.add(c, { kind: "milestone", title: t });
+  actions.set(c, { id: "m-2", to: "planning" });
+  throwsCode(() => actions.park(c, { id: "m-2", reason: "rows", pending: "parallel" }), "BAD_ARGS", /--with/);
+  throwsCode(() => actions.park(c, { id: "m-2", reason: "rows", pending: "parallel", with: "m-2" }), "BAD_ARGS");
+  throwsCode(() => actions.park(c, { id: "m-2", reason: "rows", pending: "parallel", with: "m-9" }), "JOB_NOT_FOUND");
+  throwsCode(() => actions.park(c, { id: "m-2", reason: "a decision", with: "m-1" }), "BAD_ARGS", /--with/);
+  let j = actions.park(c, { id: "m-2", reason: "rows", pending: "parallel", with: "m-1" });
+  assert.equal(j.parallelWith, "m-1");
+  assert.match(readJobFile(c, "m-2", "plan/parallel.md"), /beside m-1/);
+  j = actions.parallel(c, { id: "m-2", yes: true });
+  assert.deepEqual([j.stage, j.parallel, j.parallelWith], ["planning", "approved", "m-1"]);
+  actions.park(c, { id: "m-3", reason: "rows", pending: "parallel", with: "m-1" });
+  j = actions.parallel(c, { id: "m-3", yes: false });
+  assert.deepEqual([j.stage, j.parallel, j.parallelWith], ["backlog", "queued", "m-1"], "a queued card keeps the partner it waits on");
+  unheld(c, "m-2"); unheld(c, "m-3");
 });
