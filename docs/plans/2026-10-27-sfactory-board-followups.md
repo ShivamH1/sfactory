@@ -11,12 +11,11 @@ The board plan (`2026-10-27-sfactory-board.md`) was built subagent-driven on `fe
 - The server refuses an empty body, untyped fields and a malformed path encoding with `BAD_ARGS`; `rework`, `answer` and `request-changes` require text; `answer` with no decision on file is refused.
 - A demo snapshot measures elapsed time against the fixtures' own latest timestamp; below 640 px empty columns are hidden so a card that needs you is seen first; approval, decision and parallel cards all carry the "needs you" badge.
 
-## For the owner to decide (design §11 items the plan did not cover)
+## Owner rulings (2026-10-28) and the follow-up they produced
 
-- A questionnaire is answered through one *Request changes* notes box; per-question answer fields are not built.
-- No live-card pulse, no red stopped card, no review chips; the footer shows the summed cost of the listed jobs, not the day's.
-- *Approve* can be pressed without the drawer having shown the brief and the plan.
-- The decision card shows the whole decisions file, including the CLI instruction lines.
+- Built (task B7, 3149380 + polish b578f68, reviewed): a live pulse on a card whose job is in a working stage and was updated within `board.activeMs` (default 120000); red stopped cards; review chips from the latest three `reviews/*.md` files (verdict from the first line, numeric name order; the server and page verdict rules are pinned equal by a test); *Approve* enabled only after the drawer has shown every `plan/*.md` file of the job (keyboard and rebuild safe; reset when the job changes). The orchestrator (Plan C) writes reviews under `reviews/` and touches the job when an agent starts and finishes.
+- Kept as built: a questionnaire is answered through one *Request changes* notes box (no per-question fields); the footer shows the summed cost of the listed jobs (no day's cost).
+- Still open: the decision card shows the whole decisions file, including the CLI instruction lines; a job awaiting approval with no `plan/*.md` file leaves *Approve* ungated.
 
 ## Minor, left on purpose
 
