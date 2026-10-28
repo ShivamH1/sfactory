@@ -23,14 +23,29 @@ export function pidAlive(pid) {
 function groupAlive(pid) {
   try { process.kill(-pid, 0); return true; } catch (e) { return e.code === "EPERM"; }
 }
-/** POSIX: a group with no live leader is ours only if it sits in the session the leader started (sid === its pid). */
-function groupIsOurs(pid) {
-  try { process.kill(-pid, 0); } catch { return false; } // gone, or EPERM: another user's group, foreign
-  const r = spawnSync("ps", ["-eo", "pgid=,sid="], { encoding: "utf8", timeout: 5000 });
-  if (r.error || r.status !== 0) return false;
-  for (const line of String(r.stdout).split("\n")) {
-    const m = /^\s*(\d+)\s+(\d+)\s*$/.exec(line);
-    if (m && Number(m[1]) === pid && Number(m[2]) === pid) return true;
+/**
+ * POSIX: a group with no live leader is ours when no one else can have its id. A group id cannot be reused while a member
+ * lives, so on Linux the group is ours if it sits in the session the leader started (sid === pid), which also rules out a
+ * new setsid'd process that reused the pid. macOS/BSD `ps` has no `sid` keyword, so there the judgement is pgid-only: a
+ * live group whose id is the recorded pid is ours (trade-off: a reused pid that became its own group leader reads as ours).
+ * `ps -A` is the portable "every process" (`-e` on BSD means "show environment"). Reasoned on Windows (POSIX only), not run on macOS.
+ * `run(args)` (stdout or null) and `platform` are injectable for tests.
+ */
+export function groupIsOurs(pid, { run, platform = process.platform, exists = (g) => { try { process.kill(-g, 0); return true; } catch { return false; } } } = {}) {
+  if (!exists(pid)) return false; // gone, or EPERM: another user's group, foreign
+  const bsd = platform === "darwin";
+  const args = bsd ? ["-A", "-o", "pgid="] : ["-A", "-o", "pgid=,sid="];
+  let out;
+  if (run) out = run(args);
+  else {
+    const r = spawnSync("ps", args, { encoding: "utf8", timeout: 5000 });
+    out = r.error || r.status !== 0 ? null : String(r.stdout);
+  }
+  if (out == null) return false;
+  for (const line of String(out).split("\n")) {
+    const m = /^\s*(\d+)(?:\s+(\d+))?\s*$/.exec(line);
+    if (!m || Number(m[1]) !== pid) continue;
+    if (bsd || Number(m[2]) === pid) return true;
   }
   return false;
 }
@@ -79,15 +94,19 @@ export function processStarts(pids) {
  * the record: a reused pid); "unknown" (alive, start time unreadable: neither attributed nor killed).
  * `startOf(pid)` is injectable for tests; by default one call reads every live pid.
  */
-function judgeAll(recs, startOf, startsFn = processStarts) {
+function judgeAll(recs, startOf, startsFn = processStarts, tolerant = false) {
   const live = recs.filter((r) => pidAlive(r.pid));
   // POSIX: a group id cannot be reused while a member lives, so a dead leader's live group is ours when its session is the
-  // one the leader started (sid === pid); EPERM on the group means another user's. (Reasoned on Windows, not run there.)
+  // one the leader started (sid === pid); EPERM on the group means another user's. (Reasoned on Windows, not run there; see groupIsOurs.)
   const groupOnly = (r) => process.platform !== "win32" && !pidAlive(r.pid) && groupIsOurs(r.pid);
-  const starts = startOf ? null : startsFn(live.map((r) => r.pid));
+  let starts = null, unread = false;
+  if (!startOf) {
+    try { starts = startsFn(live.map((r) => r.pid)); } catch (e) { if (!tolerant || e?.code !== "START_TIMES_UNREADABLE") throw e; unread = true; }
+  }
   return recs.map((rec) => {
     if (groupOnly(rec)) return "ours";
     if (!live.includes(rec)) return "dead";
+    if (unread) return "unreadable";
     const began = startOf ? startOf(rec.pid) : starts.get(rec.pid);
     if (began === null || began === undefined) return "unknown";
     return began > rec.startedAt + REUSE_SLACK_MS ? "foreign" : "ours";
@@ -142,7 +161,7 @@ const guard = (c, job, fn) => withLock(c, `services:${job.id}`, { holder: `servi
 export function servicesStatus(c, job, { startOf, startsFn } = {}) {
   const rec = readRecord(c, job);
   if (!rec) return [];
-  const states = judgeAll(rec.services, startOf, startsFn);
+  const states = judgeAll(rec.services, startOf, startsFn, true); // a failed start-time query is reported, never thrown
   return rec.services.map((r, i) => ({ name: r.name, pid: r.pid, startedAt: r.startedAt, state: states[i] }));
 }
 

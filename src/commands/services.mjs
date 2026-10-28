@@ -19,8 +19,8 @@ register("services", async ({ positional: [verb, id] }, io) => {
     for (const s of r.skipped) (s.alive ? io.stderr : io.stdout)(`${s.name} pid=${s.pid}: ${s.reason}\n`);
     return r.skipped.some((s) => s.alive) ? 1 : 0;
   }
-  const rows = servicesStatus(c, job);
+  const rows = servicesStatus(c, job, io.servicesOpts);
   if (!rows.length) io.stdout("no services recorded\n");
   for (const s of rows) io.stdout(`${s.name} pid=${s.pid} ${s.state === "ours" ? "alive" : s.state}\n`);
-  return 0;
+  return rows.some((s) => s.state !== "ours" && s.state !== "dead") ? 1 : 0; // unknown, foreign or unreadable
 });

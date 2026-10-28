@@ -10,7 +10,7 @@ import { jobDir, writeJob as rawWriteJob, readJob, withJobLock } from "../src/st
 const writeJob = (c, job) => withJobLock(c, job.id, () => rawWriteJob(c, job));
 import { isFree } from "../src/ports.mjs";
 import { acquire } from "../src/lock.mjs";
-import { servicesUp as rawUp, servicesDown as rawDown, servicesStatus, pidAlive, processStarts } from "../src/services.mjs";
+import { servicesUp as rawUp, servicesDown as rawDown, servicesStatus, pidAlive, processStarts, groupIsOurs } from "../src/services.mjs";
 
 // Every test process ends itself, so one the cleanup could not attribute still cannot outlive the run.
 const SLEEP = 'node -e "setTimeout(()=>process.exit(0),120000)"';
@@ -18,12 +18,25 @@ const listenCmd = (p) => `node -e "require('net').createServer().listen(${p});se
 
 // The reaper: attribution-independent. Every pid a test starts is remembered and killed directly, whatever servicesDown
 // decided about it. It runs after each test, after the file, and (synchronously) when the process exits.
-const started = new Set();
-const track = (...pids) => { for (const p of pids) if (Number.isInteger(p) && p > 0) started.add(p); };
+const started = new Map(); // pid -> its start time when first tracked (null: unreadable, so never killed)
+const safeStarts = (pids) => { try { return processStarts(pids); } catch { return new Map(); } };
+const track = (...pids) => {
+  const fresh = pids.filter((p) => Number.isInteger(p) && p > 0 && !started.has(p));
+  if (!fresh.length) return;
+  const at = safeStarts(fresh);
+  for (const p of fresh) started.set(p, at.get(p) ?? null);
+};
+// A pid seen dead is forgotten: the OS may hand it to an unrelated process before the reaper runs.
+const prune = () => { for (const p of [...started.keys()]) if (!pidAlive(p)) started.delete(p); };
+const SAME_START_MS = 3000; // ps etime has whole-second precision
 function reapSync() {
-  for (const p of started) {
+  prune();
+  const now = started.size ? safeStarts([...started.keys()]) : new Map();
+  for (const [p, began] of started) {
+    const cur = now.get(p);
+    if (began == null || cur == null || Math.abs(cur - began) > SAME_START_MS) continue; // unreadable or a different process: not ours to kill
     try {
-      if (process.platform === "win32") { if (pidAlive(p)) spawnSync("taskkill", ["/PID", String(p), "/T", "/F"], { stdio: "ignore", windowsHide: true, timeout: 10_000 }); }
+      if (process.platform === "win32") spawnSync("taskkill", ["/PID", String(p), "/T", "/F"], { stdio: "ignore", windowsHide: true, timeout: 10_000 });
       else { try { process.kill(-p, "SIGKILL"); } catch { /* not found */ } try { process.kill(p, "SIGKILL"); } catch { /* not found */ } }
     } catch { /* not found */ }
   }
@@ -40,14 +53,14 @@ const harvest = (c, job) => {
   try { track(...JSON.parse(readFileSync(join(jobDir(c, job.id), "verify", "services.json"), "utf8")).services.map((x) => x.pid)); } catch { /* no record */ }
 };
 const servicesUp = async (c, job, o) => { try { const r = await rawUp(c, job, o); track(...r.map((x) => x.pid)); return r; } finally { harvest(c, job); } };
-const servicesDown = async (c, job, o) => { harvest(c, job); return rawDown(c, job, o); };
+const servicesDown = async (c, job, o) => { harvest(c, job); try { return await rawDown(c, job, o); } finally { prune(); } };
 const main = (argv, io) => rawMain(argv, { ...io, stdout: (s) => { for (const m of String(s).matchAll(/pid=([0-9]+)/g)) track(Number(m[1])); io.stdout(s); } });
 
 async function freeBlock(from) {
   for (let p = from; p < from + 800; p += 4) if ((await isFree(p)) && (await isFree(p + 1))) return p;
   throw new Error("no free test port block");
 }
-const waitFor = async (fn, ms = 30000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await new Promise((r) => setTimeout(r, 50)); } return false; };
+const waitFor = async (fn, ms = 30000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) { prune(); return true; } prune(); await new Promise((r) => setTimeout(r, 50)); } return false; };
 
 function setup(services, { ports = true, secrets = [], id = "m-1" } = {}) {
   const c = { stateDir: tmpDir("sf-svc-"), commands: { services }, secrets: { neverHandToAgents: secrets }, limits: { lockStaleMs: 60_000 } };
@@ -353,4 +366,56 @@ test("services: a dead group leader whose group lives on is still ours, and down
       assert.ok(await waitFor(() => servicesStatus(c, job)[0].state === "ours"));
     } finally { const d = await servicesDown(c, job); assert.deepEqual(d.killed, ["a"]); }
   });
+});
+
+test("services: groupIsOurs asks ps for all processes portably; Linux needs sid === pid, macOS has no sid and judges by pgid", () => {
+  const asked = [];
+  const ps = (out) => (args) => { asked.push(args.join(" ")); return out; };
+  const live = { exists: () => true };
+  assert.equal(groupIsOurs(500, { ...live, platform: "linux", run: ps("  1 1\n 500 500\n") }), true);
+  assert.equal(groupIsOurs(500, { ...live, platform: "linux", run: ps(" 500 77\n") }), false, "same group, another session: not ours");
+  assert.equal(groupIsOurs(500, { ...live, platform: "linux", run: ps(" 1 1\n") }), false);
+  assert.equal(groupIsOurs(500, { ...live, platform: "linux", run: () => null }), false, "an unreadable ps is not ours");
+  assert.equal(groupIsOurs(500, { ...live, platform: "darwin", run: ps(" 1\n 500\n") }), true, "pgid-only on macOS");
+  assert.equal(groupIsOurs(500, { ...live, platform: "darwin", run: ps(" 1\n 501\n") }), false);
+  assert.equal(groupIsOurs(500, { exists: () => false, platform: "linux", run: ps(" 500 500\n") }), false, "no live group");
+  assert.ok(asked.every((a) => a.startsWith("-A -o pgid=")) && !asked.some((a) => /(^| )-e/.test(a)), "never -e, which is BSD's environment flag");
+  assert.ok(asked.some((a) => a === "-A -o pgid=,sid=") && asked.some((a) => a === "-A -o pgid="));
+});
+
+test("services: status with an unreadable start-time query reports live pids as unreadable and dead ones as dead, and never throws", async () => {
+  await withPorts(49000, async (ports) => {
+    const { c, job } = setup([{ name: "a", cmd: SLEEP }]);
+    job.ports = ports; writeJob(c, job);
+    const rec = join(jobDir(c, job.id), "verify", "services.json");
+    const broken = { startsFn: () => fail("START_TIMES_UNREADABLE", "start times could not be read (x); retry") };
+    try {
+      const [{ pid }] = await servicesUp(c, job);
+      assert.equal(servicesStatus(c, job, broken)[0].state, "unreadable");
+      const r = JSON.parse(readFileSync(rec, "utf8"));
+      r.services.push({ name: "gone", pid: 2147483000, startedAt: Date.now() });
+      writeFileSync(rec, JSON.stringify(r));
+      assert.deepEqual(servicesStatus(c, job, broken).map((s) => [s.name, s.state]), [["a", "unreadable"], ["gone", "dead"]]);
+      assert.ok(pidAlive(pid));
+      assert.throws(() => servicesStatus(c, job, { startsFn: () => { throw new Error("other"); } }), /other/, "only the unreadable refusal is caught");
+    } finally { await servicesDown(c, job); }
+  });
+});
+
+test("services: status exits 1 when any row is unknown, foreign or unreadable, and 0 when all are ours or dead", async () => {
+  const { run, rec } = await cliCard(49100);
+  try {
+    assert.equal((await run(undefined, "up", "m-1")).code, 0);
+    let r = await run(undefined, "status", "m-1"); assert.equal(r.code, 0); assert.match(r.out, /alive/);
+    r = await run({ startOf: () => null }, "status", "m-1");
+    assert.equal(r.code, 1); assert.match(r.out, /a pid=\d+ unknown/);
+    r = await run({ startsFn: () => fail("START_TIMES_UNREADABLE", "x") }, "status", "m-1");
+    assert.equal(r.code, 1); assert.match(r.out, /a pid=\d+ unreadable/);
+    const good = readFileSync(rec, "utf8");
+    const f = JSON.parse(good); f.services[0].startedAt -= 3_600_000; writeFileSync(rec, JSON.stringify(f));
+    r = await run(undefined, "status", "m-1"); assert.equal(r.code, 1); assert.match(r.out, /foreign/);
+    writeFileSync(rec, JSON.stringify({ services: [{ name: "gone", pid: 2147483000, startedAt: Date.now() }] }));
+    r = await run(undefined, "status", "m-1"); assert.equal(r.code, 0); assert.match(r.out, /gone pid=2147483000 dead/);
+    writeFileSync(rec, good);
+  } finally { await run(undefined, "down", "m-1"); }
 });
