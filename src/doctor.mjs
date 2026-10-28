@@ -8,9 +8,8 @@ const which = (exec, cmd) => {
   const r = process.platform === "win32" ? exec(`${cmd} --version`, { encoding: "utf8", shell: true }) : exec(cmd, ["--version"], { encoding: "utf8" });
   return r && r.status === 0 ? (r.stdout || "").trim().split("\n")[0] : null;
 };
-const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-export function runDoctor(c, { exec = spawnSync, codexConfigPath = join(homedir(), ".codex", "config.toml") } = {}) {
+export function runDoctor(c, { exec = spawnSync, codexHome = join(homedir(), ".codex") } = {}) {
   const checks = [];
   const add = (name, ok, detail) => checks.push({ name, ok, detail });
   const major = Number(process.versions.node.split(".")[0]);
@@ -26,10 +25,10 @@ export function runDoctor(c, { exec = spawnSync, codexConfigPath = join(homedir(
   if (mode !== "codex") { const v = which(exec, "claude"); add("claude", !!v, v ?? "claude not on PATH (needed for claude and mixed modes)"); }
   if (mode !== "claude") {
     const v = which(exec, "codex"); add("codex", !!v, v ?? "codex not on PATH (needed for codex and mixed modes)");
-    const toml = existsSync(codexConfigPath) ? readFileSync(codexConfigPath, "utf8") : "";
     for (const p of [c.agents.codex.implement, c.agents.codex.review]) {
-      const has = new RegExp("^\\s*\\[\\s*profiles\\.\\s*\"?" + esc(p) + "\"?\\s*\\]", "m").test(toml);
-      add(`codex profile ${p}`, has, toml ? (has ? "present" : `add [profiles.${p}] to ${codexConfigPath} (see the README's Codex section)`) : `${codexConfigPath} not found`);
+      const f = join(codexHome, `${p}.config.toml`);
+      const has = existsSync(f);
+      add(`codex profile ${p}`, has, has ? f : `${f} not found (see the Codex section of the README)`);
     }
   }
   if (c.rules.length > 1) {

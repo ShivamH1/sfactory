@@ -48,7 +48,7 @@ export async function main(argv, io = {}) {
   const handler = commands.get(name);
   if (!handler) { stderr(`error UNKNOWN_COMMAND: ${name}\n`); return 2; }
   try {
-    const code = await handler(parseArgs(rest), { stdout, stderr, cwd: io.cwd ?? process.cwd() });
+    const code = await handler(parseArgs(rest), { ...io, stdout, stderr, cwd: io.cwd ?? process.cwd() });
     return code ?? 0;
   } catch (e) {
     if (e instanceof SfactoryError) { stderr(`error ${e.code}: ${e.message}\n`); return 2; }
@@ -59,6 +59,7 @@ export async function main(argv, io = {}) {
 
 // Command modules register themselves on import via registry.mjs. Each later task adds one line here.
 await Promise.all([
+  import("./commands/codex.mjs"),
   import("./commands/commit.mjs"),
   import("./commands/cost.mjs"),
   import("./commands/doctor.mjs"),

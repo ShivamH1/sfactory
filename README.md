@@ -25,22 +25,27 @@ Node >= 20, git, and Claude Code and/or Codex CLI depending on `agents.mode`.
 - `sfactory-independence` — check that planned tasks do not overlap
 - `sfactory-cost` — report token cost
 - `sfactory-doctor` — check the environment and config
+- `sfactory-codex` — run Codex exec and review with usage capture
 
 ## Codex profiles
 
-For `codex` and `mixed` modes, add these blocks to `~/.codex/config.toml` (`sfactory-doctor` checks for them):
+For `codex` and `mixed` modes, create two files in `~/.codex/` (or `$CODEX_HOME`); Codex selects them with `-p <name>` and `sfactory-doctor` checks that they exist. A `[profiles.*]` table in `config.toml` is not read by this Codex. The sandbox is left to the `-s` flag the runner passes.
+
+`~/.codex/implement.config.toml`:
 
 ```toml
-[profiles.implement]
-model = "gpt-6.1-sol"
+model = "<your-model>"
 model_reasoning_effort = "high"
-sandbox_mode = "workspace-write"
-
-[profiles.review]
-model = "gpt-6.1-sol"
-model_reasoning_effort = "high"
-sandbox_mode = "read-only"
 ```
+
+`~/.codex/review.config.toml`:
+
+```toml
+model = "<your-model>"
+model_reasoning_effort = "high"
+```
+
+Run Codex through `sfactory codex exec --cwd <dir> --profile implement --out <dir> < prompt` and `sfactory codex review --cwd <dir> --base <branch> --out <dir> < prompt`. The child gets your environment without any `*_SECRET`, `*_TOKEN` or `*_KEY` variable (except `CODEX_*` and `OPENAI_*`) and without any variable named in `secrets.neverHandToAgents`. `codex review` has no profile flag, so it uses the base `config.toml`.
 
 npm users run `sfactory <command>`; plugin users also get the `sfactory-<command>` shims.
 

@@ -22,7 +22,7 @@ test("doctor: a healthy claude-mode project passes", () => {
 test("doctor: mixed mode without codex fails that one check and names it", () => {
   const root = tmpRepo();
   writeConfig(root, { project: "p", agents: { mode: "mixed" }, commands: { suite: "npm test" }, stateDir: tmpDir("sf-d-"), worktrees: { dir: tmpDir("sf-dw-") }, ports: { base: 47400 } });
-  const r = runDoctor(loadConfig(root), { cwd: root, exec: fakeExec(["git", "claude"]), codexConfigPath: "/nonexistent" });
+  const r = runDoctor(loadConfig(root), { cwd: root, exec: fakeExec(["git", "claude"]), codexHome: "/nonexistent" });
   assert.equal(r.ok, false);
   const codex = r.checks.find((c) => c.name === "codex");
   assert.equal(codex.ok, false); assert.match(codex.detail, /not on PATH/);
@@ -41,22 +41,24 @@ function mixedCfg(port) {
   writeConfig(root, { project: "p", agents: { mode: "mixed" }, commands: { suite: "npm test" }, stateDir: tmpDir("sf-d-"), worktrees: { dir: tmpDir("sf-dw-") }, ports: { base: port } });
   return loadConfig(root);
 }
-const tomlFile = (body) => { const f = join(tmpDir("sf-toml-"), "config.toml"); writeFileSync(f, body); return f; };
+const homeWith = (...names) => { const d = tmpDir("sf-home-"); for (const n of names) writeFileSync(join(d, `${n}.config.toml`), 'model = "x"'); return d; };
 const prof = (r, n) => r.checks.find((c) => c.name === `codex profile ${n}`);
 const all = ["git", "claude", "codex"];
 
-test("doctor: both profile headers present pass", () => {
-  const r = runDoctor(mixedCfg(47500), { exec: fakeExec(all), codexConfigPath: tomlFile('[profiles.implement]\nmodel = "x"\n\n[profiles.review]\nmodel = "x"\n') });
+test("doctor: both profile files present pass", () => {
+  const r = runDoctor(mixedCfg(47500), { exec: fakeExec(all), codexHome: homeWith("implement", "review") });
   assert.ok(prof(r, "implement").ok && prof(r, "review").ok, JSON.stringify(r.checks));
 });
 
-test("doctor: a toml with no profile headers fails both profile rows", () => {
-  const r = runDoctor(mixedCfg(47510), { exec: fakeExec(all), codexConfigPath: tomlFile('model = "x"\n') });
+test("doctor: an empty codex home fails both profile rows", () => {
+  const r = runDoctor(mixedCfg(47510), { exec: fakeExec(all), codexHome: homeWith() });
   assert.equal(prof(r, "implement").ok, false); assert.equal(prof(r, "review").ok, false);
 });
 
-test("doctor: a quoted profile header is accepted, a missing one still fails", () => {
-  const r = runDoctor(mixedCfg(47520), { exec: fakeExec(all), codexConfigPath: tomlFile('[profiles."review"]\nmodel = "x"\n') });
+test("doctor: a [profiles.*] table in config.toml does not count; one missing file still fails", () => {
+  const d = homeWith("review");
+  writeFileSync(join(d, "config.toml"), "[profiles.implement]\nmodel = \"x\"\n");
+  const r = runDoctor(mixedCfg(47520), { exec: fakeExec(all), codexHome: d });
   assert.equal(prof(r, "review").ok, true); assert.equal(prof(r, "implement").ok, false);
 });
 
