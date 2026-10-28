@@ -8,6 +8,8 @@ import { readJob, writeJob, withJobLock } from "../store.mjs";
 import { cut, remove, resolveBase } from "../worktree.mjs";
 import { fail } from "../errors.mjs";
 import { git } from "../git.mjs";
+import { release } from "../lock.mjs";
+import { existsSync } from "node:fs";
 
 const CUT_FIELDS = ["branch", "base", "worktree", "slug", "lockToken"];
 
@@ -15,16 +17,21 @@ const CUT_FIELDS = ["branch", "base", "worktree", "slug", "lockToken"];
 export function cutJob(c, id, { slug, afterAdd, fetch = true } = {}) {
   const made = cut(c, readJob(c, id), { slug, afterAdd, fetch });
   // Only the re-read, patch and write hold the job lock; the cut above (its fetch included) can take minutes.
-  return withJobLock(c, id, () => {
-    const fresh = readJob(c, id);
-    if (fresh.worktree) {
-      // A concurrent cut of the same job (under another slug) recorded its worktree first: undo ours.
-      try { remove(c, made, { force: true }); git(["branch", "-D", made.branch], { cwd: c.repoRoot }); } catch { /* best effort */ }
-      fail("WORKTREE_EXISTS", `${id} already has a worktree (${fresh.worktree}); this cut was undone`);
-    }
-    for (const k of CUT_FIELDS) fresh[k] = made[k];
-    return writeJob(c, fresh);
-  });
+  // Any failure after the cut undoes it (worktree, branch, durable lock) and rethrows, so nothing is orphaned.
+  const undo = () => {
+    try { remove(c, made, { force: true }); } catch { /* best effort */ }
+    try { if (existsSync(made.worktree)) git(["worktree", "remove", "--force", made.worktree], { cwd: c.repoRoot }); } catch { /* best effort */ }
+    try { git(["branch", "-D", made.branch], { cwd: c.repoRoot }); } catch { /* best effort */ }
+    try { release(c, `worktree:${made.slug}`, { holder: made.id, token: made.lockToken }); } catch { /* best effort */ }
+  };
+  try {
+    return withJobLock(c, id, () => {
+      const fresh = readJob(c, id);
+      if (fresh.worktree) fail("WORKTREE_EXISTS", `${id} already has a worktree (${fresh.worktree}); this cut was undone`);
+      for (const k of CUT_FIELDS) fresh[k] = made[k];
+      return writeJob(c, fresh);
+    });
+  } catch (e) { undo(); throw e; }
 }
 
 export function removeJob(c, id, { force = false } = {}) {

@@ -2,7 +2,7 @@
 
 A software factory for Claude Code and Codex: cards move from backlog to pushed through plan, build, review and verify, with file-based state. It ships as a Node CLI and a Claude Code plugin.
 
-Status: core only; the board, the skills and the Codex integration follow.
+Status: built are the core (jobs, locks, worktrees, ports, services, commit, push, suite, cost, doctor), the kanban board, the Codex runner and the services runner. The skills and the orchestrator that drive them follow.
 
 ## Requirements
 
@@ -27,6 +27,7 @@ Node >= 20, git, and Claude Code and/or Codex CLI depending on `agents.mode`.
 - `sfactory-cost` — report token cost
 - `sfactory-doctor` — check the environment and config
 - `sfactory-codex` — run Codex exec and review with usage capture
+- `sfactory-fixcard` — check a fix card's plan against `fixCardRefusals`
 - `sfactory-board` — open the kanban board (see below)
 
 ## The board
@@ -38,6 +39,7 @@ Node >= 20, git, and Claude Code and/or Codex CLI depending on `agents.mode`.
 - **Approve after viewing:** on a plan awaiting approval the board's *Approve* stays off until the drawer has shown every `plan/*.md` file (page state only, reset when the job changes); *Request changes* is always available, and `sfactory job approve` is unchanged.
 - **The gates:** each button calls the same gate function the `sfactory job` commands call, so an illegal move, a missing approval or a busy job is refused with the same reason (*Request changes* exists only on the board). Each write is made under the job lock, and a POST must carry the `X-Sfactory-Board: 1` header.
 - **Local only:** the server binds to 127.0.0.1 and refuses any Host header other than `127.0.0.1:<port>` or `localhost:<port>`. It is not reachable from another machine.
+- **Service logs:** the drawer's file view also lists a card's service logs (`verify/<name>.log`, from `sfactory services`); they are read from the job folder on your machine and shown only there, never sent anywhere.
 - `examples/jobs/generate.mjs` rebuilds the demo folders through the job state functions, so they follow the schema.
 
 ## Codex profiles

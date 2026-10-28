@@ -156,3 +156,16 @@ test("worktree: remove by a job that does not hold the lock is NOT_HOLDER and le
   remove(c, job);
   assert.equal(existsSync(job.worktree), false);
 });
+
+test("worktree cli: a cut whose job update fails (job vanished) undoes the worktree, branch and lock", async () => {
+  const { root, c } = setup();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { writeJob: raw, withJobLock } = await import("../src/store.mjs");
+  withJobLock(c, "m-1", () => raw(c, newJob({ id: "m-1", kind: "milestone", title: "Vanish" })));
+  const { rmSync } = await import("node:fs");
+  const afterAdd = () => rmSync(join(c.stateDir, "jobs", "m-1"), { recursive: true, force: true });
+  assert.throws(() => cutJob(c, "m-1", { afterAdd }), (e) => e.code === "JOB_NOT_FOUND");
+  assert.equal(existsSync(join(c.worktrees.dir, "vanish")), false);
+  assert.equal(branchExists(root, "feature/vanish"), false);
+  assert.equal(status(c, "worktree:vanish").held, false);
+});

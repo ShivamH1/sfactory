@@ -38,6 +38,14 @@ export const profileFile = (name, home = codexHomeDir()) => join(home, `${name}.
 /** Quote for cmd.exe: backslashes before a quote are doubled, and so are trailing ones, so a path ending in a backslash cannot escape the closing quote. */
 export const quoteWin = (a) => (/[\s"&|<>^%()]/.test(a) ? `"${a.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"` : a);
 const NOOP = () => {};
+
+const REF = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/, SHA = /^[0-9a-f]{7,40}$/, WORD = /^[A-Za-z0-9._-]+$/;
+const badRef = (v) => typeof v !== "string" || !REF.test(v) || v.includes("..") || v.endsWith("/") || v.endsWith(".lock");
+/** Values from job state reach argv (and, on win32, cmd.exe): refuse anything that is not plainly a name. */
+function checkNames({ profile, sandbox }) {
+  if (typeof profile !== "string" || !WORD.test(profile)) fail("BAD_ARGS", `invalid codex profile: ${JSON.stringify(profile)}`);
+  if (sandbox !== undefined && (typeof sandbox !== "string" || !WORD.test(sandbox))) fail("BAD_ARGS", `invalid codex sandbox: ${JSON.stringify(sandbox)}`);
+}
 /**
  * Returns the child and the function that stops following the parent's signals. Off win32 the child is
  * detached (its own process group, so a timeout's killTree reaches everything codex started), and so
@@ -76,7 +84,14 @@ export function profileModel(name, home = codexHomeDir()) {
   try { return (() => { const m = /^\s*model\s*=\s*(?:"([^"]+)"|'([^']+)')/m.exec(readFileSync(profileFile(name, home), "utf8")); return m?.[1] ?? m?.[2] ?? null; })(); } catch { return null; }
 }
 
+/** On win32 the args pass through cmd.exe: a quote, a percent sign or an empty value cannot be quoted safely, so refuse them. */
+function assertShellSafe(args) {
+  if (process.platform !== "win32") return;
+  for (const a of args) if (a === "" || /["%]/.test(a)) fail("BAD_ARGS", `codex argument cannot be passed through cmd.exe: ${JSON.stringify(a)}`);
+}
+
 async function runExecLike(c, { args, cwd, prompt, outDir, logName, timeoutMs, spawn, env }) {
+  assertShellSafe(args);
   mkdirSync(outDir, { recursive: true });
   const logPath = join(outDir, logName), lastMessagePath = join(outDir, "last-message.md");
   rmSync(lastMessagePath, { force: true }); // never read a previous run's answer
@@ -115,6 +130,7 @@ async function runExecLike(c, { args, cwd, prompt, outDir, logName, timeoutMs, s
 }
 
 export async function runCodexExec(c, { cwd, profile, prompt, sandbox = "workspace-write", outDir, timeoutMs = 3_600_000, spawn = nodeSpawn, which = () => codexOnPath(), codexHome = codexHomeDir(), env = process.env }) {
+  checkNames({ profile, sandbox });
   preflight({ profile, which, home: codexHome, requireProfile: true });
   const args = ["exec", "-C", cwd, "-p", profile, "-s", sandbox, "--json", "-o", join(outDir, "last-message.md")];
   return runExecLike(c, { args, cwd, prompt, outDir, logName: "codex.jsonl", timeoutMs, spawn, env });
@@ -127,6 +143,9 @@ export async function runCodexExec(c, { cwd, profile, prompt, sandbox = "workspa
  */
 export async function runCodexReview(c, { cwd, base, commit, prompt, profile, outDir, timeoutMs = 3_600_000, spawn = nodeSpawn, which = () => codexOnPath(), codexHome = codexHomeDir(), env = process.env }) {
   if ((base == null) === (commit == null)) fail("BAD_ARGS", "codex review needs exactly one of base or commit");
+  if (base != null && badRef(base)) fail("BAD_ARGS", `invalid base ref: ${JSON.stringify(base)}`);
+  if (commit != null && (typeof commit !== "string" || !SHA.test(commit))) fail("BAD_ARGS", `invalid commit: ${JSON.stringify(commit)}`);
+  checkNames({ profile });
   preflight({ profile, which, home: codexHome, requireProfile: true });
   const args = ["exec", "-C", cwd, "-p", profile, "-s", "read-only", "review", "--json", "-o", join(outDir, "last-message.md"), "-"];
   const target = base != null ? `Review the changes on this branch against ${base}: run \`git diff ${base}...HEAD\` to see them.` : `Review commit ${commit}: run \`git show ${commit}\` to see it.`;

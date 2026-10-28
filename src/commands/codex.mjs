@@ -23,6 +23,8 @@ register("codex", async ({ positional: [verb], flags }, io) => {
   const prompt = await readStdin(io);
   if (!prompt.trim()) fail("BAD_ARGS", "the prompt (stdin) is empty");
   const run = io.runners ?? { exec: runCodexExec, review: runCodexReview };
+  if (flags.profile === true) fail("BAD_ARGS", `--profile needs a value
+${USAGE}`);
   const profile = typeof flags.profile === "string" ? flags.profile : c.agents?.codex?.[verb === "exec" ? "implement" : "review"];
   if (typeof profile !== "string" || !profile) fail("BAD_ARGS", `codex needs --profile (or agents.codex.${verb === "exec" ? "implement" : "review"} in the config)\n${USAGE}`);
   if (typeof flags.job === "string") readJob(c, flags.job); // a bad job id fails before Codex is run

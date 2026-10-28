@@ -37,7 +37,7 @@
         },
         "codex": {
           "type": "object",
-          "description": "Codex profile names per role, as defined in ~/.codex/config.toml.",
+          "description": "Codex profile names per role. Each is a file ~/.codex/<name>.config.toml (or under $CODEX_HOME), layered on by --profile; not a table in ~/.codex/config.toml.",
           "properties": {
             "implement": { "type": "string", "description": "Codex profile that implements tasks." },
             "review": { "type": "string", "description": "Codex profile that reviews work." }
@@ -52,7 +52,7 @@
       "description": "How worktrees are placed and cut.",
       "properties": {
         "dir": { "type": "string", "description": "Directory holding the worktrees; default a sibling of the repo named <repo>-worktrees." },
-        "branchPrefix": { "type": "string", "description": "Prefix of every branch the factory creates, default feature/." },
+        "branchPrefix": { "type": "string", "pattern": "/$", "description": "Prefix of every branch the factory creates, default feature/." },
         "baseRule": { "type": "string", "description": "What a new branch is cut from: newest-feature-branch, integration-branch or a branch name." },
         "integrationBranch": { "type": ["string", "null"], "description": "The integration branch name, used by the integration-branch rule." },
         "afterCut": { "$ref": "#/$defs/stringList", "description": "Commands run in a fresh worktree after it is cut." },

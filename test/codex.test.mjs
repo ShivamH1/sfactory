@@ -120,10 +120,10 @@ test("review: runs exec review under the review profile and a read-only sandbox,
   assert.equal(joined(calls[0]), `exec -C /w -p review -s read-only review --json -o ${join(out, "last-message.md")} -`);
   assert.ok(!joined(calls[0]).includes("--base") && !joined(calls[0]).includes("--commit"), "a custom prompt cannot be combined with --base/--commit");
   assert.equal(calls[0].stdin, "Review the changes on this branch against main: run `git diff main...HEAD` to see them.\n\nreview this");
-  await runCodexReview(c, { cwd: "/w", commit: "abc123", profile: "review", prompt: "p", outDir: tmpDir("sf-out-"), spawn, which: () => true, codexHome: home });
+  await runCodexReview(c, { cwd: "/w", commit: "abc1234", profile: "review", prompt: "p", outDir: tmpDir("sf-out-"), spawn, which: () => true, codexHome: home });
   assert.match(joined(calls[1]), /-s read-only review --json/);
   assert.ok(!joined(calls[1]).includes("--commit"));
-  assert.equal(calls[1].stdin, "Review commit abc123: run `git show abc123` to see it.\n\np");
+  assert.equal(calls[1].stdin, "Review commit abc1234: run `git show abc1234` to see it.\n\np");
   const base = { cwd: "/w", profile: "review", prompt: "p", outDir: tmpDir("sf-out-"), spawn, which: () => true, codexHome: home };
   await assert.rejects(runCodexReview(c, { ...base, codexHome: homeWith(), base: "a" }), { code: "CODEX_PROFILE_MISSING" });
   await assert.rejects(runCodexReview(c, base), { code: "BAD_ARGS" });
@@ -246,4 +246,34 @@ test("quoteWin: a trailing backslash cannot escape the closing quote; embedded q
   assert.equal(quoteWin("a b"), '"a b"');
   assert.equal(quoteWin('say "hi" now'), '"say \\"hi\\" now"');
   assert.equal(quoteWin('x\\"y z'), '"x\\\\\\"y z"');
+});
+
+test("codex inputs: base, commit, profile and sandbox are validated; win32 refuses quotes, percent and empty args", async () => {
+  const c = cfg();
+  const { spawn } = fakeSpawn((child) => emit(child, [], 0));
+  const home = homeWith("review", "implement");
+  const rv = (o) => runCodexReview(c, { cwd: "/w", profile: "review", prompt: "p", outDir: tmpDir("sf-out-"), spawn, which: () => true, codexHome: home, ...o });
+  for (const base of ["-x", "a..b", "a\nb", "a b", "", "a;b", "a/"]) await assert.rejects(rv({ base }), { code: "BAD_ARGS" }, `base ${JSON.stringify(base)}`);
+  for (const commit of ["abc12", "ABCDEF1", "abc1234; rm", "-abc1234", "g".repeat(8), "a".repeat(41)]) await assert.rejects(rv({ commit }), { code: "BAD_ARGS" }, `commit ${commit}`);
+  await rv({ base: "feature/x-1.2" });
+  await assert.rejects(rv({ base: "main", profile: "re view" }), { code: "BAD_ARGS" });
+  await assert.rejects(rv({ base: "main", profile: "a&b" }), { code: "BAD_ARGS" });
+  const ex = (o) => runCodexExec(c, { cwd: "/w", profile: "implement", prompt: "p", outDir: tmpDir("sf-out-"), spawn, which: () => true, codexHome: home, ...o });
+  await assert.rejects(ex({ profile: "../x" }), { code: "BAD_ARGS" });
+  await assert.rejects(ex({ sandbox: "read-only; echo" }), { code: "BAD_ARGS" });
+  await ex({ sandbox: "danger-full-access" });
+  const desc = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { ...desc, value: "win32" });
+  try {
+    await assert.rejects(ex({ cwd: 'a "b&echo PWNED" c' }), { code: "BAD_ARGS" });
+    await assert.rejects(ex({ cwd: "C:\%PATH%" }), { code: "BAD_ARGS" });
+    await assert.rejects(ex({ cwd: "" }), { code: "BAD_ARGS" });
+  } finally { Object.defineProperty(process, "platform", desc); }
+});
+
+test("codex command: a bare --profile is BAD_ARGS", async () => {
+  const { root } = { root: cfg().repoRoot };
+  const errs = [];
+  const code = await main(["codex", "exec", "--cwd", ".", "--profile", "--out", "o"], { cwd: root, stdin: () => "p", stdout: () => {}, stderr: (s) => errs.push(s), runners: { exec: async () => { throw new Error("must not run"); } } });
+  assert.equal(code, 2, errs.join(""));
 });

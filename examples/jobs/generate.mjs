@@ -7,6 +7,7 @@ import { newJob, transition, park, stop } from "../../src/job.mjs";
 import { priceOf, totalUsd } from "../../src/cost.mjs";
 
 const T = (h, m = 0) => `2026-01-05T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00.000Z`;
+const BASE = { branch: "main", ref: "main", head: "0123456789abcdef0123456789abcdef01234567" };
 const PRICES = { "demo-model": { input: 3, output: 15, cacheRead: 0.3 } };
 
 function walk(job, steps) {
@@ -30,12 +31,12 @@ export function jobs() {
 
   let m1 = start("m-1", "milestone", "Add a search box to the catalogue", T(8));
   m1 = walk(m1, [["planning", T(8, 5)], ["awaiting-approval", T(8, 30)], ["building", T(9)], ["reviewing", T(11)], ["verifying", T(11, 30)], ["pushing", T(11, 45)], ["pushed", T(12)], ["merged", T(14)]]);
-  out.push({ job: finish(m1, { branch: "feature/catalogue-search", base: "main", tasks: { total: 3, done: 3, parallel: [] } }), files: {} });
+  out.push({ job: finish(m1, { branch: "feature/catalogue-search", base: BASE, tasks: { total: 3, done: 3, parallel: [] } }), files: {} });
 
   let m2 = start("m-2", "milestone", "Export the orders list as CSV", T(8, 10));
   m2 = walk(m2, [["planning", T(8, 15)], ["awaiting-approval", T(8, 40)], ["building", T(9, 10)], ["reviewing", T(11, 10)], ["verifying", T(11, 40)], ["pushing", T(11, 55)], ["pushed", T(12, 10)]]);
   out.push({
-    job: finish(m2, { branch: "feature/orders-csv", base: "main", tasks: { total: 4, done: 4, parallel: [] } }),
+    job: finish(m2, { branch: "feature/orders-csv", base: BASE, tasks: { total: 4, done: 4, parallel: [] } }),
     files: {
       "reviews/task-1.md": "✅ Approved\n\nThe route streams rows and quotes fields correctly.\n",
       "reviews/task-2.md": "✅ Approved\n\nThe button is wired to the route.\n",
@@ -45,7 +46,7 @@ export function jobs() {
   let m3 = start("m-3", "milestone", "Rework the settings page", T(8, 20));
   m3 = walk(m3, [["planning", T(8, 25)], ["awaiting-approval", T(8, 50)], ["building", T(9, 20)]]);
   out.push({
-    job: finish(m3, { branch: "feature/settings-rework", base: "main", worktree: "../wt/settings-rework", tasks: { total: 5, done: 2, parallel: [] }, updated: T(14) }),
+    job: finish(m3, { branch: "feature/settings-rework", base: BASE, worktree: "../wt/settings-rework", tasks: { total: 5, done: 2, parallel: [] }, updated: T(14) }),
     files: {
       "cost.json": costFile([[T(8, 25), "planning", "claude", 42000, 6000, 12000], [T(9, 30), "building", "codex", 88000, 21000, 30000], [T(10), "building", "claude", 64000, 15000, 20000]]),
       "reviews/task-1.md": "✅ Approved\n\nThe sections are split cleanly.\n",
@@ -65,14 +66,14 @@ export function jobs() {
   f1 = walk(f1, [["planning", T(8, 45)], ["building", T(9)]]);
   f1 = park(f1, { by: "session", reason: "two readings of the bug are possible", now: T(9, 20) });
   out.push({
-    job: finish(f1, { branch: "fix/receipt-date", base: "main", tasks: { total: 1, done: 0, parallel: [] } }),
+    job: finish(f1, { branch: "fix/receipt-date", base: BASE, tasks: { total: 1, done: 0, parallel: [] } }),
     files: { "decisions/1.md": "# Decision needed\n\nThe receipt shows the date the order was placed in the server's time zone, not the customer's.\n\nA. Show the placement date in the customer's own time zone.\nB. Keep the server's time zone and add the zone's name beside the date.\n\nWhich one should the fix follow?\n" },
   });
 
   let f2 = start("f-2", "fix", "Stop the retry loop on a 404", T(8, 50));
   f2 = walk(f2, [["planning", T(8, 55)], ["building", T(9, 10)]]);
   f2 = stop(f2, { by: "user", reason: "superseded by a larger change", now: T(10, 10) });
-  out.push({ job: finish(f2, { branch: "fix/retry-404", base: "main", tasks: { total: 2, done: 1, parallel: [] } }), files: {} });
+  out.push({ job: finish(f2, { branch: "fix/retry-404", base: BASE, tasks: { total: 2, done: 1, parallel: [] } }), files: {} });
 
   return out;
 }

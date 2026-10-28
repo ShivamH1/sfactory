@@ -7,7 +7,11 @@
   "previousStage": null,
   "pending": null,
   "branch": "feature/settings-rework",
-  "base": "main",
+  "base": {
+    "branch": "main",
+    "ref": "main",
+    "head": "0123456789abcdef0123456789abcdef01234567"
+  },
   "worktree": "../wt/settings-rework",
   "ports": null,
   "record": null,
