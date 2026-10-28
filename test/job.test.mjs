@@ -217,3 +217,19 @@ test("job cmd: touch marks a working stage; elsewhere it prints (not touched) an
   assert.equal(r.code, 0); assert.equal(r.out, "m-1 awaiting-approval (not touched)\n");
   assert.deepEqual(readJob(c, "m-1"), parked, "awaiting-approval is not re-stamped (the board's Approve-after-viewing keys on it)");
 });
+
+test("job: a parallel proposal parks from backlog or planning; planning may also park a decision; a queued planning card goes back to backlog", async () => {
+  const { PARK_PENDING, queue } = await import("../src/job.mjs");
+  assert.deepEqual(PARK_PENDING.backlog, ["parallel"]);
+  assert.deepEqual([...PARK_PENDING.planning].sort(), ["decision", "parallel"]);
+  for (const s of WORKING.filter((x) => x !== "planning")) assert.deepEqual(PARK_PENDING[s], ["decision"], s);
+  const j = { ...newJob({ id: "m-2", kind: "milestone", title: "t", now }), stage: "planning", worktree: "/w" };
+  const p = park(j, { reason: "parallel rows", pending: "parallel", now });
+  assert.equal(p.stage, "decision-needed"); assert.equal(p.returnStage, "planning"); assert.equal(p.pending, "parallel");
+  assert.equal(release(p, { now }).stage, "planning");
+  const q = queue(p, { by: "board", now });
+  assert.equal(q.stage, "backlog"); assert.equal(q.returnStage, null); assert.equal(q.pending, null); assert.equal(q.worktree, "/w");
+  assert.deepEqual({ from: q.history.at(-1).from, to: q.history.at(-1).to, reason: q.history.at(-1).reason }, { from: "decision-needed", to: "backlog", reason: "queued" });
+  assert.throws(() => queue({ ...p, pending: "decision" }, { now }), (e) => e.code === "ILLEGAL_TRANSITION");
+  assert.throws(() => queue(j, { now }), (e) => e.code === "ILLEGAL_TRANSITION");
+});

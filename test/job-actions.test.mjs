@@ -196,3 +196,18 @@ test("actions: touch writes nothing outside a working stage and returns the job 
   }
   unheld(c, "m-1");
 });
+
+test("actions: a parallel proposal from planning - yes returns to planning, no queues the card in backlog", () => {
+  const c = cfg();
+  actions.add(c, { kind: "milestone", title: "A" });
+  actions.add(c, { kind: "milestone", title: "B" });
+  for (const id of ["m-1", "m-2"]) actions.set(c, { id, to: "planning" });
+  actions.park(c, { id: "m-1", reason: "rows: files ok", pending: "parallel" });
+  assert.match(readJobFile(c, "m-1", "plan/parallel.md"), /rows: files ok/);
+  let j = actions.parallel(c, { id: "m-1", yes: true });
+  assert.equal(j.stage, "planning"); assert.equal(j.parallel, "approved");
+  actions.park(c, { id: "m-2", reason: "rows: files FAIL", pending: "parallel" });
+  j = actions.parallel(c, { id: "m-2", yes: false });
+  assert.equal(j.stage, "backlog"); assert.equal(j.parallel, "queued");
+  unheld(c, "m-1"); unheld(c, "m-2");
+});

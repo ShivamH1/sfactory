@@ -1,5 +1,5 @@
 import { readJob, writeJob, addJob, withJobLock, listJobs, writeJobFile, jobFileExists, readJobFile } from "./store.mjs";
-import { transition, park, release, stop, resume, WORKING } from "./job.mjs";
+import { transition, park, release, queue, stop, resume, WORKING } from "./job.mjs";
 import { fail } from "./errors.mjs";
 
 /** The gates as functions: each takes (c, args), runs under the job's lock, re-reads the job there and returns the written job. */
@@ -68,7 +68,7 @@ Write the answer to decisions/${k}-answer.md, then run: sfactory job answer ${jo
     return locked(c, id, (job) => {
       if (job.stage !== "decision-needed" || job.pending !== "parallel") fail("ILLEGAL_TRANSITION", `${job.id} is not a parallel proposal`);
       if (typeof yes !== "boolean") fail("BAD_ARGS", "parallel needs --yes or --no");
-      const next = release(job, { by });
+      const next = yes ? release(job, { by }) : queue(job, { by });
       next.parallel = yes ? "approved" : "queued";
       return writeJob(c, next);
     });
