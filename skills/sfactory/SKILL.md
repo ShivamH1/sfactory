@@ -56,6 +56,7 @@ With no command, or an unknown one, print the first column as the usage and stop
 3. Never read, print, grep, list, copy or check the existence of any path in `secrets.neverHandToAgents`. Agents get only the OFF_LIMITS description that the sdd skill defines.
 4. **Model at dispatch.** Every Claude subagent dispatch passes a model **alias**: the part of its `agents.claude.*` value before any `/`. Per-dispatch effort cannot be set. Effort in the config applies to Codex profiles only. Codex is chosen by profile name (`agents.codex.*`), never by a model name.
 5. **Touch at every agent start and finish**, best effort: `sfactory job touch <id> --note "<start|finish> <role> <alias|profile>"`. Outside a working stage the CLI prints "(not touched)". That is not an error.
+6. **Long commands run in the background.** Run each of these with the Bash tool's `run_in_background`, and act on its completion notification: `sfactory codex exec`, `sfactory codex review`, `sfactory suite`, `commands.build`, each `commands.typecheck`, `commands.migrate`, and `sfactory worktree cut` when `worktrees.afterCut` is set (the cut runs those commands). Never wait on one in the foreground past the Bash tool's timeout: a timed-out wait kills the CLI, not what it started. Never start a second copy while one runs. The suite lock records the suite's own process, so it stays held while an orphaned suite still runs, and a second `sfactory suite` waits for it.
 
 ## 4. `run`: the loop
 

@@ -1,4 +1,4 @@
-import { mkdirSync, openSync, writeSync, closeSync, readFileSync, unlinkSync, existsSync, renameSync, statSync, linkSync } from "node:fs";
+import { mkdirSync, openSync, writeSync, closeSync, readFileSync, unlinkSync, existsSync, renameSync, statSync, linkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fail } from "./errors.mjs";
@@ -15,11 +15,13 @@ function mtimeAge(path, now) { try { return now - statSync(path).mtimeMs; } catc
 
 /**
  * Durable: never stale. A named pid: stale only when that process is gone, however old the lock
- * (a live suite may run for hours). No pid (a CLI-held lock): stale once older than staleMs.
+ * (a live suite may run for hours), and, when the body names the child it runs (childPid, the suite's
+ * command), only once that child is gone too: a holder killed mid-run leaves its suite running, and the
+ * lock stays held while it does. No pid (a CLI-held lock): stale once older than staleMs.
  */
 export function isStale(body, now, staleMs) {
   if (body.durable === true) return false;
-  if (body.pid != null) return !alive(body.pid);
+  if (body.pid != null) return !alive(body.pid) && !(Number.isInteger(body.childPid) && body.childPid > 0 && alive(body.childPid));
   return now - Date.parse(body.since) > staleMs;
 }
 
@@ -179,6 +181,19 @@ export function release(c, name, { holder, token } = {}) {
     console.error(`lock ${name}: could not restore a lock moved by mistake; left at ${moved}`);
   }
   return false;
+}
+
+/**
+ * Records in the lock body the pid of the child its holder runs (the suite's command), so the lock counts live
+ * while that child lives (isStale). Only the holder with its token may. Written in place: a reader that catches
+ * the file mid-write sees a young unparseable body, which is held, never stale.
+ */
+export function setLockChild(c, name, { holder, token, childPid }) {
+  if (!Number.isInteger(childPid) || childPid <= 0) fail("BAD_ARGS", "childPid must be a positive integer");
+  const path = lockPath(c, name);
+  const cur = parse(path);
+  if (!cur || cur.holder !== holder || cur.token !== token) fail("NOT_HOLDER", `${name} is held by ${cur?.holder ?? "nobody"}, not ${holder}`);
+  writeFileSync(path, JSON.stringify({ ...cur, childPid }, null, 2));
 }
 
 export async function withLock(c, name, opts, fn) {

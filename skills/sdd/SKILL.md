@@ -28,6 +28,8 @@ The sfactory orchestrator invokes this skill for one card in `building` (and aga
 - **Limits** — `limits.parallelTasks`, `limits.taskRounds` (the per-task fix loop's cap), `limits.fixRounds` (the branch's, enforced by `sfactory job set`).
 - **OFF_LIMITS** — a description of the config's `secrets.neverHandToAgents`, never the paths themselves: "the files listed under secrets.neverHandToAgents in the project's factory config (credentials and keys; their paths are deliberately not given)". With an empty list: "none (the project lists no off-limits files)".
 
+**Long commands run in the background.** Run `sfactory codex exec`, `sfactory codex review` and `sfactory suite` with the Bash tool's `run_in_background`, and act on the completion notification; never wait on one in the foreground past the Bash tool's timeout, and never start a second copy while one runs. Tell every implementer and fixer the same about its TEST_COMMAND (below the fields of its dispatch).
+
 Before each dispatch, read the card's stage (`sfactory job show <JOB>`). If it is no longer the stage you are working (the person pressed Stop, or a park happened), stop dispatching and hand back to the orchestrator.
 
 ## Roles by Mode
@@ -110,7 +112,7 @@ REPORT: <JOB_DIR>/tasks/<n>/report.md
 
 (The first line names the agent for you; the dispatch message carries the field lines.)
 
-Then, below the fields: (1) one line on where this task fits in the card; (2) "read TASK first — it is your requirements, with the exact values to use verbatim"; (3) interfaces and decisions from earlier tasks that the brief cannot know; (4) your resolution of any ambiguity you noticed; (5) in a parallel batch, that the other tasks of the batch are working in the same worktree on their own files. Exact values appear only in the brief. Never make a subagent read the whole plan. The suite runs through `sfactory suite`, so its lock keeps two suites from overlapping. Record the implementer's agent id from the dispatch result — fix rounds resume it.
+Then, below the fields: (1) one line on where this task fits in the card; (2) "read TASK first — it is your requirements, with the exact values to use verbatim"; (3) interfaces and decisions from earlier tasks that the brief cannot know; (4) your resolution of any ambiguity you noticed; (5) in a parallel batch, that the other tasks of the batch are working in the same worktree on their own files; (6) that TEST_COMMAND runs in the background (the Bash tool's `run_in_background`), acting on its completion notification, never as a foreground wait past the Bash tool's timeout. Exact values appear only in the brief. Never make a subagent read the whole plan. The suite runs through `sfactory suite`, so its lock keeps two suites from overlapping. Record the implementer's agent id from the dispatch result — fix rounds resume it.
 
 **Codex (`codex` and `mixed` modes): `sfactory codex exec`.** Render `prompts/codex-implement.md` (see Rendering a Codex Prompt) to `<JOB_DIR>/tasks/<n>/prompt-0.md` and run:
 

@@ -192,3 +192,52 @@ setTimeout(() => writeFileSync(${JSON.stringify(survivedFile)}, "x"), 3000);
   if (process.platform === "win32") assert.notEqual(r.status, 0);
   else assert.equal(r.signal, "SIGTERM");
 });
+
+test("I1: the suite lock records the suite child's pid, and counts live while that child lives even after its holder is gone", async () => {
+  const { isStale, status } = await import("../src/lock.mjs");
+  const { spawnSync } = await import("node:child_process");
+  const dead = spawnSync(process.execPath, ["-e", ""]).pid; // exited: its pid names no live process (a reuse this fast is not expected)
+  const now = Date.now();
+  assert.equal(isStale({ pid: dead, childPid: process.pid, since: new Date(now).toISOString() }, now, 1000), false, "holder gone, child alive: held");
+  assert.equal(isStale({ pid: dead, childPid: dead, since: new Date(now).toISOString() }, now, 1000), true, "both gone: stale");
+  assert.equal(isStale({ pid: process.pid, childPid: dead, since: new Date(now).toISOString() }, now, 1000), false, "holder alive: held");
+  const c = cfg('node -e "setTimeout(()=>{},1500)"');
+  const run = runSuite(c, { cwd: process.cwd(), jobId: "m-1", logPath: join(tmpDir(), "s.log") });
+  let seen = null;
+  for (let i = 0; i < 100 && !seen; i++) {
+    await new Promise((r) => setTimeout(r, 20));
+    const s = status(c, "suite");
+    if (Number.isInteger(s.childPid)) seen = s;
+  }
+  assert.ok(seen, "the lock body carries childPid while the suite runs");
+  assert.equal(seen.holder, "m-1");
+  assert.notEqual(seen.childPid, process.pid);
+  const r = await run;
+  assert.equal(r.ok, true);
+  assert.equal(status(c, "suite").held, false, "released after the run");
+});
+
+test("I1: a suite CLI killed mid-run leaves the lock held while its suite still runs, and stale once the suite ends", async () => {
+  const { spawn } = await import("node:child_process");
+  const { status } = await import("../src/lock.mjs");
+  const { addJob } = await import("../src/store.mjs");
+  const root = tmpRepo();
+  writeConfig(root, { project: "p", agents: { mode: "claude" }, commands: { suite: 'node -e "setTimeout(()=>{},2500)"' }, stateDir: tmpDir("sf-s-") });
+  const c = loadConfig(findRepoRoot(root));
+  addJob(c, "milestone", "Orphan");
+  const cli = join(process.cwd(), "src", "cli.mjs");
+  const p = spawn(process.execPath, [cli, "suite", "--cwd", root, "--job", "m-1"], { cwd: root, stdio: "ignore" });
+  let s = null;
+  for (let i = 0; i < 200 && !Number.isInteger(s?.childPid); i++) { await new Promise((r) => setTimeout(r, 25)); s = status(c, "suite"); }
+  assert.ok(Number.isInteger(s?.childPid), "the CLI recorded its suite child");
+  p.kill(); // the holder only, as a Bash tool timeout would
+  await new Promise((r) => p.once("exit", r));
+  const now = status(c, "suite");
+  assert.equal(now.held, true);
+  // win32: libuv puts a non-detached child in a kill-on-close job, so the suite dies with the CLI and nothing is orphaned.
+  // POSIX: the suite is detached (its own group) and runs on: the lock must not be stale while it does.
+  if (process.platform !== "win32") assert.equal(now.stale, false, "the orphaned suite still runs: the lock is not stale");
+  let after = now;
+  for (let i = 0; i < 400 && !after.stale; i++) { await new Promise((r) => setTimeout(r, 25)); after = status(c, "suite"); }
+  assert.equal(after.stale, true, "once the suite has ended, the lock is stale and the next suite takes it over");
+});
