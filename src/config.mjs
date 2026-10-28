@@ -30,7 +30,7 @@ export const DEFAULTS = Object.freeze({
   limits: { parallelMilestones: 2, parallelTasks: 4, fixRounds: 3, taskRounds: 3, suiteWaitMs: 7_200_000, lockStaleMs: 3_600_000 },
   git: { trailers: false, namedPathsOnly: true, push: true, merge: false },
   secrets: { neverHandToAgents: [] },
-  board: { port: 5900, pollMs: 2000 },
+  board: { port: 4317, pollMs: 2000 },
   prices: DEFAULT_PRICES,
 });
 

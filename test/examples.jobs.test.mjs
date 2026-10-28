@@ -41,3 +41,10 @@ test("the snapshot over the demo jobs lists six jobs in the expected columns", (
   assert.equal(s.jobs.find((j) => j.id === "m-4").needsYou.action, "approve");
   assert.equal(s.jobs.find((j) => j.id === "f-1").needsYou.action, "answer");
 });
+
+test("m-3's cost entries are not later than its updated stamp", () => {
+  const dir = join(committed, "m-3");
+  const job = JSON.parse(readFileSync(join(dir, "job.json"), "utf8"));
+  const cost = JSON.parse(readFileSync(join(dir, "cost.json"), "utf8"));
+  for (const e of cost.entries) assert.ok(e.at <= job.updated, `${e.at} <= ${job.updated}`);
+});

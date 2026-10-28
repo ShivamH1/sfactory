@@ -1,6 +1,6 @@
 // Regenerates the demo jobs: `node examples/jobs/generate.mjs [outDir]` (default: this folder).
 // Every job.json is built through src/job.mjs, with fixed timestamps, so the output is the same everywhere.
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { newJob, transition, park, stop } from "../../src/job.mjs";
@@ -15,7 +15,7 @@ function walk(job, steps) {
   return j;
 }
 const start = (id, kind, title, at) => newJob({ id, kind, title, now: at });
-const finish = (j, extra) => ({ ...j, ...extra, updated: j.history[j.history.length - 1].at });
+const finish = (j, extra) => ({ ...j, updated: j.history[j.history.length - 1].at, ...extra });
 
 function costFile(entries) {
   const list = entries.map(([at, stage, agent, inputTokens, outputTokens, cacheReadTokens]) => {
@@ -42,7 +42,7 @@ export function jobs() {
   let m3 = start("m-3", "milestone", "Rework the settings page", T(8, 20));
   m3 = walk(m3, [["planning", T(8, 25)], ["awaiting-approval", T(8, 50)], ["building", T(9, 20)]]);
   out.push({
-    job: finish(m3, { branch: "feature/settings-rework", base: "main", worktree: "../wt/settings-rework", tasks: { total: 5, done: 2, parallel: [] } }),
+    job: finish(m3, { branch: "feature/settings-rework", base: "main", worktree: "../wt/settings-rework", tasks: { total: 5, done: 2, parallel: [] }, updated: T(10) }),
     files: {
       "cost.json": costFile([[T(8, 25), "planning", "claude", 42000, 6000, 12000], [T(9, 30), "building", "codex", 88000, 21000, 30000], [T(10), "building", "claude", 64000, 15000, 20000]]),
       "plan/tasks.md": "# Tasks\n\n- [x] 1. Split the page into sections\n- [x] 2. Move the form state into one hook\n- [ ] 3. Validate each field on blur\n- [ ] 4. Save with an optimistic update\n- [ ] 5. Write the section tests\n",
@@ -85,6 +85,11 @@ export function generate(outDir) {
   }
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+function isMain() {
+  if (!process.argv[1]) return false;
+  try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
+}
+
+if (isMain()) {
   generate(process.argv[2] ?? dirname(fileURLToPath(import.meta.url)));
 }
