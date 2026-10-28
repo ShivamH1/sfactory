@@ -9,7 +9,7 @@ const SECRETISH = /(_SECRET|_TOKEN|_KEY)$/i;
 const ALLOWED_PREFIX = /^(CODEX_|OPENAI_)/i;
 
 /** Config resolves every secrets entry to an absolute path, so an env var name arrives as a path; its basename is the name. Entries that are not env-name shaped (files like .env) are skipped. */
-function secretNames(c) {
+export function secretNames(c) {
   return (c?.secrets?.neverHandToAgents ?? []).map((s) => basename(s)).filter((s) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s));
 }
 

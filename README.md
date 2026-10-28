@@ -19,6 +19,7 @@ Node >= 20, git, and Claude Code and/or Codex CLI depending on `agents.mode`.
 - `sfactory-lock` — take and release the suite and resource locks
 - `sfactory-worktree` — cut and remove job worktrees
 - `sfactory-ports` — allocate and show a job's port block
+- `sfactory-services` — start, stop and inspect a card's services on its port block
 - `sfactory-commit` — commit named paths only, with no trailers
 - `sfactory-push` — push a job's branch
 - `sfactory-suite` — run the test suite under the lock
