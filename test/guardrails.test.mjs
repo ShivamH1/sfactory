@@ -142,3 +142,91 @@ test("fixcard: checkFixCard names each hit, and the CLI exits 1 on one", async (
   assert.equal(await main(["fixcard", "plan.md"], { cwd: root, stdout: () => {} }), 0);
   assert.equal(loadConfig(root).fixCardRefusals.length, 0);
 });
+
+// ---- fix round 1 ----
+import { spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
+import { readJob, writeJob } from "../src/store.mjs";
+import { integration } from "../src/worktree.mjs";
+
+test("ports: two concurrent allocations in separate processes get distinct blocks, persisted under the lock", async () => {
+  const c = { stateDir: tmpDir("sf-race-"), ports: { base: 47600, step: 10, names: ["api", "web"] } };
+  for (const id of ["m-1", "m-2"]) writeJob(c, { id, kind: "milestone", title: id, stage: "building", started: `2026-01-01T00:00:0${id.slice(-1)}Z`, history: [] });
+  const src = pathToFileURL(join(process.cwd(), "src")).href;
+  const code = `const {allocate}=await import(${JSON.stringify(src + "/ports.mjs")});const {readJob,writeJob}=await import(${JSON.stringify(src + "/store.mjs")});
+const c=JSON.parse(process.argv[1]),id=process.argv[2];
+const p=await allocate(c,id,async(ports)=>{await new Promise(r=>setTimeout(r,500));writeJob(c,{...readJob(c,id),ports});});
+console.log(p.block);`;
+  const run = (id) => new Promise((res, rej) => {
+    const ch = spawn(process.execPath, ["--input-type=module", "-e", code, JSON.stringify(c), id]);
+    let out = "", err = ""; ch.stdout.on("data", (d) => (out += d)); ch.stderr.on("data", (d) => (err += d));
+    ch.on("close", (st) => (st === 0 ? res(Number(out.trim())) : rej(new Error(err))));
+  });
+  const [a, b] = await Promise.all([run("m-1"), run("m-2")]);
+  assert.notEqual(a, b);
+  assert.equal(readJob(c, "m-1").ports.block, a);
+  assert.equal(readJob(c, "m-2").ports.block, b);
+});
+
+test("worktree: after the fetch a local base that lags its remote is based on origin's head; a diverged one stays local with one warning", () => {
+  const { r, bare } = repoWithRemote();
+  const other = tmpDir("sf-other-"); sh("git", ["clone", "-q", "-b", "main", bare, other], other);
+  sh("git", ["config", "user.email", "t@example.com"], other); sh("git", ["config", "user.name", "t"], other);
+  const moved = commit(other, "m.txt", "moved"); sh("git", ["push", "-q", "origin", "main"], other);
+  const c = { repoRoot: r, worktrees: { baseRule: "integration-branch", integrationBranch: "main", branchPrefix: "feature/" } };
+  const old = headOf(r, "main");
+  assert.notEqual(old, moved);
+  assert.equal(resolveBase(c).head, moved);
+  // diverge: a local commit on main, and another on origin
+  const local = commit(r, "l.txt", "local");
+  const moved2 = commit(other, "m2.txt", "moved2"); sh("git", ["push", "-q", "origin", "main"], other);
+  const writes = []; const orig = process.stderr.write;
+  process.stderr.write = (s) => { writes.push(String(s)); return true; };
+  try { assert.equal(resolveBase(c).head, local); } finally { process.stderr.write = orig; }
+  assert.notEqual(local, moved2);
+  assert.equal(writes.length, 1);
+  assert.match(writes[0], /diverged/);
+});
+
+test("worktree: a failed fetch warning is one line with URL credentials redacted", () => {
+  const { r } = repoWithRemote();
+  sh("git", ["remote", "set-url", "origin", "https://user:s3cret@127.0.0.1:9/nope.git"], r);
+  const c = { repoRoot: r, worktrees: { baseRule: "integration-branch", integrationBranch: "main", branchPrefix: "feature/" } };
+  const writes = []; const orig = process.stderr.write;
+  process.stderr.write = (s) => { writes.push(String(s)); return true; };
+  try { resolveBase(c); } finally { process.stderr.write = orig; }
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].trimEnd().split("\n").length, 1);
+  assert.ok(!writes[0].includes("s3cret"), writes[0]);
+});
+
+test("push: trailer scan ranges from the same integration branch worktree uses; no merge base scans only commits on no remote", () => {
+  const { r } = repoWithRemote();
+  // development carries a trailer commit that is not on main
+  sh("git", ["checkout", "-q", "-b", "development"], r);
+  commit(r, "d.txt", "dev work\n\nCo-Authored-By: Someone <s@example.com>");
+  sh("git", ["push", "-q", "origin", "development"], r);
+  sh("git", ["checkout", "-q", "-b", "feature/dv"], r);
+  commit(r, "f.txt", "clean");
+  const c = cfg();
+  assert.equal(integration({ repoRoot: r, worktrees: { integrationBranch: null } }), "development");
+  assert.equal(push(c, { cwd: r }).branch, "feature/dv");
+});
+
+test("push: with no merge base the scan covers commits on no remote, never the root", () => {
+  const { r } = repoWithRemote();
+  sh("git", ["checkout", "-q", "--orphan", "feature/orph"], r);
+  sh("git", ["rm", "-rfq", "."], r);
+  commit(r, "o.txt", "orphan root\n\nCo-Authored-By: Someone <s@example.com>");
+  sh("git", ["push", "-q", "origin", "feature/orph"], r);
+  sh("git", ["checkout", "-q", "-b", "feature/orph2"], r);
+  commit(r, "o2.txt", "clean");
+  assert.equal(push(cfg(), { cwd: r }).branch, "feature/orph2");
+});
+
+test("worktree: oneLine keeps the first line only and redacts URL credentials", async () => {
+  const { oneLine } = await import("../src/worktree.mjs");
+  const out = oneLine("fatal: unable to access 'https://user:pa55@host.example/r.git/': boom\nsecond line https://u:p@h/");
+  assert.equal(out, "fatal: unable to access 'https://***@host.example/r.git/': boom");
+  assert.ok(!out.includes("pa55") && !out.includes("\n"));
+});

@@ -21,8 +21,13 @@ export async function isFree(port) {
   return true;
 }
 
-export function allocate(c, jobId) {
-  return withLock(c, "ports", { holder: `ports:${process.pid}`, waitMs: 10_000 }, () => allocateUnlocked(c, jobId));
+/** `persist(ports)` runs inside the lock, so the block is recorded before the next allocator reads the held set. */
+export function allocate(c, jobId, persist) {
+  return withLock(c, "ports", { holder: `ports:${process.pid}`, waitMs: 10_000 }, async () => {
+    const ports = await allocateUnlocked(c, jobId);
+    if (persist) await persist(ports);
+    return ports;
+  });
 }
 async function allocateUnlocked(c, jobId) {
   const { base, step, names } = c.ports;

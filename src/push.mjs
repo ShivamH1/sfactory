@@ -1,18 +1,16 @@
 import { fail } from "./errors.mjs";
+import { integration } from "./worktree.mjs";
 import { git, currentBranch, isClean, remoteHead, headOf } from "./git.mjs";
 
 const PROTECTED = ["main", "master"];
 
 /** First commit between the integration branch (or the root) and HEAD that carries a trailer, or null. */
 function firstTrailerCommit(c, cwd) {
-  const integ = c.worktrees.integrationBranch;
-  const refs = [integ ? `origin/${integ}` : null, "origin/main", "origin/master"].filter(Boolean);
-  let base = null;
-  for (const ref of refs) {
-    const mb = git(["merge-base", "HEAD", ref], { cwd, allowFail: true });
-    if (mb) { base = mb; break; }
-  }
-  const out = git(["log", "--format=%H%x00%(trailers)%x01", base ? `${base}..HEAD` : "HEAD"], { cwd });
+  const base = git(["merge-base", "HEAD", `origin/${integration({ ...c, repoRoot: cwd })}`], { cwd, allowFail: true });
+  // no merge base: only commits that are on no remote, never the whole history
+  const out = base
+    ? git(["log", "--format=%H%x00%(trailers)%x01", `${base}..HEAD`], { cwd })
+    : git(["log", "--format=%H%x00%(trailers)%x01", "HEAD", "--not", "--remotes"], { cwd });
   for (const rec of out.split("\x01")) {
     const [sha, trailers] = rec.trim().split("\0");
     if (sha && trailers && trailers.trim()) return { sha, line: trailers.trim().split(/\r?\n/)[0] };

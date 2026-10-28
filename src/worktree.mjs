@@ -2,15 +2,15 @@ import { existsSync, copyFileSync, mkdirSync, openSync, writeSync, closeSync } f
 import { join, resolve, dirname, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fail } from "./errors.mjs";
-import { git, isClean, headOf, branchExists, newestBranch, worktreeOfBranch } from "./git.mjs";
+import { git, isClean, headOf, branchExists, newestBranch, worktreeOfBranch, remoteHead, branchContains } from "./git.mjs";
 import { slugify } from "./store.mjs";
 import { acquireSync, assertHolder, release } from "./lock.mjs";
 
 export function resolveBase(c, { fetch = true } = {}) {
   const cwd = c.repoRoot;
   if (fetch && git(["remote"], { cwd }).split(/\s+/).includes("origin")) {
-    const r = spawnSync("git", ["fetch", "--quiet", "origin"], { cwd, encoding: "utf8" });
-    if (r.error || r.status !== 0) process.stderr.write(`warning: git fetch origin failed (${(r.error?.message ?? r.stderr).trim()}); using local refs\n`);
+    const r = spawnSync("git", ["fetch", "--quiet", "origin"], { cwd, encoding: "utf8", timeout: 60_000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+    if (r.error || r.status !== 0) process.stderr.write(`warning: git fetch origin failed (${oneLine(r.error?.message ?? r.stderr)}); using local refs\n`);
   }
   const rule = c.worktrees.baseRule;
   let branch;
@@ -18,9 +18,20 @@ export function resolveBase(c, { fetch = true } = {}) {
   else if (rule === "integration-branch") branch = integration(c);
   else branch = rule;
   if (!branchExists(cwd, branch)) fail("BASE_NOT_FOUND", `base branch ${branch} does not exist`);
-  return { branch, head: headOf(cwd, branch) };
+  const local = headOf(cwd, branch);
+  const remote = remoteHead(cwd, branch);
+  if (!remote || remote === local) return { branch, head: local };
+  if (branchContains(cwd, remote, local)) return { branch, head: remote };
+  if (!branchContains(cwd, local, remote)) process.stderr.write(`warning: ${branch} and origin/${branch} have diverged; using local ${branch}\n`);
+  return { branch, head: local };
 }
-function integration(c) {
+/** One line, URL credentials (scheme://user:pass@) removed, capped. */
+export function oneLine(s) {
+  const first = String(s ?? "").trim().split(/\r?\n/)[0] ?? "";
+  const t = first.replace(/(\w+:\/\/)[^\s/@]*@/g, "$1***@");
+  return t.length > 200 ? `${t.slice(0, 200)}...` : t;
+}
+export function integration(c) {
   if (c.worktrees.integrationBranch) return c.worktrees.integrationBranch;
   return ["development", "develop", "main", "master"].find((b) => branchExists(c.repoRoot, b)) ?? "main";
 }

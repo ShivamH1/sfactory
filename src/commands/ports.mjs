@@ -12,9 +12,8 @@ register("ports", async ({ positional: [verb, arg] }, io) => {
   if (verb === "allocate") {
     if (!arg) fail("BAD_ARGS", "usage: sfactory ports allocate <id> | sfactory ports free <port>");
     readJob(c, arg); // fail early on an unknown id, before any bind
-    const ports = await allocate(c, arg);
-    // re-read after the binds so a stage change made meanwhile is not overwritten
-    writeJob(c, { ...readJob(c, arg), ports });
+    // persisted inside the ports lock; re-read after the binds so a stage change made meanwhile is not overwritten
+    const ports = await allocate(c, arg, (p) => writeJob(c, { ...readJob(c, arg), ports: p }));
     io.stdout(`${c.ports.names.map((n) => `${n}=${ports[n]}`).join(" ")}\n`);
     return 0;
   }
