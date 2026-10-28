@@ -409,6 +409,11 @@ test("worktree cli: merge --from merges a pushed parallel partner into a pushing
   rmSync(hook);
   assert.equal(r.code, 2, r.out); assert.match(r.err, /TRAILER_REFUSED[^\n]*Signed-off-by/);
   assert.ok(existsSync(join(b.worktree, "hooked.txt")), "the merge is left in place");
+  // A merge that never started (the partner's branch is gone): no MERGE_HEAD, so nothing to abort - GIT_FAILED.
+  patch("m-1", { branch: "feature/gone" });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 2); assert.match(r.err, /GIT_FAILED[^\n]*feature\/gone/); assert.doesNotMatch(r.err, /MERGE_ABORT_FAILED/);
+  patch("m-1", { branch: a.branch });
   // A conflict: both cards change one file; the merge is aborted and the file named.
   commitIn(a.worktree, "same.txt", "from a\n"); commitIn(b.worktree, "same.txt", "from b\n");
   const head = sh("git", ["rev-parse", "HEAD"], b.worktree);

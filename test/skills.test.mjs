@@ -492,7 +492,7 @@ test("skills/sfactory: the rulings, the stops and the amendment's rules are stat
     "sfactory independence tasks <WORKTREE>/<record.plan> --max <limits.parallelTasks>", "sfactory cost add", "`stops`",
     "sfactory:sdd", "sfactory:brainstorming", "writing-plans",
     // fix round 1: the four CLI additions, the gates end the turn, the questionnaire waits, the parallel reason
-    "sfactory worktree cut <id> --base-of <A>", "sfactory worktree merge <id> --from <A>", "sfactory job request-changes <id> --notes-file",
+    "sfactory worktree cut <id> --base-of <A>", "sfactory worktree merge <id> --from <the partner>", "sfactory job request-changes <id> --notes-file",
     "MERGE_CONFLICT", "LOG_NOT_FOUND", "LOCK_HELD", "review/round-<r>/brief.md", "end your turn", "Monitor tool", "30 minutes",
     "An open questionnaire always waits", "the cost", "why parallel helps", "`/sfactory run` carries on"])
     assert.ok(orch.includes(s), `names ${s}`);
@@ -533,4 +533,21 @@ test("skills/sfactory: allowed-tools covers every program the orchestrator and t
   assert.ok(allowed.includes("Monitor"), "Monitor");
   assert.ok(!allowed.some((t) => /sleep/.test(t)) && !used.has("sleep"), "no sleep");
   assert.deepEqual([...programsRun("Run `git -C x status`, `sfactory doctor`, not `sfactory:sdd` or the `codex` mode; `codex exec x` counts.\n```bash\nbash run.sh\n```")].sort(), ["bash", "codex", "git", "sfactory"]);
+});
+
+test("skills/sfactory: every refusal worktree merge can raise has a row in the skill's stop table, with the person's next step", () => {
+  const src = read(join(root, "src", "commands", "worktree.mjs"));
+  const body = src.slice(src.indexOf("export async function mergePartner"), src.indexOf("/** What this command accepts"));
+  const push = read(join(root, "src", "push.mjs"));
+  const helper = push.slice(push.indexOf("export function assertFactoryBranch"), push.indexOf("export function push("));
+  const codes = new Set([...(body + helper).matchAll(/fail\("([A-Z_]+)"/g)].map((m) => m[1]));
+  for (const c of ["NOT_HOLDER", "DIRTY_TREE"]) codes.add(c); // assertHolder (lock.mjs) and the clean-tree check
+  assert.ok(codes.size >= 12, `codes read: ${[...codes]}`);
+  const table = orch.slice(orch.indexOf("Every refusal of `sfactory worktree merge` stops the card"), orch.indexOf("## 6. Roles by mode"));
+  // A row: | `CODE` | what it means | the next step |, both cells non-empty.
+  for (const c of codes) assert.match(table, new RegExp(String.raw`^ *\| ${"`"}${c}${"`"} \| [^|\n]*\S[^|\n]* \| [^|\n]*\S[^|\n]* \|$`, "m"), `a row for ${c} with a next step`);
+  assert.match(table, /sfactory job stop <id> --reason/);
+  assert.match(orch, /another card's approved `parallelWith` names it/, "who is a side of a pair");
+  assert.match(orch, /run the check of section 5, step 1 again on the revised plan/, "changes re-check the pair");
+  assert.match(orch, /queued card \(`parallel` is `queued`\) resuming while another milestone is active/, "a resumed queued card is check due");
 });

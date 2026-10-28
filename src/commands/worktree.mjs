@@ -112,6 +112,10 @@ export async function mergePartner(c, id, partnerId) {
     const r = spawnSync("git", ["merge", "--no-ff", "--no-edit", "-m", message, p.branch], { cwd: job.worktree, encoding: "utf8" });
     if (r.error) fail("GIT_FAILED", `git not runnable: ${r.error.message}`);
     if (r.status !== 0) {
+      // A merge that never started (an unknown branch, an untracked file in the way) leaves no MERGE_HEAD and
+      // nothing to abort: report git's own refusal. Only a merge in progress is aborted.
+      const started = spawnSync("git", ["rev-parse", "-q", "--verify", "MERGE_HEAD"], { cwd: job.worktree, encoding: "utf8" }).status === 0;
+      if (!started) fail("GIT_FAILED", `git merge ${p.branch} (in ${job.worktree}) did not start: ${(r.stderr || r.stdout).trim()}`);
       const files = git(["diff", "--name-only", "--diff-filter=U"], { cwd: job.worktree, allowFail: true }).split(/\r?\n/).filter(Boolean);
       const abort = spawnSync("git", ["merge", "--abort"], { cwd: job.worktree, encoding: "utf8" });
       if (abort.status !== 0) fail("MERGE_ABORT_FAILED", `${p.branch} into ${job.branch} failed${files.length ? ` with conflicts in ${files.join(", ")}` : ""}, and git merge --abort failed too (${(abort.stderr || abort.stdout || "").trim()}); ${job.worktree} is mid-merge and needs the person`);
