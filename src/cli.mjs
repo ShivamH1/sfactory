@@ -67,6 +67,7 @@ await Promise.all([
   import("./commands/fixcard.mjs"),
   import("./commands/independence.mjs"),
   import("./commands/init.mjs"),
+  import("./commands/install.mjs"),
   import("./commands/job.mjs"),
   import("./commands/lock.mjs"),
   import("./commands/ports.mjs"),
