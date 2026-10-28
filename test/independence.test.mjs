@@ -30,7 +30,11 @@ test("independence: migrations and numbering are skipped when the project has ne
 });
 
 test("independence: task batches respect dependencies, disjointness and the cap", () => {
-  assert.deepEqual(taskBatches(read("a"), 4), [[1, 4], [2], [3]]);
+  // Fix round 4 (R4-1) changed this expectation: a.md gives only Tasks 2 and 3
+  // a Depends on line, so by default it runs one task per batch; batching by
+  // its dependencies and files is opted into.
+  assert.deepEqual(taskBatches(read("a"), 4), [[1], [2], [3], [4]]);
+  assert.deepEqual(taskBatches(read("a"), 4, { allowUndeclared: true }), [[1, 4], [2], [3]]);
   const plan = { tasks: [1, 2, 3, 4, 5].map((n) => ({ n, title: String(n), files: [{ op: "create", path: `f${n}` }], dependsOn: [] })) };
   // Plan C Task 1 (I7): a plan with no dependency information is sequential by
   // default; these cases test batching by files, so they allow it explicitly.

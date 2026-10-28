@@ -94,7 +94,11 @@ test("plan round 5: backticked items that are not path-like are prose", () => {
   // word) contributes no files; the task then falls under ruling 4.
   const q = parsePlan("### Task 1: A\n- Modify: `createSession()` and `adminUserId`\nThen run it.\n### Task 2: B\n- Create: `b.ts`\n");
   assert.deepEqual(q.tasks[0].files, []);
-  assert.equal(code("### Task 1: A\n- Modify: `createSession()`\nSee `src/auth.ts`.\n### Task 2: B\n- Create: `b.ts`\n"), "PLAN_TASK_NO_FILES");
+  // Fix round 4 (R4-4): "See `src/auth.ts`." directly under the Files line now
+  // continues it (the path is recorded, fail closed); after a blank line it is
+  // prose and the mention check applies as before.
+  assert.equal(code("### Task 1: A\n- Modify: `createSession()`\n\nSee `src/auth.ts`.\n### Task 2: B\n- Create: `b.ts`\n"), "PLAN_TASK_NO_FILES");
+  assert.deepEqual(parsePlan("### Task 1: A\n- Modify: `createSession()`\nSee `src/auth.ts`.\n### Task 2: B\n- Create: `b.ts`\n").tasks[0].files, [{ op: "modify", path: "src/auth.ts" }]);
 });
 
 test("plan round 4: a path-like token beside a backticked item is refused", () => {
@@ -123,7 +127,11 @@ test("plan round 4: file-less tasks", () => {
   const p = parsePlan("### Task 1: Baseline\nRun the suite; record the count.\n### Task 2: B\n- Create: `b.ts`\n");
   assert.deepEqual(p.tasks.map((t) => t.files), [[], [{ op: "create", path: "b.ts" }]]);
   assert.deepEqual(parsePlan("### Task 1: A\n**Files:** none changed. Log entry only, see `spec/log.md`.\n### Task 2: B\n- Create: `b.ts`\n").tasks[0].files, [{ op: "touch", path: "spec/log.md" }]);
-  assert.deepEqual(parsePlan("### Task 1: A\n**Files:** none in the repo.\nThen read `docs/x.md`.\n### Task 2: B\n- Create: `b.ts`\n").tasks[0].files, []);
+  // Fix round 4 (R4-4) changed this expectation: the unindented line right
+  // after the label continues it, so `docs/x.md` is recorded (fail closed).
+  // After a blank line it is prose, and the label's "none" stands.
+  assert.deepEqual(parsePlan("### Task 1: A\n**Files:** none in the repo.\nThen read `docs/x.md`.\n### Task 2: B\n- Create: `b.ts`\n").tasks[0].files, [{ op: "touch", path: "docs/x.md" }]);
+  assert.deepEqual(parsePlan("### Task 1: A\n**Files:** none in the repo.\n\nThen read `docs/x.md`.\n### Task 2: B\n- Create: `b.ts`\n").tasks[0].files, []);
   assert.equal(code("### Task 1: A\nRun `pnpm test` and read `CLAUDE.md`.\n### Task 2: B\n- Create: `b.ts`\n"), "PLAN_TASK_NO_FILES");
   assert.equal(code("### Task 1: A\nRun the suite.\n### Task 2: B\nAnd the build.\n"), "PLAN_NO_FILES");
   // Prose after the plan's last task is not that task's.

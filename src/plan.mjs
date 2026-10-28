@@ -154,6 +154,155 @@ function idsIn(text) {
 const ISO_DATE = /\b\d{4}-\d{2}-\d{2}\b/g;
 /** A `**Files…:**` label standing mid-line, after a Consumes or Depends on line's text (R2-5). */
 const MID_LABEL = /\*\*Files(?:\s*\([^)]*\))?\s*:?\s*\*\*\s*:?/i;
+/** "T5" and "Task5" read as "5" (S2, R4-1). */
+const spaced = (s) => s.replace(/\bT(?=\d)/g, " ").replace(/\b(Tasks?)(?=\d)/gi, "$1 ");
+/** A Depends on label's ids, read literally (a missing task is a loud error at batch time). */
+const depIds = (s) => idsIn(spaced(s));
+const NONE = /^[\W_]*none(?![a-z0-9])/i;
+
+/** Leading columns of a line; a tab advances to the next multiple of four. */
+function indentOf(s) {
+  let col = 0;
+  for (const ch of s) { if (ch === " ") col++; else if (ch === "\t") col += 4 - (col % 4); else break; }
+  return col;
+}
+
+/** At most `max` blockquote markers ("> ", nested) stripped: { q, s } (R4-3). */
+function unquote(line, max = Infinity) {
+  let q = 0, s = line, m;
+  while (q < max && (m = s.match(/^ {0,3}>[ \t]?/))) { s = s.slice(m[0].length); q++; }
+  return { q, s };
+}
+
+const LIST_ITEM = /^([-*+]|\d{1,9}[.)])([ \t]+|$)/;
+const THEMATIC = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
+
+/** Index of the next run of exactly `n` backticks at or after `from`, or -1. */
+function runAt(s, from, n) {
+  const re = /`+/g;
+  re.lastIndex = from;
+  for (let m; (m = re.exec(s)); ) if (m[0].length === n) return m.index;
+  return -1;
+}
+
+/**
+ * A line with its HTML comments removed, outside code spans: { text, open },
+ * `open` being where a comment starts that does not end on the line (else -1).
+ * A comment ends at the first "-->" after its "<!--", so "<!-->" ends at once.
+ */
+function uncomment(s) {
+  let out = "", i = 0;
+  while (i < s.length) {
+    if (s[i] === "`") {
+      const n = s.slice(i).match(/^`+/)[0].length, end = runAt(s, i + n, n);
+      const to = end >= 0 ? end + n : i + n;
+      out += s.slice(i, to); i = to;
+      continue;
+    }
+    if (s.startsWith("<!--", i)) {
+      const end = s.indexOf("-->", i + 2);
+      if (end < 0) return { text: out, open: out.length };
+      out += " "; i = end + 3;
+      continue;
+    }
+    out += s[i++];
+  }
+  return { text: out, open: -1 };
+}
+
+/**
+ * The plan's lines as the parser reads them (R4-3). Fenced code, indented
+ * code and HTML comments are blanked or dropped for every reading, and
+ * blockquote markers are stripped so a quoted line is read normally.
+ *
+ * A light CommonMark block model decides what is code: list items are tracked
+ * by their content column, so a line indented under an item is that item's
+ * content (a nested list, a wrapped line), and only a line four columns past
+ * its container, after something that is not a paragraph, is indented code. A
+ * fence belongs to the item or quote it opens in and ends with it, so a fence
+ * left open inside an item cannot swallow the next item.
+ *
+ * A comment opening a line is an HTML block and runs to the first "-->",
+ * blank lines included; one never closed is refused. A comment opening
+ * mid-line spans lines only up to a blank line; those lines are kept and
+ * marked `suspect` - read for files and ordering (fail closed), never trusted
+ * to declare the plan - because a code span across lines cannot be told apart
+ * from one here.
+ *
+ * Returns [{ text, no, suspect }]; a line that held only a comment is left out.
+ */
+function scan(md) {
+  const raw = String(md).split(/\r?\n/);
+  const out = [];
+  const keep = (text, no, suspect) => out.push({ text, no, suspect });
+  let fence = null;     // { ch, len, col, q, no } while inside a fenced block
+  let comment = 0;      // the line a block-level comment opened on, while it is open
+  let stack = [];       // content columns of the open list items, innermost last
+  let prev = "blank";   // the previous line: blank | para | code | other
+  let prevQ = 0;
+  let suspectTo = -1;   // the last line of a mid-line comment that spans lines
+  for (let i = 0; i < raw.length; i++) {
+    const no = i + 1, suspect = i <= suspectTo;
+    if (comment) {
+      const end = raw[i].indexOf("-->");
+      if (end < 0) continue;
+      comment = 0; prev = "other";
+      // The rest of the closing line is read (it renders as text).
+      const u = uncomment(raw[i].slice(end + 3));
+      if (u.open >= 0) comment = no;
+      if (u.text.trim()) keep(u.text, no, suspect);
+      continue;
+    }
+    if (fence) {
+      const u = unquote(raw[i], fence.q);
+      const ind = indentOf(u.s);
+      // A fence ends with its quote (a line without the marker) or its list item (a line indented less).
+      const ended = u.q < fence.q || (!!u.s.trim() && ind < fence.col);
+      if (!ended) {
+        const c = u.s.trim().match(/^(`{3,}|~{3,})$/);
+        if (c && ind - fence.col <= 3 && c[1][0] === fence.ch && c[1].length >= fence.len) { fence = null; prev = "other"; }
+        keep("", no, suspect);
+        continue;
+      }
+      fence = null; prev = "other";
+    }
+    const { q, s } = unquote(raw[i]);
+    if (!s.trim()) { keep("", no, suspect); prev = "blank"; if (q !== prevQ) { stack = []; prevQ = q; } continue; }
+    if (q !== prevQ) { stack = []; prevQ = q; }
+    const ind = indentOf(s), t = s.trimStart();
+    const inner = [...stack].reverse().find((c) => c <= ind) ?? 0;
+    const opener = ind - inner <= 3 && (LIST_ITEM.test(t) || /^#{1,6}(\s|$)/.test(t) || /^(`{3,}|~{3,})/.test(t) || THEMATIC.test(s) || t.startsWith("<!--"));
+    if (prev === "para" && !opener) { const lt = lineText(s, i, false); if (lt !== null) keep(lt, no, suspect || i <= suspectTo); continue; }   // a paragraph's continuation
+    while (stack.length && ind < stack[stack.length - 1]) stack.pop();
+    const col = stack.length ? stack[stack.length - 1] : 0;
+    if (ind - col >= 4) { keep("", no, suspect); prev = "code"; continue; }   // indented code
+    const f = t.match(/^(`{3,}|~{3,})(.*)$/);
+    if (f && !(f[1][0] === "`" && f[2].includes("`"))) { fence = { ch: f[1][0], len: f[1].length, col, q, no }; keep("", no, suspect); prev = "other"; continue; }
+    const li = t.match(LIST_ITEM);
+    if (THEMATIC.test(s)) prev = "other";
+    else if (li) {
+      const gap = li[2].replace(/\t/g, "    ").length;
+      stack.push(ind + li[1].length + (gap === 0 || gap > 4 ? 1 : gap));
+      prev = "para";
+    } else prev = /^#{1,6}(\s|$)/.test(t) ? "other" : "para";
+    const text = lineText(s, i);
+    if (text === null) { prev = "other"; continue; }   // a comment alone, or one opening an HTML block
+    keep(text, no, suspect || i <= suspectTo);
+  }
+  if (fence) fail("PLAN_UNCLOSED_FENCE", `a fenced code block opened on line ${fence.no} is never closed; everything after it would be hidden`);
+  if (comment) fail("PLAN_UNCLOSED_COMMENT", `an HTML comment opened on line ${comment} is never closed; everything after it would be hidden`);
+  return out;
+
+  /** The line with its comments removed; null when nothing but a comment is left. Opens a spanning comment as a side effect. */
+  function lineText(s, i, block = true) {
+    const u = uncomment(s);
+    if (u.open < 0) return u.text.trim() || !s.includes("<!--") ? u.text : null;
+    if (block && !u.text.trim()) { comment = i + 1; return null; }   // opens the line: an HTML block to the first "-->"
+    // Mid-line: a comment only if "-->" comes before the paragraph ends; its lines stay readable, but suspect.
+    for (let j = i + 1; j < raw.length && raw[j].trim(); j++) if (raw[j].includes("-->")) { suspectTo = Math.max(suspectTo, j); return s; }
+    return s;
+  }
+}
 
 /**
  * Strict plan reader. Fails closed: a plan with no tasks, a task that names a
@@ -163,77 +312,97 @@ const MID_LABEL = /\*\*Files(?:\s*\([^)]*\))?\s*:?\s*\*\*\s*:?/i;
  * path, or that says "**Files:** none", is accepted with `files: []`; an op
  * line saying "none" ("- Modify: none") declares nothing.
  *
+ * Code (fenced or indented) and HTML comments are not read; a quoted line is
+ * read as if unquoted (R4-3, see `scan`).
+ *
  * A Files line continues onto the following lines while they are indented, or
  * while the line before ended with a comma; a continuation's backticked items
- * are files of the same op, and its prose obeys the same rule. A Files line
- * that yields no path (and does not say "none") is read like prose for the
- * mention check.
+ * are files of the same op, and its prose obeys the same rule. Right after a
+ * Files line, any unindented line that is not a bullet, a heading or a label
+ * continues it too (R4-4). A Files line that yields no path (and does not say
+ * "none") is read like prose for the mention check.
  *
  * A Read line touches nothing and never declares its task; one in the
  * colon-less or qualified form, or with prose beside its items, may hide a
  * write and records its items as `touch` instead (N2).
  *
- * Dependencies come from "Depends on" lines, "(after Task N)" in a title, and
- * Consumes lines naming earlier tasks; a dependency line outside any task is an
- * error. `dependencyInfo` is "declared" only when some task carries an explicit
- * Depends on line (naming a task or "none"), else "none" (S1): edges read from
- * prose order tasks but never on their own prove they may run in parallel.
+ * Dependencies come from "Depends on" labels, "(after Task N)" in a title,
+ * Consumes lines and loose "Depends on Task N" lines naming earlier tasks; a
+ * dependency label or Consumes line outside any task is an error. A Depends on
+ * label must name task ids ("Task 2", "T2", "Tasks 1 through 3", or an empty
+ * label's nested list) or say "none"; anything else is PLAN_BAD_DEPENDENCY.
+ * `dependencyInfo` is "declared" only when every task carries its own Depends
+ * on label (R4-1), else "none", and `missingDependsOn` lists the tasks without
+ * one: edges read from prose order tasks but never prove they may run in
+ * parallel.
  *
  * A Files list survives blank lines while the next non-blank line is a list
- * item (not a "[ ]" step) or an indented line (S4); right after a Files line,
- * an unindented line opening with a backticked item continues it (S5).
+ * item (not a "[ ]" step) or an indented line (S4). An empty Files label must
+ * have something under it.
  */
 export function parsePlan(md) {
+  const lines = scan(md);
   const tasks = [];
   const mentions = new Map();   // task -> first backticked path-like token outside a Files line
   const declared = new Set();   // tasks with a Files line that names a written file, or "**Files:** none"
+  const labelled = new Set();   // tasks with their own Depends on label (R4-1)
   let cur = null;
   let level = 0;      // the current task heading's level
-  let fence = null;   // { ch, len } while inside a fenced block
   // { op, comma, list, label } while a Files line may continue: `list` after a
   // bare "- Op:" or label (nested items), `label` inside a Files label's list,
   // where an unindented bullet is an item too (R2-4).
   let cont = null;
   let consumes = false;   // while a Consumes line may continue onto indented lines
-  let depInfo = false;
+  let depList = null;     // { indent, bulleted, items, no, task } after an empty Depends on label
+  let emptyLabel = null;  // { at } while an empty Files label has nothing under it yet
   // CommonMark: a heading may be indented up to three spaces (R2-5).
   const heading = new RegExp(`^ {0,3}#{2,3}\\s+Task\\s+(${ID})\\s*:\\s*(.+?)\\s*$`, "i");
   const after = new RegExp(`\\(after Task (${ID})\\)`, "i");
   const afterEnd = new RegExp(`\\s*\\(after Task (${ID})\\)\\s*$`, "i");
-  // A label, not prose: "Depends on:" / "**Depends on:**" / "**Depends on**" (a
-  // wrapped "depends on it." is prose and must never declare a plan, S1).
-  const depends = new RegExp(`^\\s*(?:${BULLET}\\s*)?(?:\\*\\*Depends on\\s*(?::\\s*\\*\\*|\\*\\*\\s*:?)|Depends on\\s*:)\\s*(.+)$`, "i");
+  // A label, not prose: "Depends on:", "Depends-on:", or the words in emphasis -
+  // "**Depends on:**", "**Depends on**", "__Depends on:__", "*Depends on:*" (R4-5).
+  const DEP = "Depends(?:\\s+|\\s*-\\s*)on";
+  const depends = new RegExp(`^\\s*(?:${BULLET}\\s*)?(?:(\\*\\*|__|\\*|_)${DEP}\\s*(?::\\s*\\1|\\1\\s*:?)|${DEP}\\s*:)\\s*(.*)$`, "i");
+  // A loose "Depends on Task 2" (no label) orders like a Consumes line and never declares (R4-2).
+  const loose = new RegExp(`^\\s*(?:${BULLET}\\s*)?[*_]{0,2}${DEP}\\b(.*)$`, "i");
   const consumesLine = new RegExp(`^\\s*(?:${BULLET}\\s+)?\\*{0,2}Consumes\\b([^:]*):(.*)$`, "i");
   // "**Files:**", "**Files**:", "**Files (anything):**", or a plain "Files:" (R2-5).
   const label = new RegExp(`^\\s*(?:${BULLET}\\s+)?(?:\\*\\*Files(?:\\s*\\([^)]*\\))?\\s*:?\\s*\\*\\*\\s*:?|Files(?:\\s*\\([^)]*\\))?\\s*:)\\s*(.*?)\\s*$`, "i");
+  // Any other bold label ("**Step 2:**", "**Note**:") ends a lazy continuation (R4-4).
+  const boldLabel = /^(\*\*|__)[^*_]*?(?::\s*\1|\1\s*:)/;
   const itemBullet = new RegExp(`^\\s*${BULLET}\\s+\``);
   const note = (line) => { if (cur && !mentions.has(cur)) { const p = tickedPaths(line)[0]; if (p) mentions.set(cur, p); } };
   const depend = (ns) => { for (const n of ns) if (!cur.dependsOn.includes(n)) cur.dependsOn.push(n); };
   // A Consumes line names only tasks earlier in the plan (R2-2), and every
   // number naming one counts (R2-1), "T5" and "Task2" included (S2). Its edges
-  // order tasks but never declare the plan (S1). Depends on lines stay literal.
+  // order tasks but never declare the plan (S1). Depends on labels stay literal.
   const consume = (text) => {
     const before = new Set(tasks.slice(0, -1).map((t) => t.n));   // cur is the last task pushed
-    const t = text.replace(ISO_DATE, " ").replace(/\bT(?=\d)/g, " ").replace(/\b(Tasks?)(?=\d)/gi, "$1 ");
-    depend(idsIn(t).filter((n) => before.has(n)));
+    depend(idsIn(spaced(text.replace(ISO_DATE, " "))).filter((n) => before.has(n)));
   };
   const STEP = new RegExp(`^\\s*${BULLET}\\s+\\[[ xX]\\]`);   // a "- [ ]" step, never a Files item
+  /** The next non-blank line after `k`, or null. */
+  const nextLine = (k) => { let j = k + 1; while (j < lines.length && !lines[j].text.trim()) j++; return j < lines.length ? lines[j].text : null; };
   /** After a blank line, does the next non-blank line carry a Files list on (S4)? */
-  const listGoesOn = (i) => {
-    let j = i + 1;
-    while (j < lines.length && !lines[j].trim()) j++;
-    if (j >= lines.length) return false;
-    const nx = lines[j];
-    return !STEP.test(nx) && (BULLET_RE.test(nx) || /^\s+\S/.test(nx));
-  };
+  const listGoesOn = (k) => { const nx = nextLine(k); return nx !== null && !STEP.test(nx) && (BULLET_RE.test(nx) || /^\s+\S/.test(nx)); };
   /** A dependency line's text and the rest after a mid-line Files label, or null. */
   const splitLabel = (s) => { const m = s.match(MID_LABEL); return m ? [s.slice(0, m.index), s.slice(m.index + m[0].length).trim()] : [s, null]; };
+  const badDep = (w, text) => fail("PLAN_BAD_DEPENDENCY", `${w}: a "Depends on" label must name task ids ("Task 2", "T2", "Tasks 1 through 3") or say "none"; it reads "${text.trim()}"`);
+  /** Does an empty Depends on label's nested list go on with this line? */
+  const depItem = (raw) => BULLET_RE.test(raw) && !STEP.test(raw) && !fileLine(raw) && !label.test(raw) && !depends.test(raw) && !loose.test(raw) && !consumesLine.test(raw)
+    && (!depList.bulleted || indentOf(raw) > depList.indent);
+  const endDepList = () => {
+    if (!depList) return;
+    const d = depList; depList = null;
+    if (!d.items) fail("PLAN_BAD_DEPENDENCY", `Task ${d.task.n} (line ${d.no}): an empty "Depends on" label with no list of task ids under it`);
+    labelled.add(d.task);
+  };
   /** Record a Files line's items under `op`; a read with prose beside its items becomes touch. */
   const record = (op, r, text) => {
     const o = op === "read" && r.prose ? "touch" : op;
     if (r.paths.length && o !== "read") declared.add(cur);
     if (!r.paths.length && !/^none\b/i.test(text)) note(text);
-    for (const p of r.paths) cur.files.push({ op: o, path: p });
+    for (const p of r.paths) if (!cur.files.some((x) => x.op === o && x.path === p)) cur.files.push({ op: o, path: p });
     return o;
   };
   const add = (op, rest, where, { plain = true, isLabel = false } = {}) => {
@@ -241,6 +410,8 @@ export function parsePlan(md) {
     // Files line only if indented items follow it (a nested list).
     // A label's list stays a label's list across its op lines.
     const inLabel = isLabel || !!cont?.label;
+    if (isLabel && !rest) { if (emptyLabel) failEmptyLabel(); emptyLabel = { at: where }; }
+    else emptyLabel = null;
     if (!rest) { cont = { op, comma: false, list: true, label: inLabel }; return; }
     const r = pathsOf(rest, where);
     // Only the "**Files:** none" label declares a file-less task (N5).
@@ -249,90 +420,115 @@ export function parsePlan(md) {
     const o = record(op === "read" && !plain ? "touch" : op, r, rest);
     cont = { op: o, comma: /,\s*$/.test(rest), label: inLabel };
   };
-  const lines = String(md).split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i];
-    const where = () => `Task ${cur.n} (line ${i + 1})`;
-    if (fence) {
-      const c = raw.match(/^ {0,3}(`{3,}|~{3,})\s*$/);
-      if (c && c[1][0] === fence.ch && c[1].length >= fence.len) fence = null;
-      continue;
-    }
-    const o = raw.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
-    if (o && !(o[1][0] === "`" && o[2].includes("`"))) { fence = { ch: o[1][0], len: o[1].length }; cont = null; consumes = false; continue; }
+  // An empty Files label with nothing under it (its list in a code block, say) would hide its files.
+  const failEmptyLabel = () => fail("PLAN_BAD_FILE_LINE", `${emptyLabel.at}: a Files label with nothing under it - list the files under it, or write "**Files:** none"`);
+
+  const step = (k) => {
+    const { text: raw, no, suspect } = lines[k];
+    const where = () => `Task ${cur.n} (line ${no})`;
     const h = raw.match(heading);
     if (h) {
+      endDepList();
       const n = id(h[1]);
       if (tasks.some((t) => t.n === n)) fail("PLAN_DUPLICATE_TASK", `Task ${h[1]} appears more than once`);
       cur = { n, title: h[2].replace(afterEnd, "").trim(), files: [], dependsOn: [] };
       level = raw.trim().match(/^#+/)[0].length;
       const a = h[2].match(after); if (a) cur.dependsOn.push(id(a[1]));
-      tasks.push(cur); note(h[2]); cont = null; consumes = false; continue;
+      tasks.push(cur); note(h[2]); cont = null; consumes = false; return;
     }
     // A heading at the task's level or above ("## Self-review") ends its section.
     const other = raw.match(/^ {0,3}(#{1,6})\s/);
-    if (cur && other && other[1].length <= level) { cur = null; cont = null; consumes = false; }
+    if (cur && other && other[1].length <= level) { endDepList(); cur = null; cont = null; consumes = false; }
     if (!cur) {
       // N1: a Files line with no open task would be silently dropped.
-      if (fileLine(raw) || label.test(raw)) fail("PLAN_FILES_OUTSIDE_TASK", `line ${i + 1}: a Files line outside any task ("${raw.trim()}") - put it under its task's heading`);
-      // S3: so is a dependency line.
-      if (depends.test(raw) || consumesLine.test(raw)) fail("PLAN_DEPS_OUTSIDE_TASK", `line ${i + 1}: a dependency line outside any task ("${raw.trim()}") - put it under its task's heading`);
-      continue;
+      if (fileLine(raw) || label.test(raw)) fail("PLAN_FILES_OUTSIDE_TASK", `line ${no}: a Files line outside any task ("${raw.trim()}") - put it under its task's heading`);
+      // S3: so is a dependency line (a loose "depends on" outside a task is prose).
+      if (depends.test(raw) || consumesLine.test(raw)) fail("PLAN_DEPS_OUTSIDE_TASK", `line ${no}: a dependency line outside any task ("${raw.trim()}") - put it under its task's heading`);
+      return;
+    }
+    // An empty Depends on label's nested list: each item names ids or "none" (R4-1).
+    if (depList) {
+      if (!raw.trim() && !depList.items && nextLine(k) !== null && depItem(nextLine(k))) { depList.afterBlank = true; return; }
+      if (raw.trim() && depItem(raw)) {
+        const text = raw.replace(BULLET_RE, "");
+        const ns = depIds(text);
+        // An item four columns past the label after a blank line may be code: it orders, but cannot make the label declare.
+        if (depList.afterBlank && indentOf(raw) - depList.indent >= 4) { depend(ns); note(raw); return; }
+        if (!ns.length && !NONE.test(text)) badDep(where(), text);
+        depend(ns); note(raw); depList.items++;
+        return;
+      }
+      if (depList.items && /^\s+\S/.test(raw) && !BULLET_RE.test(raw)) { depend(depIds(raw)); note(raw); return; }
+      endDepList();
     }
     // Dependency lines come before the continuation branch, so a Files line
     // ending in a comma cannot swallow them (N3). They leave an open Files list
     // open: the items after them are still its items (R2-3). A `**Files:**`
-    // label later on the same line is a label (R2-5).
+    // label later on the same line is a label (R2-5). A label that may be code
+    // or a comment - inside a comment spanning lines, or indented four columns
+    // or more - still orders, literally, but never declares and is never refused.
     const d = raw.match(depends);
     if (d) {
-      const [text, tail] = splitLabel(d[1]);
-      const ns = idsIn(text);
-      if (ns.length || /^\W*none\b/i.test(text)) depInfo = true;
+      const [text, tail] = splitLabel(d[2]);
+      const ns = depIds(text);
+      if (suspect || indentOf(raw) >= 4) { /* orders only */ }
+      else if (ns.length || NONE.test(text)) labelled.add(cur);
+      else if (!text.replace(/[\s*_]/g, "") && tail === null) depList = { indent: indentOf(raw), bulleted: BULLET_RE.test(raw), items: 0, no, task: cur };
+      else badDep(where(), text);
       depend(ns); note(raw); consumes = false;
       if (tail !== null) add("touch", tail, where(), { isLabel: true });
-      continue;
+      return;
     }
-    const c = raw.match(consumesLine);
+    const c = raw.match(consumesLine) ?? (raw.match(loose) && [null, "", raw.match(loose)[1]]);
     if (c) {
       const [text, tail] = splitLabel(c[1] + " " + c[2]);
       consume(text); note(raw); consumes = tail === null;
       if (tail !== null) add("touch", tail, where(), { isLabel: true });
-      continue;
+      return;
     }
     const f = fileLine(raw);
-    if (f) { consumes = false; add(f.op, f.rest, where(), { plain: f.plain }); continue; }
+    if (f) { consumes = false; add(f.op, f.rest, where(), { plain: f.plain }); return; }
     // A Files label ends a Consumes line; it is never its continuation (C1).
     // Inside an open Files list a wrapped Consumes line is read both ways.
     let both = false;
-    if (consumes && /^\s+\S/.test(raw) && !label.test(raw)) { consume(raw); note(raw); if (!cont) continue; both = true; }
+    if (consumes && /^\s+\S/.test(raw) && !label.test(raw)) { consume(raw); note(raw); if (!cont) return; both = true; }
     if (!both) consumes = false;
     if (!raw.trim()) {
-      if (cont && listGoesOn(i)) { cont.afterBlank = true; continue; }
-      cont = null; continue;
+      if (cont && listGoesOn(k)) { cont.afterBlank = true; return; }
+      cont = null; return;
     }
-    // A trailing comma and a lazy line (S5) carry a Files line on only when no blank line came between.
+    // A trailing comma and a lazy line carry a Files line on only when no blank line came between.
     const commaCont = !!cont?.comma && !cont.afterBlank;
-    const lazy = !!cont && !cont.afterBlank && raw.startsWith("`");
-    const bare = !!cont?.label && !/^\s/.test(raw) && !commaCont && BULLET_RE.test(raw) && !STEP.test(raw);
+    // R4-4: any unindented line that is not a bullet, heading or label continues it.
+    const lazy = !!cont && !cont.afterBlank && !/^\s/.test(raw) && !BULLET_RE.test(raw) && !/^#{1,6}(\s|$)/.test(raw) && !boldLabel.test(raw);
+    // An unindented bullet in a label's list is an item (R2-4), and so is one under a bare op line (R4-4).
+    const bare = !!cont && (cont.label || cont.list) && !/^\s/.test(raw) && !commaCont && BULLET_RE.test(raw) && !STEP.test(raw);
     if (cont && !/^\s*#/.test(raw) && !label.test(raw) && (/^\s/.test(raw) || commaCont || bare || lazy)) {
       cont.afterBlank = false;
+      emptyLabel = null;
       const text = raw.trim().replace(BULLET_RE, "");
       // In a nested item list under a bare "- Op:" or label, an item that opens its bullet is the op's object.
       const item = (!!cont.list || bare) && itemBullet.test(raw);
       const r = text.includes("`") ? tickedItems(text, where(), item) : (checkProse(text, where()), { paths: [], prose: true });
-      // An unindented bullet in a label's list carries no op of its own.
-      record(bare ? "touch" : cont.op, r, text);
+      // An unindented bullet in a label's list carries no op of its own; under a bare op line it is that op's.
+      record(bare && !cont.list ? "touch" : cont.op, r, text);
       cont.comma = /,\s*$/.test(text);
-      continue;
+      return;
     }
     cont = null;
     const l = raw.match(label);
-    if (l) { add("touch", l[1], where(), { isLabel: true }); continue; }
+    if (l) { add("touch", l[1], where(), { isLabel: true }); return; }
     note(raw);
+  };
+  for (let k = 0; k < lines.length; k++) {
+    step(k);
+    if (emptyLabel && !cont?.label) failEmptyLabel();
   }
-  if (fence) fail("PLAN_UNCLOSED_FENCE", "a fenced code block is never closed; everything after it would be hidden");
+  endDepList();
+  if (emptyLabel) failEmptyLabel();
   if (!tasks.length) fail("PLAN_NO_TASKS", "no '## Task N:' or '### Task N:' headings found");
   for (const t of tasks) if (!declared.has(t) && mentions.has(t)) fail("PLAN_TASK_NO_FILES", `Task ${t.n} mentions paths but has no Files lines (first: \`${mentions.get(t)}\`)`);
   if (tasks.every((t) => !t.files.length)) fail("PLAN_NO_FILES", "no task has a Files line");
-  return { tasks, dependencyInfo: depInfo ? "declared" : "none" };
+  const missingDependsOn = tasks.filter((t) => !labelled.has(t)).map((t) => t.n);
+  return { tasks, dependencyInfo: missingDependsOn.length ? "none" : "declared", missingDependsOn };
 }

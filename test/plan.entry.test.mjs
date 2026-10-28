@@ -29,7 +29,13 @@ test("N1: a Files line after a heading that closed the task is refused, not drop
 });
 
 test("N2: a read line never declares a task", () => {
-  assert.equal(code(one("- Read: `CLAUDE.md`\nThen edit `src/a.ts`.") + tail), "PLAN_TASK_NO_FILES");
+  // Fix round 4 (R4-4) changed the shape of this case: an unindented line right
+  // after a Files line now continues it, so "Then edit `src/a.ts`." directly
+  // under the read line records `touch src/a.ts` (prose beside the item), which
+  // declares the task - the write is recorded, not hidden. After a blank line
+  // it is prose again, and the read line still declares nothing.
+  assert.equal(code(one("- Read: `CLAUDE.md`\n\nThen edit `src/a.ts`.") + tail), "PLAN_TASK_NO_FILES");
+  assert.deepEqual(files(one("- Read: `CLAUDE.md`\nThen edit `src/a.ts`.") + tail), ["read CLAUDE.md", "touch src/a.ts"]);
   // A task whose only Files lines are reads, and that names nothing else, is still accepted.
   assert.deepEqual(files(one("- Read: `CLAUDE.md`, `spec/x.md`") + tail), ["read CLAUDE.md", "read spec/x.md"]);
 });
@@ -80,9 +86,14 @@ test("N4: a quote-led first item that is path-like is a path", () => {
 });
 
 test("N5: '- <op>: none' no longer exempts a task; only the **Files:** none label does", () => {
-  assert.equal(code(one("- Modify: none\nEdit `src/a.ts` by hand.") + tail), "PLAN_TASK_NO_FILES");
-  assert.equal(code(one("- Create: none\n- Modify: none\nSee `src/a.ts`.") + tail), "PLAN_TASK_NO_FILES");
-  assert.deepEqual(files(one("**Files:** none\nSee `docs/x.md`.") + tail), []);
+  // Fix round 4 (R4-4): directly under the op line the next line continues it
+  // and its item is recorded (fail closed); after a blank line it is prose.
+  assert.equal(code(one("- Modify: none\n\nEdit `src/a.ts` by hand.") + tail), "PLAN_TASK_NO_FILES");
+  assert.deepEqual(files(one("- Modify: none\nEdit `src/a.ts` by hand.") + tail), ["modify src/a.ts"]);
+  assert.equal(code(one("- Create: none\n- Modify: none\n\nSee `src/a.ts`.") + tail), "PLAN_TASK_NO_FILES");
+  assert.deepEqual(files(one("- Create: none\n- Modify: none\nSee `src/a.ts`.") + tail), ["modify src/a.ts"]);
+  assert.deepEqual(files(one("**Files:** none\n\nSee `docs/x.md`.") + tail), []);
+  assert.deepEqual(files(one("**Files:** none\nSee `docs/x.md`.") + tail), ["touch docs/x.md"]);
   // An op line saying none and naming nothing else is accepted when the task names no path.
   assert.deepEqual(files(one("- Modify: none") + tail), []);
 });
@@ -133,8 +144,11 @@ test("deps: dependencyInfo is declared only by an explicit Depends on line, else
   // not proof of independence, so they never on their own declare a plan.
   assert.equal(info("### Task 1: A\n- Create: `a.ts`\n### Task 2: B (after Task 1)\n- Create: `b.ts`\n"), "none");
   assert.equal(info("### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Consumes: Task 1\n- Create: `b.ts`\n"), "none");
-  assert.equal(info("### Task 1: A\n- Create: `a.ts`\n**Depends on:** none\n" + tail), "declared");
-  assert.equal(info("### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Depends on: Task 1\n- Create: `b.ts`\n"), "declared");
+  // Fix round 4 (R4-1) changed these two expectations: one task's Depends on
+  // line no longer declares the plan; every task needs its own.
+  assert.equal(info("### Task 1: A\n- Create: `a.ts`\n**Depends on:** none\n" + tail), "none");
+  assert.equal(info("### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Depends on: Task 1\n- Create: `b.ts`\n"), "none");
+  assert.equal(info("### Task 1: A\n- Create: `a.ts`\n**Depends on:** none\n### Task 2: B\n- Depends on: Task 1\n- Create: `b.ts`\n"), "declared");
   assert.deepEqual(deps("### Task 1: A\n- Create: `a.ts`\n### Task 2: B (after Task 1)\n- Create: `b.ts`\n- Consumes: Task 1\n", 1), [1]);
 });
 
@@ -301,11 +315,164 @@ test("fix S1/S3: only a Depends on label is a dependency line; prose 'depends on
   // Reference plan 34's appendix wraps prose onto a line opening "depends on it.".
   assert.deepEqual(names("### Task 1: A\n- Create: `a.ts`\n## Appendix\n   depends on it.** The same gap\n"), [1]);
   const p = parsePlan("### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Create: `b.ts`\nThe retry\ndepends on 1 clock: the tick.\n");
-  assert.deepEqual(p.tasks[1].dependsOn, []);
+  // Fix round 4 (R4-2) changed this expectation: a line opening with a loose
+  // "depends on" orders like a Consumes line, so the "1" naming the earlier
+  // Task 1 is an edge (over-serialising, fail closed). It still never declares.
+  assert.deepEqual(p.tasks[1].dependsOn, [1]);
   assert.equal(p.dependencyInfo, "none");
-  // The label forms stay dependency lines.
+  // The label forms stay dependency lines. Fix round 4 (R4-1): Task 1 carries
+  // its own line too, since a plan is declared only when every task does.
   for (const line of ["Depends on: Task 1", "**Depends on:** Task 1", "**Depends on**: Task 1", "**Depends on** Task 1", "- Depends on: 1", "1. Depends on: Task 1"]) {
-    const q = parsePlan("### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n" + line + "\n- Create: `b.ts`\n");
+    const q = parsePlan("### Task 1: A\n- Create: `a.ts`\n**Depends on:** none\n### Task 2: B\n" + line + "\n- Create: `b.ts`\n");
     assert.deepEqual([q.tasks[1].dependsOn, q.dependencyInfo], [[1], "declared"], line);
   }
+});
+
+// Fix round 4 (controller rulings R4-1 to R4-5).
+
+const info = (md) => parsePlan(md).dependencyInfo;
+const dep = (body) => body + "\n";   // a task's Depends on line
+const t2 = (deps2) => "### Task 1: A\n- Create: `a.ts`\n**Depends on:** none\n### Task 2: B\n- Create: `b.ts`\n" + deps2;
+
+test("fix R4-1: a plan is declared only when every task carries its own Depends on label", () => {
+  // One task's line no longer declares the plan; the tasks without one are named.
+  const partial = "### Task 1: A\n- Create: `a.ts`\n**Depends on:** none\n### Task 2: B\n- Create: `b.ts`\n### Task 3: C\n- Create: `c.ts`\n- Depends on: Task 1\n";
+  assert.equal(info(partial), "none");
+  assert.deepEqual(parsePlan(partial).missingDependsOn, [2]);
+  const all = t2(dep("**Depends on:** Task 1"));
+  assert.equal(info(all), "declared");
+  assert.deepEqual(parsePlan(all).missingDependsOn, []);
+  assert.deepEqual(parsePlan("### Task 1: A\n- Create: `a.ts`\n").missingDependsOn, [1]);
+  // A Consumes or "(after Task N)" line on the rest does not make up for a missing label.
+  assert.equal(info("### Task 1: A\n- Create: `a.ts`\n**Depends on:** none\n### Task 2: B (after Task 1)\n- Consumes: Task 1\n- Create: `b.ts`\n"), "none");
+});
+
+test("fix R4-1: a Depends on label that reads no task id and is not 'none' is refused", () => {
+  for (const line of ["**Depends on:** the ledger task", "Depends on: -", "**Depends on:** nothing", "- Depends on: the schema (see above)"]) {
+    assert.equal(code(t2(dep(line))), "PLAN_BAD_DEPENDENCY", line);
+  }
+  // An empty label with no list after it reads nothing either.
+  assert.equal(code(t2("**Depends on:**\nThen build it.\n")), "PLAN_BAD_DEPENDENCY");
+  assert.equal(code(t2("**Depends on:**\n")), "PLAN_BAD_DEPENDENCY");
+  // "none" in any case, with emphasis or punctuation, is fine.
+  for (const line of ["**Depends on:** None.", "Depends on: _none_", "**Depends on:** none (it stands alone)"]) assert.equal(info(t2(dep(line))), "declared", line);
+});
+
+test("fix R4-1: Depends on reads T-refs, Task2, ranges and an empty label's nested list", () => {
+  const p = four + "### Task 5: E\n- Create: `e.ts`\n";
+  const d = (line) => deps(p + line + "\n", 4);
+  assert.deepEqual(d("**Depends on:** T1, Task2"), [1, 2]);
+  assert.deepEqual(d("**Depends on:** (T3)"), [3]);
+  assert.deepEqual(d("Depends on: Tasks 1 through 3"), [1, 2, 3]);
+  assert.deepEqual(d("Depends on: 1..3"), [1, 2, 3]);
+  assert.deepEqual(d("**Depends on:**\n- Task 2"), [2]);
+  assert.deepEqual(d("**Depends on:**\n  - T1\n  - Task 4 (the routes)"), [1, 4]);
+  assert.deepEqual(d("**Depends on:**\n\n- Task 3"), [3]);
+  // Probe pass: an item four columns past the label after a blank line may be
+  // code, so it orders but cannot make the label declare; the label is empty.
+  assert.equal(code(t2("**Depends on:**\n\n    - none\n")), "PLAN_BAD_DEPENDENCY");
+  assert.deepEqual(deps(t2("**Depends on:**\n\n    - Task 1\n\n- none\n"), 1), [1]);
+  // A nested list item that reads no id is refused like the label.
+  assert.equal(code(p + "**Depends on:**\n- Task 1\n- the ledger\n"), "PLAN_BAD_DEPENDENCY");
+  // The list ends at a Files line, which is read as one.
+  const q = t2("**Depends on:**\n- Task 1\n- Modify: `secret.ts`\n");
+  assert.deepEqual([deps(q, 1), files(q, 1), info(q)], [[1], ["create b.ts", "modify secret.ts"], "declared"]);
+  // A nested list under a bulleted label inside a Files list ends at the next sibling item.
+  const r = t2("- Modify:\n  - `c.ts`\n  - Depends on:\n    - Task 1\n  - `secret.ts`\n");
+  assert.deepEqual([deps(r, 1), files(r, 1)], [[1], ["create b.ts", "modify c.ts", "modify secret.ts"]]);
+});
+
+test("fix R4-2: a loose 'Depends on Task N' orders like Consumes and never declares", () => {
+  const p = "### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Create: `b.ts`\n";
+  assert.deepEqual(deps(p + "Depends on Task 1\n", 1), [1]);
+  assert.deepEqual(deps(p + "- depends on Task 1 and Task 3\n### Task 3: C\n- Create: `c.ts`\n", 1), [1]);
+  assert.deepEqual(deps(p + "**Depends on Task 1's schema**\n", 1), [1]);
+  assert.equal(info(p + "Depends on Task 1\n"), "none");
+  // Even beside labels on every other task, a loose line does not declare its own.
+  assert.equal(info("### Task 1: A\n- Create: `a.ts`\n**Depends on:** none\n### Task 2: B\n- Create: `b.ts`\nDepends on Task 1\n"), "none");
+  // Outside a task it is prose, not a refusal.
+  assert.deepEqual(names(p + "## Appendix\nDepends on Task 1 being merged.\n"), [1, 2]);
+});
+
+test("fix R4-3: HTML comments are skipped for every reading", () => {
+  const each = (extra) => "### Task 1: A\n- Create: `a.ts`\n" + extra + "\n### Task 2: B\n- Create: `b.ts`\n" + extra + "\n";
+  assert.equal(info(each("<!-- **Depends on:** none -->")), "none");
+  assert.equal(info(each("<!--\n**Depends on:** none\n-->")), "none");
+  assert.equal(info(each("Some text <!-- **Depends on:** none --> here.")), "none");
+  assert.deepEqual(deps(each("<!--\n- Consumes: Task 1\n-->"), 1), []);
+  assert.deepEqual(files(one("- Create: `a.ts`\n<!--\n- Modify: `x.ts`\n-->")), ["create a.ts"]);
+  assert.deepEqual(files(one("- Modify: `a.ts` <!-- `x.ts` -->")), ["modify a.ts"]);
+  // What follows a comment's end on its line is read.
+  assert.deepEqual(files(one("- Create: `a.ts`\n<!-- a\nnote --> - Modify: `secret.ts`")), ["create a.ts", "modify secret.ts"]);
+  // An opener inside a code span is not a comment, so it hides nothing.
+  assert.deepEqual(files(one("- Modify: `a.ts` (`<!--`)\n- Modify: `secret.ts`\n<!-- x -->")), ["modify a.ts", "modify secret.ts"]);
+  // A comment that never closes would hide the rest of the plan.
+  assert.equal(code(one("- Create: `a.ts`\n<!-- start\n- Modify: `secret.ts`")), "PLAN_UNCLOSED_COMMENT");
+  // A mid-line comment spanning lines is read, but it can never declare.
+  const m = "### Task 1: A\n- Create: `a.ts`\nText <!-- a\n**Depends on:** none\n- Modify: `secret.ts`\n-->\n";
+  assert.deepEqual([files(m), info(m)], [["create a.ts", "modify secret.ts"], "none"]);
+});
+
+test("fix R4-3: fenced and 4-space indented code is skipped; nested lists are not code", () => {
+  const each = (extra) => "### Task 1: A\n- Create: `a.ts`\n" + extra + "\n### Task 2: B\n- Create: `b.ts`\n" + extra + "\n";
+  assert.equal(info(each("\nExample:\n\n    **Depends on:** none")), "none");
+  assert.equal(info(each("\n    **Depends on:** none")), "none");
+  assert.deepEqual(files(one("- Create: `a.ts`\n\nExample:\n\n    - Modify: `x.ts`")), ["create a.ts"]);
+  // A fence inside a list item, indented four spaces, is still a fence.
+  assert.equal(info(each("- Note:\n\n    ```md\n    **Depends on:** none\n    ```")), "none");
+  // A list item's fence ends with the item: the next item is read, not hidden.
+  assert.deepEqual(files(one("- Create: `a.ts`\n- Step:\n  ```\n  x\n- Modify: `secret.ts`\n```\ny\n```")), ["create a.ts", "modify secret.ts"]);
+  assert.equal(code(one("- Create: `a.ts`\n- Step:\n  ```\n- Modify: `secret.ts`\n```")), "PLAN_UNCLOSED_FENCE");
+  // Lines indented under a list item are its content, not code.
+  assert.deepEqual(files(one("- Modify:\n  - `b.ts`\n\n    - `secret.ts`")), ["modify b.ts", "modify secret.ts"]);
+  assert.deepEqual(files(one("- Modify: `b.ts`\n\n    `secret.ts`")), ["modify b.ts", "modify secret.ts"]);
+  assert.deepEqual(files(one("- Modify:\n    - `secret.ts`")), ["modify secret.ts"]);
+});
+
+test("fix R4-3: blockquote prefixes are stripped and the line read", () => {
+  assert.deepEqual(files(one("- Create: `a.ts`\n> - Modify: `secret.ts`")), ["create a.ts", "modify secret.ts"]);
+  assert.deepEqual(files(one("> **Files:**\n> - `x.ts`\n> > - Modify: `y.ts`")), ["touch x.ts", "modify y.ts"]);
+  assert.deepEqual(deps(t2("> > **Depends on:** Task 1\n"), 1), [1]);
+  assert.equal(info(t2("> **Depends on:** Task 1\n")), "declared");
+  // A fence inside a quote is skipped; one that loses its quote ends there.
+  assert.equal(info(t2("**Depends on:** Task 1\n").replace("**Depends on:** none", "> ```\n> **Depends on:** none\n> ```")), "none");
+  assert.deepEqual(files(one("- Create: `a.ts`\n> ```\n- Modify: `secret.ts`\n```\n```")), ["create a.ts", "modify secret.ts"]);
+  assert.equal(code("> - Modify: `x.ts`\n### Task 1: A\n- Create: `a.ts`\n"), "PLAN_FILES_OUTSIDE_TASK");
+});
+
+test("fix R4-4: an unindented line directly after a Files line continues it", () => {
+  assert.deepEqual(files(one("- Modify: `b.ts`\nand `secret.ts`")), ["modify b.ts", "modify secret.ts"]);
+  assert.deepEqual(files(one("- Modify: `b.ts`\n(`secret.ts`)")), ["modify b.ts", "modify secret.ts"]);
+  assert.deepEqual(files(one("- Modify: `b.ts`\n**`secret.ts`**")), ["modify b.ts", "modify secret.ts"]);
+  assert.deepEqual(files(one("- Modify: `b.ts`,\n  `c.ts`\nand `secret.ts`")), ["modify b.ts", "modify c.ts", "modify secret.ts"]);
+  // checkProse holds the continuation to the backtick rule.
+  assert.equal(code(one("- Modify: `b.ts`\nand src/secret.ts")), "PLAN_BAD_FILE_LINE");
+  // A bullet, heading or label is not a continuation.
+  assert.deepEqual(files(one("- Modify: `b.ts`\n**Step 2:** edit it\n- Run it")), ["modify b.ts"]);
+  assert.deepEqual(files(one("- Modify: `b.ts`\n#### Notes\nSee `x.ts`.")), ["modify b.ts"]);
+});
+
+test("fix R4-4: an unindented sibling bullet under a bare op line is that op's item", () => {
+  assert.deepEqual(files(one("- Create: `a.ts`\n- Modify:\n- `secret.ts`")), ["create a.ts", "modify secret.ts"]);
+  assert.deepEqual(files(one("- Create: `a.ts`\n- Modify:\n- `b.ts`\n- `secret.ts`")), ["create a.ts", "modify b.ts", "modify secret.ts"]);
+  // A checkbox step is never an item.
+  assert.deepEqual(files(one("- Create: `a.ts`\n- Modify:\n- [ ] edit `x.ts`")), ["create a.ts"]);
+});
+
+test("fix R4-5: __Depends on:__ and Depends-on are labels", () => {
+  for (const line of ["__Depends on:__ Task 1", "__Depends on__: Task 1", "Depends-on: Task 1", "**Depends-on:** Task 1", "- __Depends on__ Task 1", "*Depends on:* Task 1"]) {
+    const p = parsePlan(t2(dep(line)));
+    assert.deepEqual([p.tasks[1].dependsOn, p.dependencyInfo], [[1], "declared"], line);
+  }
+});
+
+test("probe pass: an empty Files label with nothing under it is refused", () => {
+  const md = (body) => "### Task 1: A\n**Files:**\n" + body + "\n### Task 2: B\n- Create: `b.ts`\n";
+  // Its list in a code block would leave the task file-less and hide the write.
+  assert.equal(code(md("```\n- `secret.ts`\n```")), "PLAN_BAD_FILE_LINE");
+  assert.equal(code(md("\n    - `secret.ts`")), "PLAN_BAD_FILE_LINE");
+  assert.equal(code(md("")), "PLAN_BAD_FILE_LINE");
+  // Anything read under it - an item, an op line, a lazy line - satisfies it.
+  assert.deepEqual(files(md("- Create: `a.ts`")), ["create a.ts"]);
+  assert.deepEqual(files(md("None: this task only runs the suite.")), []);
 });
