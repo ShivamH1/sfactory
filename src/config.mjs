@@ -14,7 +14,7 @@ export const DEFAULTS = Object.freeze({
     claude: { plan: "opus/high", review: "opus/high", judge: "opus/high", implement: "sonnet", triage: "haiku" },
     codex: { implement: "implement", review: "review" },
   },
-  worktrees: { branchPrefix: "feature/", baseRule: "integration-branch", integrationBranch: null, afterCut: [], copyFromBase: [] },
+  worktrees: { branchPrefix: "feature/", baseRule: "integration-branch", integrationBranch: null, afterCut: [], copyFromBase: [], copyForVerify: [] },
   commands: { suiteSerial: true, build: null, typecheck: [], migrate: null, services: [] },
   ports: { base: 4100, step: 100, names: ["api", "web"] },
   record: {
@@ -75,7 +75,7 @@ export function validateConfig(raw) {
   }
   if (raw.commands?.suiteSerial != null && typeof raw.commands.suiteSerial !== "boolean") errs.push(`commands.suiteSerial: must be true or false, not ${JSON.stringify(raw.commands.suiteSerial)}`);
   const lists = { rules: raw.rules, hotspots: raw.hotspots, fixCardRefusals: raw.fixCardRefusals, stops: raw.stops,
-    "worktrees.afterCut": raw.worktrees?.afterCut, "worktrees.copyFromBase": raw.worktrees?.copyFromBase,
+    "worktrees.afterCut": raw.worktrees?.afterCut, "worktrees.copyFromBase": raw.worktrees?.copyFromBase, "worktrees.copyForVerify": raw.worktrees?.copyForVerify,
     "secrets.neverHandToAgents": raw.secrets?.neverHandToAgents, "commands.typecheck": raw.commands?.typecheck, "ports.names": raw.ports?.names };
   for (const [k, v] of Object.entries(lists)) {
     if (v == null) continue;
@@ -86,6 +86,10 @@ export function validateConfig(raw) {
   for (const k of ["brief", "plan", "log", "stories", "carriedForward"]) {
     const v = raw.record?.[k];
     if (typeof v === "string" && outside(v)) errs.push(`record.${k}: "${v}" must be a path inside the worktree (no "..", not absolute)`);
+  }
+  for (const k of ["copyFromBase", "copyForVerify"]) {
+    const v = raw.worktrees?.[k];
+    if (Array.isArray(v)) for (const p of v) if (typeof p === "string" && outside(p)) errs.push(`worktrees.${k}: "${p}" must be a path inside the repo (no "..", not absolute)`);
   }
   if (raw.worktrees?.baseRule != null && !BASE_RULES.includes(raw.worktrees.baseRule) && typeof raw.worktrees.baseRule !== "string")
     errs.push("worktrees.baseRule: newest-feature-branch, integration-branch or a branch name");

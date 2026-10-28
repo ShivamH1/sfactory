@@ -1,8 +1,9 @@
 import { statSync } from "node:fs";
-import { isAbsolute, join, posix, relative, resolve } from "node:path";
+import { isAbsolute, join, posix } from "node:path";
 import { fail } from "./errors.mjs";
 import { git } from "./git.mjs";
 import { withLock } from "./lock.mjs";
+import { coveredBySecret } from "./secrets.mjs";
 
 const regexTrailers = (message) => {
   const paras = String(message).trim().split(/\n\s*\n/);
@@ -41,22 +42,9 @@ export function assertNamedPaths(paths, { cwd } = {}) {
   }
 }
 
-/** A path named in secrets.neverHandToAgents is never committed. Refused when a pathspec equals, lies inside, or is an ancestor of an entry, matched as the same repo-relative path (a worktree has another root) or the same absolute location; slashes normalised, case-insensitive on Windows. */
+/** A path named in secrets.neverHandToAgents is never committed (coveredBySecret's matching: equal, inside or an ancestor, repo-relative or absolute). */
 export function assertNotSecret(c, paths, { cwd } = {}) {
-  const secrets = c.secrets?.neverHandToAgents ?? [];
-  if (!secrets.length) return;
-  const norm = (p) => {
-    const n = posix.normalize(String(p).split("\\").join("/")).replace(/\/+$/, "") || ".";
-    return process.platform === "win32" ? n.toLowerCase() : n;
-  };
-  const related = (a, b) => a === b || a === "." || b === "." || a.startsWith(b + "/") || b.startsWith(a + "/");
-  const rel = secrets.map((s) => norm(c.repoRoot ? relative(c.repoRoot, s) : s));
-  const abs = secrets.map((s) => norm(resolve(s)));
-  for (const p of paths) {
-    const np = norm(p);
-    const ap = cwd ? norm(resolve(cwd, p)) : null;
-    if (rel.some((r) => related(np, r)) || (ap && abs.some((a) => related(ap, a)))) fail("SECRET_PATH", `"${p}" is, contains or lies inside a path listed in secrets.neverHandToAgents; it is never committed`);
-  }
+  for (const p of paths) if (coveredBySecret(c, p, { cwd })) fail("SECRET_PATH", `"${p}" is, contains or lies inside a path listed in secrets.neverHandToAgents; it is never committed`);
 }
 
 export async function commit(c, { cwd, paths, message, holder }) {

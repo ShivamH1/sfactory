@@ -27,7 +27,7 @@ Parse `$ARGUMENTS`: the first word is the command. Each row is the CLI line you 
 | `/sfactory status` | `sfactory job list`: one line per card. |
 | `/sfactory board` | `sfactory board`, run in the background (the Bash tool's background mode), because it serves until stopped. Print the link it prints. |
 | `/sfactory rework <id> "<notes>"` | `sfactory job rework <id> --notes "<notes>"`. This works on a `reviewing` or `pushed` card. The next run turns the notes into a task (section 4, building). |
-| `/sfactory stop <id>` | `sfactory job stop <id> --reason "stopped by the person"`. Dispatch nothing more for it. An agent already running finishes its call, and its output stays in JOB_DIR. |
+| `/sfactory stop <id>` | `sfactory job stop <id> --reason "stopped by the person"`. Dispatch nothing more for it. An agent already running finishes its call, and its output stays in JOB_DIR. The stop also removes the card's verify copies (`worktrees.copyForVerify`) from WORKTREE. |
 | `/sfactory clean <id>` | `sfactory worktree remove <id>`, for a `merged` card only. |
 | `/sfactory merged <id>` | `sfactory job merged <id>`, when the person has merged and the board has not caught up. |
 
@@ -161,12 +161,12 @@ The sdd skill's whole-branch review, run in this order:
 1. If `verifying` is in `stops` and the card's last history entry is not the release of that park, park it: `sfactory job park <id> --reason "verifying is a stop here: <the steps below that will run>"`.
 2. Take the machine's `live` lock with `sfactory lock acquire live --holder <id> --durable`. It does not wait: a `LOCK_HELD` refusal means another card is verifying, so work other cards and come back. Keep the token it prints in `<JOB_DIR>/verify/live-token.txt`.
 3. Run `sfactory suite --cwd <WORKTREE> --job <id> --log <JOB_DIR>/verify/suite.log`. Then run `commands.build` and each `commands.typecheck` in WORKTREE, when the config sets them.
-4. Run `commands.migrate` in WORKTREE, when it is set. These are the project's own commands, so the harness may ask the person for permission.
-5. Run `sfactory services up <id>`. The services run on the card's ports.
+4. Run `sfactory services copy <id>`. It copies `worktrees.copyForVerify` into WORKTREE: the untracked files the services and the migrations need, credentials among them, which no agent ever sees in the worktree. They exist there for this stage only; never read them. Then run `commands.migrate` in WORKTREE, when it is set. These are the project's own commands, so the harness may ask the person for permission.
+5. Run `sfactory services up <id>`. The services run on the card's ports (`up` makes the same copies, if step 4 did not run).
 6. **The walkthrough:** the brief's verification steps and the done-whens that need a running app, including any staging calls the brief names.
    - Use a headed `agent-browser` when `agent-browser --version` answers. Otherwise use the brief's scripted checks.
    - Record each check, pass or fail, with its evidence in `<JOB_DIR>/verify/walkthrough.md`.
-7. Run `sfactory services down <id>`. If it exits 1, read the reason it printed: a process left alive is a finding.
+7. Run `sfactory services down <id>`. It stops the services and removes the copies of step 4. If it exits 1, read the reason it printed: a process left alive, or a copy it could not remove, is a finding. Never move the card on, and never dispatch an agent into WORKTREE, while a copy is still there.
 8. Release the lock with `sfactory lock release live --holder <id> --token <token>`. Always do this, after a failure too.
 9. **Move the card:**
    - **Every check passed:** `sfactory job set <id> pushing --reason "verified"`.

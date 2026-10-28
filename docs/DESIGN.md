@@ -127,7 +127,8 @@ Committed in the adopting repo's root. Every path is relative to the repo unless
     "baseRule": "newest-feature-branch",  // newest-feature-branch | integration-branch | <branch name>
     "integrationBranch": "development",
     "afterCut": ["pnpm install"],
-    "copyFromBase": ["apps/api/.env", "apps/admin/.env", "apps/web/.env"]
+    "copyFromBase": ["apps/admin/.env", "apps/web/.env"],   // at the cut; never a secret (SECRET_PATH)
+    "copyForVerify": ["apps/api/.env"]                       // the verify stage only: services up/copy, removed by down, stop, clean
   },
   "commands": {
     "suite": "pnpm test",

@@ -1,6 +1,7 @@
 import { readJob, writeJob, addJob, withJobLock, listJobs, writeJobFile, jobFileExists, readJobFile } from "./store.mjs";
 import { transition, park, release, queue, stop, resume, WORKING } from "./job.mjs";
 import { fail } from "./errors.mjs";
+import { removeVerifyCopies } from "./verify-copies.mjs";
 
 /** The gates as functions: each takes (c, args), runs under the job's lock, re-reads the job there and returns the written job. */
 const nextNo = (c, id, rel) => { let k = 1; while (jobFileExists(c, id, rel(k))) k++; return k; };
@@ -81,7 +82,15 @@ Write the answer to decisions/${k}-answer.md, then run: sfactory job answer ${jo
       return writeJob(c, next);
     });
   },
-  stop(c, { id, reason = "stopped", by = "session" }) { return locked(c, id, (job) => writeJob(c, stop(job, { by, reason }))); },
+  /** Stops the card and takes its verify copies (worktrees.copyForVerify) out of the worktree: a stopped card keeps no secret. */
+  stop(c, { id, reason = "stopped", by = "session" }) {
+    return locked(c, id, (job) => {
+      const next = writeJob(c, stop(job, { by, reason }));
+      const r = removeVerifyCopies(c, next);
+      if (r.left.length) process.stderr.write(`warning: ${id} stopped, but ${r.left.join(", ")} could not be removed from ${next.worktree}; remove by hand\n`);
+      return next;
+    });
+  },
   resume(c, { id, by = "session" }) { return locked(c, id, (job) => writeJob(c, resume(job, { by }))); },
   merged(c, { id, by = "session" }) { return locked(c, id, (job) => writeJob(c, transition(job, "merged", { by, reason: "merged" }))); },
   rework(c, { id, notes, by = "session" }) {

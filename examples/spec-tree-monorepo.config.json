@@ -13,7 +13,8 @@
     "baseRule": "newest-feature-branch",
     "integrationBranch": "development",
     "afterCut": ["pnpm install"],
-    "copyFromBase": ["apps/api/.env", "apps/admin/.env", "apps/web/.env"]
+    "copyFromBase": ["apps/admin/.env", "apps/web/.env"],
+    "copyForVerify": ["apps/api/.env"]
   },
   "commands": {
     "suite": "pnpm test",

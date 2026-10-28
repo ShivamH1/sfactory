@@ -5,6 +5,8 @@ import { fail } from "./errors.mjs";
 import { git, isClean, headOf, branchExists, newestBranch, worktreeOfBranch, remoteHead, branchContains } from "./git.mjs";
 import { slugify } from "./store.mjs";
 import { acquireSync, assertHolder, release } from "./lock.mjs";
+import { coveredBySecret } from "./secrets.mjs";
+import { removeVerifyCopies } from "./verify-copies.mjs";
 
 export function resolveBase(c, { fetch = true } = {}) {
   const cwd = c.repoRoot;
@@ -77,6 +79,10 @@ export function integration(c) {
  */
 export function cut(c, job, { slug, afterAdd, fetch = true, gitRun = git, base: pinned = null } = {}) {
   if (job.worktree) fail("WORKTREE_EXISTS", `${job.id} already has a worktree (${job.worktree}); remove it first`);
+  // Agents work in the worktree from planning on, so a secret is never copied in at the cut: fail loud, copy nothing.
+  for (const rel of c.worktrees.copyFromBase ?? []) {
+    if (coveredBySecret(c, rel, { cwd: c.repoRoot })) fail("SECRET_PATH", `worktrees.copyFromBase lists "${rel}", which secrets.neverHandToAgents covers; a secret is never copied into a card's worktree at the cut (agents work there from planning on). Move it to worktrees.copyForVerify: services up copies it for the verify stage and services down removes it`);
+  }
   const s = slugify(slug ?? job.title.replace(/^M\d+\s+/i, ""));
   const dir = resolve(c.worktrees.dir, s || "x");
   if (dir === resolve(c.repoRoot) || resolve(c.worktrees.dir) === resolve(c.repoRoot)) fail("WORKTREE_IS_MAIN_CHECKOUT", `worktrees.dir must not be the main checkout (${c.repoRoot})`);
@@ -126,6 +132,9 @@ export function remove(c, job, { force = false } = {}) {
   const lockName = `worktree:${job.slug ?? slugify(basename(job.worktree))}`;
   // Ownership first: another holder's lock (NOT_HOLDER) leaves the worktree in place.
   assertHolder(c, lockName, { holder: job.id, token: job.lockToken });
+  // The verify copies (copyForVerify) go first: they are untracked and would make the tree look dirty.
+  const copies = removeVerifyCopies(c, job);
+  if (copies.left.length) fail("VERIFY_COPIES_LEFT", `could not remove ${copies.left.join(", ")} from ${job.worktree}; remove them by hand, then retry`);
   if (!force && existsSync(job.worktree) && !isClean(job.worktree)) fail("DIRTY_WORKTREE", `${job.worktree} has uncommitted changes; commit them or pass --force`);
   git(["worktree", "remove", "--force", job.worktree], { cwd: c.repoRoot });
   const { slug: _s, lockToken: _t, ...rest } = job;

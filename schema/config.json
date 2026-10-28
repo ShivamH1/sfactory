@@ -56,7 +56,8 @@
         "baseRule": { "type": "string", "description": "What a new branch is cut from: newest-feature-branch, integration-branch or a branch name." },
         "integrationBranch": { "type": ["string", "null"], "description": "The integration branch name, used by the integration-branch rule." },
         "afterCut": { "$ref": "#/$defs/stringList", "description": "Commands run in a fresh worktree after it is cut." },
-        "copyFromBase": { "$ref": "#/$defs/stringList", "description": "Untracked files copied from the base checkout into a fresh worktree." }
+        "copyFromBase": { "$ref": "#/$defs/stringList", "description": "Untracked files copied from the base checkout into a fresh worktree at the cut. A path listed in secrets.neverHandToAgents is refused (SECRET_PATH): agents work in the worktree from planning on; list such a file in copyForVerify instead." },
+        "copyForVerify": { "$ref": "#/$defs/stringList", "description": "Untracked files (an .env, say) the verify stage's services need: copied into the card's worktree by services up, from the base branch's checkout or else the main checkout, and removed by services down, job stop and worktree remove." }
       },
       "additionalProperties": true
     },

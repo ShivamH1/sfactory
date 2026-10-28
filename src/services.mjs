@@ -6,6 +6,7 @@ import { jobDir, readJobFile, writeJobFile } from "./store.mjs";
 import { substitute } from "./ports.mjs";
 import { status as lockStatus, withLock } from "./lock.mjs";
 import { dropNamedSecrets } from "./secrets.mjs";
+import { copyForVerify, removeVerifyCopies } from "./verify-copies.mjs";
 
 const RECORD = "verify/services.json";
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -213,6 +214,8 @@ export function servicesUp(c, job, { log = () => {}, startOf, startsFn } = {}) {
     mkdirSync(dir, { recursive: true });
     const started = [];
     try {
+      // worktrees.copyForVerify: the files the services need (an .env) land in the worktree for this stage only.
+      for (const rel of copyForVerify(c, job, { log }).copied) log(`copied ${rel} into the worktree for verify`);
       for (const e of entries) {
         const logPath = join(dir, `${e.name}.log`);
         const fd = openSync(logPath, "a");
@@ -232,6 +235,7 @@ export function servicesUp(c, job, { log = () => {}, startOf, startsFn } = {}) {
       try {
         for (const r of started) if ((await killAndWait(r.pid)) !== true) left.push(r);
         if (left.length) writeRecord(c, job, left); else removeRecord(c, job);
+        removeVerifyCopies(c, job);
       } catch { /* the original error is the one to report */ }
       throw err;
     }
@@ -247,7 +251,13 @@ export function servicesDown(c, job, { log = () => {}, startOf, startsFn, kill }
   return guard(c, job, async () => {
     const rec = readRecord(c, job);
     const killed = [], skipped = [];
-    if (!rec) return { killed, skipped };
+    // The verify copies go whatever the services' fate: a secret never outlives the stage that needed it.
+    const copies = () => {
+      const r = removeVerifyCopies(c, job);
+      for (const rel of r.removed) log(`removed ${rel} from the worktree`);
+      return r.removed.length || r.left.length ? { copiesRemoved: r.removed, copiesLeft: r.left } : {};
+    };
+    if (!rec) return { killed, skipped, ...copies() };
     const states = judgeAll(rec.services, startOf, startsFn);
     const keep = [];
     for (let i = 0; i < rec.services.length; i++) {
@@ -263,6 +273,6 @@ export function servicesDown(c, job, { log = () => {}, startOf, startsFn, kill }
       } else skipped.push({ name: r.name, pid: r.pid, alive: false, reason: "already stopped" });
     }
     if (keep.length) writeRecord(c, job, keep); else removeRecord(c, job);
-    return { killed, skipped };
+    return { killed, skipped, ...copies() };
   });
 }
