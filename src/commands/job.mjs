@@ -1,8 +1,20 @@
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { register } from "../registry.mjs";
 import { findRepoRoot, loadConfig } from "../config.mjs";
 import { actions } from "../job-actions.mjs";
 import { fail } from "../errors.mjs";
 import { WORKING } from "../job.mjs";
+import { jobDir } from "../store.mjs";
+
+/** The person's notes for request-changes: exactly one of --notes "<text>" and --notes-file <path> (read relative to the cwd). */
+function changeNotes(flags, cwd) {
+  const file = flags["notes-file"];
+  if ((flags.notes !== undefined) === (file !== undefined)) fail("BAD_ARGS", 'usage: sfactory job request-changes <id> (--notes "<text>" | --notes-file <path>)');
+  if (file === undefined) return flags.notes;
+  if (typeof file !== "string") fail("BAD_ARGS", "--notes-file needs a path");
+  try { return readFileSync(resolve(cwd, file), "utf8"); } catch (e) { fail("BAD_ARGS", `--notes-file ${file}: ${e.code ?? e.message}`); }
+}
 
 const done = (io, job, flags) => { io.stdout(flags.json ? JSON.stringify(job, null, 2) + "\n" : `${job.id} ${job.stage}\n`); return 0; };
 const str = (v) => (typeof v === "string" ? v : undefined);
@@ -19,13 +31,14 @@ const sub = {
   resume: (p) => ({ id: p[0] }),
   merged: (p) => ({ id: p[0] }),
   rework: (p, f) => ({ id: p[0], notes: f.notes }),
+  "request-changes": (p, f) => ({ id: p[0], notes: f.notes }),
   touch: (p, f) => { if (f.note === true) fail("BAD_ARGS", '--note needs a value: sfactory job touch <id> --note "<text>"'); return { id: p[0], note: str(f.note) }; },
   show: (p) => ({ id: p[0] }),
   list: () => ({}),
 };
 
 /** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
-export const ACCEPTS = { verbs: Object.keys(sub), flags: ["by", "json", "reason", "pending", "yes", "no", "notes", "note"] };
+export const ACCEPTS = { verbs: Object.keys(sub), flags: ["by", "json", "reason", "pending", "yes", "no", "notes", "notes-file", "note"] };
 
 register("job", async ({ positional, flags }, io) => {
   const [name, ...rest] = positional;
@@ -33,7 +46,9 @@ register("job", async ({ positional, flags }, io) => {
   const c = loadConfig(findRepoRoot(io.cwd));
   const args = { ...sub[name](rest, flags), ...(typeof flags.by === "string" ? { by: flags.by } : {}) };
   if (name === "add" && (!args.kind || !rest.slice(1).length)) fail("BAD_ARGS", 'usage: sfactory job add <milestone|fix> "<title>"');
-  const out = actions[name](c, args);
+  if (name === "request-changes") args.notes = changeNotes(flags, io.cwd);
+  const out = actions[name === "request-changes" ? "requestChanges" : name](c, args);
+  if (name === "request-changes") { io.stdout(`${out.id} ${out.stage} ${join(jobDir(c, out.id), out.history.at(-1).file)}\n`); return 0; }
   if (name === "list") {
     io.stdout(flags.json ? JSON.stringify(out, null, 2) + "\n" : out.map((j) => `${j.id.padEnd(6)} ${j.stage.padEnd(18)} ${j.kind.padEnd(9)} ${j.title}\n`).join(""));
     return 0;

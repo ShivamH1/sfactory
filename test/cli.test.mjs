@@ -36,7 +36,7 @@ test("cli: every command module registers a usage table equal to the flags it re
 
 test("cli: the job command's sub-verbs are the keys of its parsing table", () => {
   const src = readFileSync(new URL("job.mjs", COMMANDS_DIR), "utf8");
-  const keys = [...src.matchAll(/^ {2}([a-z]+): \(/gm)].map((m) => m[1]);
+  const keys = [...src.matchAll(/^ {2}"?([a-z-]+)"?: \(/gm)].map((m) => m[1]);
   assert.deepEqual([...usages.get("job").verbs].sort(), keys.sort());
 });
 

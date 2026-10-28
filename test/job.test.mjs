@@ -233,3 +233,28 @@ test("job: a parallel proposal parks from backlog or planning; planning may also
   assert.throws(() => queue({ ...p, pending: "decision" }, { now }), (e) => e.code === "ILLEGAL_TRANSITION");
   assert.throws(() => queue(j, { now }), (e) => e.code === "ILLEGAL_TRANSITION");
 });
+
+test("job cmd: request-changes takes --notes or --notes-file, only in awaiting-approval, and prints the changes file", async () => {
+  const { readFileSync, writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = project(); const c = loadConfig(root);
+  await run(root, ["job", "add", "milestone", "M"]);
+  await run(root, ["job", "set", "m-1", "planning"]);
+  let r = await run(root, ["job", "request-changes", "m-1", "--notes", "1: B"]);
+  assert.equal(r.code, 2); assert.match(r.err, /ILLEGAL_TRANSITION/);
+  await run(root, ["job", "set", "m-1", "awaiting-approval"]);
+  r = await run(root, ["job", "request-changes", "m-1", "--notes", "1: take B. 2: keep the cap"]);
+  assert.equal(r.code, 0, r.err);
+  const m = /^m-1 awaiting-approval (.*changes-1\.md)\n$/.exec(r.out);
+  assert.ok(m, r.out);
+  assert.match(readFileSync(m[1], "utf8"), /2: keep the cap/);
+  writeFileSync(join(root, "answers.md"), "1: take A\n");
+  r = await run(root, ["job", "request-changes", "m-1", "--notes-file", "answers.md"]);
+  assert.equal(r.code, 0, r.err); assert.match(r.out, /changes-2\.md/);
+  assert.equal(readJob(c, "m-1").stage, "awaiting-approval");
+  assert.equal(readJob(c, "m-1").history.at(-1).file, "plan/changes-2.md");
+  for (const bad of [["--notes", "x", "--notes-file", "answers.md"], [], ["--notes-file", "missing.md"]]) {
+    r = await run(root, ["job", "request-changes", "m-1", ...bad]);
+    assert.equal(r.code, 2, bad.join(" ")); assert.match(r.err, /BAD_ARGS/);
+  }
+});

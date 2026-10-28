@@ -106,7 +106,7 @@ test("actions: requestChanges only in awaiting-approval, writes changes-<k>.md, 
   const j = actions.requestChanges(c, { id: "m-1", notes: "split task 3", by: "board" });
   assert.equal(j.stage, "awaiting-approval");
   assert.match(readJobFile(c, "m-1", "plan/changes-1.md"), /split task 3/);
-  assert.deepEqual({ ...j.history.at(-1), at: 0 }, { at: 0, from: "awaiting-approval", to: "awaiting-approval", by: "board", reason: "changes requested" });
+  assert.deepEqual({ ...j.history.at(-1), at: 0 }, { at: 0, from: "awaiting-approval", to: "awaiting-approval", by: "board", reason: "changes requested", file: "plan/changes-1.md" });
   actions.requestChanges(c, { id: "m-1", notes: "again" });
   assert.equal(jobFileExists(c, "m-1", "plan/changes-2.md"), true);
   unheld(c, "m-1");

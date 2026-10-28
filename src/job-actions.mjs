@@ -92,7 +92,7 @@ Write the answer to decisions/${k}-answer.md, then run: sfactory job answer ${jo
       const k = nextNo(c, job.id, (n) => `plan/changes-${n}.md`);
       writeJobFile(c, job.id, `plan/changes-${k}.md`, `# Changes requested ${k}\n\n${notes}\n`);
       const next = structuredClone(job);
-      next.history.push({ at: new Date().toISOString(), from: job.stage, to: job.stage, by, reason: "changes requested" });
+      next.history.push({ at: new Date().toISOString(), from: job.stage, to: job.stage, by, reason: "changes requested", file: `plan/changes-${k}.md` });
       return writeJob(c, next);
     });
   },
