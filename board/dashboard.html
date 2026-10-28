@@ -12,6 +12,7 @@
     --ink: #e8e6e1; --ink-2: #a6a9ad; --ink-3: #6f747b;
     --gold: #e0b35a; --gold-ink: #1a1405; --mint: #6fd3a3; --amber: #e9a23b; --red: #e4645c; --you: #c9a4ff;
     --on-amber: #1a1405; --shadow: rgba(0, 0, 0, .35);
+    --danger: #e4645c; --pulse: rgba(111, 211, 163, .45);
     --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     color-scheme: dark;
@@ -22,6 +23,7 @@
       --ink: #1b1a17; --ink-2: #4f4d47; --ink-3: #807c73;
       --gold: #b8842a; --gold-ink: #fff8e8; --mint: #1f9a62; --amber: #c27a12; --red: #c7433b; --you: #7a48c9;
       --on-amber: #1a1405; --shadow: rgba(0, 0, 0, .15);
+      --danger: #c7433b; --pulse: rgba(31, 154, 98, .4);
       color-scheme: light;
     }
   }
@@ -30,7 +32,11 @@
     --ink: #1b1a17; --ink-2: #4f4d47; --ink-3: #807c73;
     --gold: #b8842a; --gold-ink: #fff8e8; --mint: #1f9a62; --amber: #c27a12; --red: #c7433b; --you: #7a48c9;
     --on-amber: #1a1405; --shadow: rgba(0, 0, 0, .15);
+    --danger: #c7433b; --pulse: rgba(31, 154, 98, .4);
     color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    --danger: #e4645c; --pulse: rgba(111, 211, 163, .45);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.45; }
@@ -58,6 +64,18 @@
 
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 11px; display: flex; flex-direction: column; gap: 7px; }
   .card.needs { border-color: var(--you); }
+  .card.stopped { border-color: var(--danger); }
+  .tag.danger { color: var(--danger); border-color: var(--danger); }
+  .card.active { box-shadow: 0 0 0 2px var(--pulse); }
+  @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 var(--pulse); } 50% { box-shadow: 0 0 0 4px var(--pulse); } }
+  @media (prefers-reduced-motion: no-preference) { .card.active { animation: pulse 2s ease-in-out infinite; } }
+  @media (prefers-reduced-motion: reduce) { .card.active { animation: none; box-shadow: 0 0 0 2px var(--pulse); } }
+  .chip { font-family: var(--mono); font-size: 10.5px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); background: none; cursor: pointer; }
+  .chip.good { color: var(--mint); border-color: var(--mint); }
+  .chip.bad { color: var(--red); border-color: var(--red); }
+  .hint { color: var(--ink-3); font-size: 11.5px; }
+  .hint:empty { display: none; }
+  .btn[aria-disabled="true"] { opacity: .5; cursor: default; }
   .card .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .card .id { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
   .card .title { font-weight: 500; overflow-wrap: anywhere; cursor: pointer; background: none; border: 0; padding: 0; text-align: left; }
@@ -188,6 +206,7 @@
     var b = h("button", "btn " + cls, label);
     b.type = "button";
     b.addEventListener("click", function () {
+      if (b.getAttribute("aria-disabled") === "true") return;
       var err = card.querySelector(".err");
       var body;
       try { body = collect ? collect(card) : {}; } catch (e) { err.textContent = e.message; return; }
@@ -206,7 +225,10 @@
     var n = job.needsYou;
     if (job.stage === "awaiting-approval") {
       g.appendChild(textarea("notes", "What should change in the plan?"));
-      btns.appendChild(actionButton(card, job, "Approve", "go", "approve"));
+      var ap = actionButton(card, job, "Approve", "go", "approve");
+      ap.setAttribute("data-approve", "1");
+      btns.appendChild(ap);
+      g.appendChild(h("div", "hint"));
       btns.appendChild(actionButton(card, job, "Request changes", "", "request-changes", function (c) { return { notes: required(c, "notes", "Request changes") }; }));
     } else if (n && n.action === "answer") {
       g.appendChild(h("div", "q", n.question || ""));
@@ -244,6 +266,31 @@
     return g;
   }
 
+  // ---- approve only after viewing: page state, never storage ----
+  var viewed = {};         // job id -> { updated, files: { path: true } }
+  function planFiles(job) { return (job.files || []).filter(function (f) { return /^plan\/[^/]+\.md$/.test(f); }); }
+  function unseenPlan(job) {
+    var v = viewed[job.id];
+    return planFiles(job).filter(function (f) { return !(v && v.files[f]); });
+  }
+  function refreshApprove(job) {
+    var c = cards[job.id];
+    var b = c && c.el.querySelector("[data-approve]");
+    if (!b) return;
+    var gated = unseenPlan(job).length > 0;
+    if (gated) b.setAttribute("aria-disabled", "true"); else b.removeAttribute("aria-disabled");
+    var hint = c.el.querySelector(".hint");
+    if (hint) hint.textContent = gated ? "Open the plan files first" : "";
+  }
+  function noteViewed(id, rel) {
+    var job = snap && snap.jobs.filter(function (j) { return j.id === id; })[0];
+    if (!job || !/^plan\/[^/]+\.md$/.test(rel)) return;
+    var v = viewed[id];
+    if (!v || v.updated !== job.updated) v = viewed[id] = { updated: job.updated, files: {} };
+    v.files[rel] = true;
+    refreshApprove(job);
+  }
+
   // ---- cards ----
   function tasksText(t) {
     if (t === null || t === undefined) return "";
@@ -252,12 +299,12 @@
     return "";
   }
   function buildCard(job, demo) {
-    var card = h("article", "card" + (job.needsYou ? " needs" : ""));
+    var card = h("article", "card" + (job.needsYou ? " needs" : "") + (job.stage === "stopped" ? " stopped" : "") + (job.active ? " active" : ""));
     card.setAttribute("data-id", job.id);
     var top = h("div", "row");
     top.appendChild(h("span", "id", job.id));
     top.appendChild(h("span", "tag", job.kind));
-    top.appendChild(h("span", "tag", job.stage));
+    top.appendChild(h("span", job.stage === "stopped" ? "tag danger" : "tag", job.stage));
     if (job.needsYou) top.appendChild(h("span", "tag you", "needs you"));
     else if (job.pending) top.appendChild(h("span", "tag you", job.pending));
     if (job.parallel) top.appendChild(h("span", "tag", "parallel: " + job.parallel));
@@ -267,6 +314,18 @@
     title.addEventListener("click", function () { openDrawer(job.id); });
     card.appendChild(title);
     if (job.branch) card.appendChild(h("div", "branch", job.branch));
+    if (job.reviews && job.reviews.length) {
+      var chips = h("div", "row");
+      job.reviews.forEach(function (r) {
+        var base = r.file.split("/").pop().replace(/\.md$/, "");
+        var ch = h("button", "chip " + (r.verdict === "bad" ? "bad" : "good"), (r.verdict === "bad" ? "✗ " : "✓ ") + base);
+        ch.type = "button";
+        ch.setAttribute("aria-label", "Open review " + base);
+        ch.addEventListener("click", function () { openDrawer(job.id, r.file); });
+        chips.appendChild(ch);
+      });
+      card.appendChild(chips);
+    }
     var meta = h("div", "meta");
     var el = h("span", null, fmtElapsed(job.elapsedMs));
     el.setAttribute("data-elapsed", "1");
@@ -318,6 +377,12 @@
       if (cur.el.parentNode !== box) box.appendChild(cur.el);
     });
     Object.keys(cards).forEach(function (id) { if (!seen[id]) { cards[id].el.remove(); delete cards[id]; } });
+    s.jobs.forEach(function (job) {
+      var v = viewed[job.id];
+      if (v && v.updated !== job.updated) delete viewed[job.id];
+      refreshApprove(job);
+    });
+    Object.keys(viewed).forEach(function (id) { if (!seen[id]) delete viewed[id]; });
     $("board").classList.toggle("has-cards", s.jobs.length > 0);
     Object.keys(cols).forEach(function (name) {
       var col = cols[name], n = counts[name] || 0, box = col.querySelector(".cards");
@@ -363,10 +428,11 @@
   }
 
   // ---- drawer ----
-  function openDrawer(id) {
-    drawerJob = id; drawerFile = null;
+  function openDrawer(id, file) {
+    drawerJob = id; drawerFile = file || null;
     $("drawer").classList.add("open");
     renderDrawer();
+    if (file) loadFile(file);
   }
   function closeDrawer() { $("drawer").classList.remove("open"); drawerJob = null; drawerFile = null; }
   function renderDrawer() {
@@ -396,6 +462,7 @@
         var v = $("verdict");
         if (!res.ok) { $("content").textContent = "Could not read this file."; v.className = "tag"; return; }
         $("content").textContent = res.t;
+        noteViewed(id, rel);
         var first = (res.t.split("\n")[0] || "").trim();
         var vm = VERDICT.exec(first);
         if (vm) {

@@ -36,6 +36,36 @@ test("page: fix round 1 behaviours are in the source", () => {
   assert.equal(/#[0-9a-f]{3,8}\b/i.test(html.split("</style>")[0].split(/:root\[data-theme="light"\]/)[1].split("* {")[1]), false);
 });
 
+test("page: pulse keyframes with a reduced-motion static frame, danger token in every theme block, review chips", () => {
+  assert.match(html, /@keyframes pulse/);
+  assert.match(html, /prefers-reduced-motion: no-preference\)\s*\{\s*\.card\.active\s*\{\s*animation: pulse/);
+  assert.match(html, /prefers-reduced-motion: reduce\)\s*\{\s*\.card\.active\s*\{\s*animation: none; box-shadow/);
+  const css = html.split("</style>")[0];
+  const darkDefault = css.split("@media (prefers-color-scheme: light)")[0];
+  const lightMedia = css.split("@media (prefers-color-scheme: light)")[1].split(':root[data-theme="light"]')[0];
+  const lightAttr = css.split(':root[data-theme="light"] {')[1].split("* {")[0];
+  const darkAttr = css.split(':root[data-theme="dark"] {')[1].split("}")[0];
+  for (const [name, block] of Object.entries({ darkDefault, lightMedia, lightAttr, darkAttr })) {
+    assert.match(block, /--danger:/, name + " defines --danger");
+    assert.match(block, /--pulse:/, name + " defines --pulse");
+  }
+  assert.match(html, /\.card\.stopped \{ border-color: var\(--danger\)/);
+  assert.match(html, /\.tag\.danger \{ color: var\(--danger\)/);
+  assert.match(html, /job\.stage === "stopped" \? "tag danger"/);
+  assert.match(html, /openDrawer\(job\.id, r\.file\)/);
+});
+
+test("page: Approve is gated until every plan file has been displayed", () => {
+  assert.match(html, /function unseenPlan/);
+  assert.ok(html.includes('/^plan\\/[^/]+\\.md$/'));
+  assert.match(html, /Open the plan files first/);
+  assert.match(html, /setAttribute\("aria-disabled", "true"\)/);
+  assert.match(html, /if \(b\.getAttribute\("aria-disabled"\) === "true"\) return;/);
+  assert.match(html, /v\.updated !== job\.updated/);
+  assert.match(html, /noteViewed\(id, rel\);/);
+  assert.equal(/viewed\s*=.*(?:localStorage|sessionStorage)/.test(html), false);
+});
+
 test("page: the verdict regex matches whole words and colours them", () => {
   const m = /var VERDICT = \/(.*)\/(\w*);/.exec(html);
   assert.ok(m, "VERDICT found");

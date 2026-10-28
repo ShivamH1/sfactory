@@ -40,6 +40,8 @@ test("the snapshot over the demo jobs lists six jobs in the expected columns", (
   assert.ok(s.jobs.find((j) => j.id === "m-3").cost.usd > 0);
   assert.equal(s.jobs.find((j) => j.id === "m-4").needsYou.action, "approve");
   assert.equal(s.jobs.find((j) => j.id === "f-1").needsYou.action, "answer");
+  assert.deepEqual(s.jobs.find((j) => j.id === "m-3").reviews.map((r) => r.verdict), ["good", "bad"]);
+  assert.equal("active" in s.jobs.find((j) => j.id === "m-3"), false);
 });
 
 test("m-3's cost entries are not later than its updated stamp", () => {

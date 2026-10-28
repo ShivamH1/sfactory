@@ -1,4 +1,4 @@
-import { readdirSync, existsSync } from "node:fs";
+import { readdirSync, existsSync, openSync, readSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { listJobs, readJobFile, jobDir } from "../store.mjs";
 import { readCost } from "../cost.mjs";
@@ -45,9 +45,40 @@ function lockView(c, name) {
   return { held: !!s.held, holder: s.holder ?? null, since: s.since ?? null };
 }
 
+const WORKING = ["planning", "building", "reviewing", "fixing", "verifying", "pushing"];
+const VERDICT = /✅|❌|\b(?:Approved|Needs fixes|ok|red)\b/i; // the drawer's badge uses the same rule
+const BAD = /^(?:❌|needs fixes|red)$/i;
+
+/** First line of a job file, at most 256 bytes read; null when unreadable. */
+function firstLine(c, id, rel) {
+  let fd;
+  try {
+    fd = openSync(join(jobDir(c, id), rel), "r");
+    const buf = Buffer.alloc(256);
+    const n = readSync(fd, buf, 0, 256, 0);
+    return buf.toString("utf8", 0, n).split("\n")[0].trim();
+  } catch { return null; } finally { if (fd !== undefined) try { closeSync(fd); } catch { /* ignore */ } }
+}
+
+/** The latest three review files (by name) with a verdict; one whose first line says neither is left out. */
+function reviewChips(c, id, files) {
+  const names = files.filter((f) => /^reviews\/[^/]+\.md$/.test(f)).slice(-3);
+  const out = [];
+  for (const file of names) {
+    const m = VERDICT.exec(firstLine(c, id, file) ?? "");
+    if (m) out.push({ file, verdict: BAD.test(m[0]) ? "bad" : "good" });
+  }
+  return out;
+}
+
 /** The one allow-list of a job as the board shows it: snapshot and POST answers both use it, so job.json's other fields (lockToken, history) never leave. */
 export function jobView(c, j, now = new Date().toISOString()) {
   const cost = readCost(c, j.id).total ?? { usd: 0, unpriced: 0 };
+  const files = collectFiles(jobDir(c, j.id));
+  const activeMs = c.board?.activeMs ?? 120000;
+  const age = Date.parse(now) - Date.parse(j.updated);
+  const active = WORKING.includes(j.stage) && age >= 0 && age <= activeMs;
+  const reviews = reviewChips(c, j.id, files);
   return {
     id: j.id, kind: j.kind, title: j.title, stage: j.stage, column: COLUMNS[j.stage] ?? null,
     pending: j.pending ?? null, returnStage: j.returnStage ?? null, branch: j.branch ?? null, base: j.base ?? null,
@@ -56,9 +87,11 @@ export function jobView(c, j, now = new Date().toISOString()) {
     started: j.started ?? null, updated: j.updated ?? null, ended: j.ended ?? null,
     elapsedMs: Date.parse(j.ended ?? now) - Date.parse(j.started),
     cost: { usd: cost.usd ?? 0, unpriced: cost.unpriced ?? 0 },
-    files: collectFiles(jobDir(c, j.id)),
+    files,
     needsYou: needsYou(c, j),
     prText: readJobFile(c, j.id, "pr.md"),
+    ...(active ? { active: true } : {}),
+    ...(reviews.length ? { reviews } : {}),
   };
 }
 

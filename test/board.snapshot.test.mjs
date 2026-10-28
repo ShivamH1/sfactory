@@ -86,6 +86,47 @@ test("snapshot: parallel proposal, stopped column, ports of live jobs", () => {
   assert.equal(buildSnapshot({ stateDir: c.stateDir }, { now: NOW }).board.pollMs, 2000);
 });
 
+test("snapshot: active is set for a working stage updated inside board.activeMs, absent otherwise", () => {
+  const { c, set } = setup();
+  const a = addJob(c, "fix", "Fresh", { now: T0 });
+  const b = addJob(c, "fix", "Stale", { now: T0 });
+  const d = addJob(c, "fix", "Waiting", { now: T0 });
+  // writeJob stamps the real clock, so the fixed "updated" values go straight into job.json
+  const stamp = (id, stage, updated) => { const f = join(jobDir(c, id), "job.json"); writeFileSync(f, JSON.stringify({ ...JSON.parse(readFileSync(f, "utf8")), stage, updated })); };
+  stamp(a.id, "building", "2026-10-27T10:08:30.000Z");
+  stamp(b.id, "building", "2026-10-27T10:07:00.000Z");
+  stamp(d.id, "awaiting-approval", NOW);
+  const by = (s) => Object.fromEntries(s.jobs.map((j) => [j.id, j]));
+  let s = by(buildSnapshot(c, { now: NOW }));
+  assert.equal(s[a.id].active, true);
+  assert.equal("active" in s[b.id], false, "180 s old, default window 120 s");
+  assert.equal("active" in s[d.id], false, "not a working stage");
+  c.board.activeMs = 200000;
+  s = by(buildSnapshot(c, { now: NOW }));
+  assert.equal(s[b.id].active, true, "inside a configured window");
+  c.board.activeMs = 1000;
+  assert.equal("active" in by(buildSnapshot(c, { now: NOW }))[a.id], false);
+});
+
+test("snapshot: reviews are the latest three verdict files, first line only, absent when none", () => {
+  const { c } = setup();
+  const a = addJob(c, "fix", "Reviewed", { now: T0 });
+  const b = addJob(c, "fix", "Unreviewed", { now: T0 });
+  writeJobFile(c, a.id, "reviews/a-0.md", "✅ Approved");
+  writeJobFile(c, a.id, "reviews/b-1.md", "# Review\n❌ Needs fixes");
+  writeJobFile(c, a.id, "reviews/c-2.md", "❌ Needs fixes\nbody ✅");
+  writeJobFile(c, a.id, "reviews/d-3.md", "Status: ok\n");
+  writeJobFile(c, a.id, "reviews/e-4.md", "just notes");
+  writeJobFile(c, a.id, "reviews/sub/x.md", "✅");
+  writeJobFile(c, b.id, "reviews/only.md", "just notes");
+  const s = buildSnapshot(c, { now: NOW });
+  const byId = Object.fromEntries(s.jobs.map((j) => [j.id, j]));
+  // the latest three by name are c-2, d-3 and e-4; e-4 says neither and is left out
+  assert.deepEqual(byId[a.id].reviews, [{ file: "reviews/c-2.md", verdict: "bad" }, { file: "reviews/d-3.md", verdict: "good" }]);
+  assert.equal("reviews" in byId[b.id], false);
+  assert.equal("active" in byId[a.id], false);
+});
+
 test("snapshot: demo is present only when asked for", () => {
   const { c } = setup();
   assert.equal("demo" in buildSnapshot(c, { now: NOW }), false);

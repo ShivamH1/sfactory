@@ -30,7 +30,7 @@ export const DEFAULTS = Object.freeze({
   limits: { parallelMilestones: 2, parallelTasks: 4, fixRounds: 3, taskRounds: 3, suiteWaitMs: 7_200_000, lockStaleMs: 3_600_000 },
   git: { trailers: false, namedPathsOnly: true, push: true, merge: false },
   secrets: { neverHandToAgents: [] },
-  board: { port: 4317, pollMs: 2000 },
+  board: { port: 4317, pollMs: 2000, activeMs: 120000 },
   prices: DEFAULT_PRICES,
 });
 
@@ -87,6 +87,7 @@ export function validateConfig(raw) {
     if (raw.ports.base != null && !(Number.isInteger(raw.ports.base) && raw.ports.base > 1024 && raw.ports.base < 65000)) errs.push("ports.base: integer 1025..64999");
     if (raw.ports.step != null && !(Number.isInteger(raw.ports.step) && raw.ports.step >= 2)) errs.push("ports.step: integer >= 2");
   }
+  if (raw.board?.activeMs != null && !(Number.isInteger(raw.board.activeMs) && raw.board.activeMs >= 1)) errs.push("board.activeMs: integer >= 1");
   if (raw.record?.style != null && !["docs-folder", "spec-tree"].includes(raw.record.style)) errs.push("record.style: docs-folder or spec-tree");
   return errs;
 }

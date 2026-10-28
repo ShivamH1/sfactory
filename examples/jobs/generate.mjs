@@ -36,7 +36,10 @@ export function jobs() {
   m2 = walk(m2, [["planning", T(8, 15)], ["awaiting-approval", T(8, 40)], ["building", T(9, 10)], ["reviewing", T(11, 10)], ["verifying", T(11, 40)], ["pushing", T(11, 55)], ["pushed", T(12, 10)]]);
   out.push({
     job: finish(m2, { branch: "feature/orders-csv", base: "main", tasks: { total: 4, done: 4, parallel: [] } }),
-    files: { "pr.md": "# Export the orders list as CSV\n\nAdds a download button to the orders list and a server route that streams the rows as CSV.\n\n- Columns follow the table, in the same order.\n- Dates are written as ISO calendar days.\n- Tests cover quoting of commas and newlines.\n" },
+    files: {
+      "reviews/task-1.md": "✅ Approved\n\nThe route streams rows and quotes fields correctly.\n",
+      "reviews/task-2.md": "✅ Approved\n\nThe button is wired to the route.\n",
+      "pr.md": "# Export the orders list as CSV\n\nAdds a download button to the orders list and a server route that streams the rows as CSV.\n\n- Columns follow the table, in the same order.\n- Dates are written as ISO calendar days.\n- Tests cover quoting of commas and newlines.\n" },
   });
 
   let m3 = start("m-3", "milestone", "Rework the settings page", T(8, 20));
@@ -45,6 +48,8 @@ export function jobs() {
     job: finish(m3, { branch: "feature/settings-rework", base: "main", worktree: "../wt/settings-rework", tasks: { total: 5, done: 2, parallel: [] }, updated: T(10) }),
     files: {
       "cost.json": costFile([[T(8, 25), "planning", "claude", 42000, 6000, 12000], [T(9, 30), "building", "codex", 88000, 21000, 30000], [T(10), "building", "claude", 64000, 15000, 20000]]),
+      "reviews/task-1.md": "✅ Approved\n\nThe sections are split cleanly.\n",
+      "reviews/task-2.md": "❌ Needs fixes\n\nThe hook resets the form on every render.\n",
       "plan/tasks.md": "# Tasks\n\n- [x] 1. Split the page into sections\n- [x] 2. Move the form state into one hook\n- [ ] 3. Validate each field on blur\n- [ ] 4. Save with an optimistic update\n- [ ] 5. Write the section tests\n",
     },
   });
