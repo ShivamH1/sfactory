@@ -258,3 +258,17 @@ test("job cmd: request-changes takes --notes or --notes-file, only in awaiting-a
     assert.equal(r.code, 2, bad.join(" ")); assert.match(r.err, /BAD_ARGS/);
   }
 });
+
+test("job cmd: add fix --log <n> records logOf; a milestone, zero or a non-number is BAD_ARGS", async () => {
+  const root = project(); const c = loadConfig(root);
+  let r = await run(root, ["job", "add", "fix", "Patch the thing", "--log", "7"]);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(readJob(c, "f-1").logOf, 7);
+  assert.equal(readJob(c, "f-1").title, "Patch the thing");
+  r = await run(root, ["job", "add", "fix", "No log"]);
+  assert.equal("logOf" in readJob(c, "f-2"), false);
+  for (const bad of [["milestone", "M", "--log", "3"], ["fix", "F", "--log", "0"], ["fix", "F", "--log", "x7"], ["fix", "F", "--log"]]) {
+    r = await run(root, ["job", "add", ...bad]);
+    assert.equal(r.code, 2, bad.join(" ")); assert.match(r.err, /BAD_ARGS/);
+  }
+});

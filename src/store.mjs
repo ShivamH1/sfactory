@@ -89,11 +89,11 @@ export function createJobFolder(c, id) {
   try { mkdirSync(jobDir(c, id)); } catch (e) { if (e.code === "EEXIST") fail("JOB_EXISTS", `${id} already exists`); throw e; }
 }
 
-export function addJob(c, kind, title, { now } = {}) {
+export function addJob(c, kind, title, { now, logOf } = {}) {
   for (let i = 0; i < 20; i++) {
     const id = nextId(c, kind);
     try { createJobFolder(c, id); } catch (e) { if (e.code === "JOB_EXISTS") continue; throw e; }
-    return withJobLock(c, id, () => writeJob(c, newJob({ id, kind, title, now })));
+    return withJobLock(c, id, () => writeJob(c, { ...newJob({ id, kind, title, now }), ...(logOf !== undefined ? { logOf } : {}) }));
   }
   fail("JOB_BUSY", `could not allocate a ${kind} id after 20 tries`);
 }

@@ -7,10 +7,13 @@ const nextNo = (c, id, rel) => { let k = 1; while (jobFileExists(c, id, rel(k)))
 const locked = (c, id, fn) => withJobLock(c, id, () => fn(readJob(c, id)));
 
 export const actions = {
-  add(c, { kind, title }) {
+  add(c, { kind, title, logOf }) {
     if (!kind || !title) fail("BAD_ARGS", 'usage: sfactory job add <milestone|fix> "<title>"');
     if (kind !== "milestone" && kind !== "fix") fail("BAD_ARGS", 'kind must be "milestone" or "fix"');
-    return addJob(c, kind, title);
+    if (logOf === undefined) return addJob(c, kind, title);
+    if (kind !== "fix") fail("BAD_ARGS", "--log is for a fix card: the milestone whose log takes the fix's dated note");
+    if (!/^[1-9]\d*$/.test(String(logOf))) fail("BAD_ARGS", "--log needs a positive whole number");
+    return addJob(c, kind, title, { logOf: Number(logOf) });
   },
   set(c, { id, to, by = "session", reason = null }) {
     return locked(c, id, (job) => {

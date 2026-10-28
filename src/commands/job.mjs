@@ -21,7 +21,7 @@ const str = (v) => (typeof v === "string" ? v : undefined);
 
 /** Flag parsing only: positional + flags -> the args object of the action of the same name. */
 const sub = {
-  add: (p) => ({ kind: p[0], title: p.slice(1).join(" ") }),
+  add: (p, f) => ({ kind: p[0], title: p.slice(1).join(" "), ...(f.log !== undefined ? { logOf: f.log } : {}) }),
   set: (p, f) => ({ id: p[0], to: p[1], reason: str(f.reason) ?? null }),
   approve: (p) => ({ id: p[0] }),
   park: (p, f) => ({ id: p[0], reason: f.reason, pending: f.pending }),
@@ -38,14 +38,14 @@ const sub = {
 };
 
 /** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
-export const ACCEPTS = { verbs: Object.keys(sub), flags: ["by", "json", "reason", "pending", "yes", "no", "notes", "notes-file", "note"] };
+export const ACCEPTS = { verbs: Object.keys(sub), flags: ["by", "json", "reason", "pending", "yes", "no", "notes", "notes-file", "note", "log"] };
 
 register("job", async ({ positional, flags }, io) => {
   const [name, ...rest] = positional;
   if (!Object.hasOwn(sub, name ?? "")) fail("UNKNOWN_COMMAND", `job ${name ?? ""}; one of ${Object.keys(sub).join(", ")}`);
   const c = loadConfig(findRepoRoot(io.cwd));
   const args = { ...sub[name](rest, flags), ...(typeof flags.by === "string" ? { by: flags.by } : {}) };
-  if (name === "add" && (!args.kind || !rest.slice(1).length)) fail("BAD_ARGS", 'usage: sfactory job add <milestone|fix> "<title>"');
+  if (name === "add" && (!args.kind || !rest.slice(1).length)) fail("BAD_ARGS", 'usage: sfactory job add <milestone|fix> "<title>" [--log <n>, fix only]');
   if (name === "request-changes") args.notes = changeNotes(flags, io.cwd);
   const out = actions[name === "request-changes" ? "requestChanges" : name](c, args);
   if (name === "request-changes") { io.stdout(`${out.id} ${out.stage} ${join(jobDir(c, out.id), out.history.at(-1).file)}\n`); return 0; }

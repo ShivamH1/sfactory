@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, writeFileSync, readFileSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpRepo, tmpDir, writeConfig, sh } from "./helpers.mjs";
 import { loadConfig } from "../src/config.mjs";
@@ -245,4 +245,62 @@ test("worktree cli: a cut whose job update fails after its worktree folder vanis
   assert.ok(!worktrees(root).some((w) => w.branch === "feature/gone"), "the stale worktree entry is pruned");
   assert.equal(status(c, "worktree:gone").held, false);
   assert.deepEqual(warned, []);
+});
+
+/** A repo whose record is the spec-tree style, with briefs 1, 7 and a 19.1 carried-forward list committed on main. */
+function specTree() {
+  const root = tmpRepo();
+  for (const d of ["spec/modules", "spec/plans", "spec/decisions"]) mkdirSync(join(root, d), { recursive: true });
+  for (const f of ["spec/modules/1-start.md", "spec/modules/7-wallet.md", "spec/modules/19.1-CARRIED-FORWARD.md", "spec/decisions/7-wallet.md", "spec/decisions/3-a.md", "spec/decisions/3-b.md"]) writeFileSync(join(root, f), "x\n");
+  sh("git", ["add", "spec"], root); sh("git", ["commit", "-q", "-m", "spec"], root);
+  writeConfig(root, { project: "p", agents: { mode: "claude" }, commands: { suite: "x" }, stateDir: tmpDir("sf-st-"), worktrees: { dir: tmpDir("sf-wt-") },
+    record: { style: "spec-tree", brief: "spec/modules/{n}-{slug}.md", plan: "spec/plans/{n}-{slug}.md", log: "spec/decisions/{n}-{slug}.md", stories: "spec/product/STORIES_*.md", numbering: "next-milestone-number" } });
+  return { root, c: loadConfig(root) };
+}
+
+test("worktree cli: the cut resolves job.record - default docs-folder paths by id", async () => {
+  const { c } = setup();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { addJob } = await import("../src/store.mjs");
+  addJob(c, "milestone", "Docs card");
+  const j = cutJob(c, "m-1", { fetch: false });
+  assert.deepEqual(j.record, { brief: "docs/sfactory/m-1/brief.md", plan: "docs/sfactory/m-1/plan.md", log: "docs/sfactory/m-1/log.md", stories: null, n: 1 });
+  remove(c, j, { force: true });
+});
+
+test("worktree cli: spec-tree numbering takes the next number after the briefs and every unmerged card's record", async () => {
+  const { c } = specTree();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { addJob, readJob, writeJob, withJobLock } = await import("../src/store.mjs");
+  addJob(c, "milestone", "Rewards"); addJob(c, "milestone", "Badges");
+  const a = cutJob(c, "m-1", { fetch: false });
+  assert.deepEqual(a.record, { brief: "spec/modules/8-rewards.md", plan: "spec/plans/8-rewards.md", log: "spec/decisions/8-rewards.md", stories: "spec/product/STORIES_*.md", n: 8 });
+  const b = cutJob(c, "m-2", { fetch: false });
+  assert.equal(b.record.n, 9, "m-1's 8 is taken while it is unmerged");
+  assert.equal(b.record.brief, "spec/modules/9-badges.md");
+  // A merged card's number no longer counts beyond the briefs in the tree.
+  withJobLock(c, "m-1", () => writeJob(c, { ...readJob(c, "m-1"), stage: "merged" }));
+  addJob(c, "milestone", "Later");
+  const l = cutJob(c, "m-3", { fetch: false });
+  assert.equal(l.record.n, 10, "m-2's 9 still counts");
+  for (const j of [a, b, l]) remove(c, readJob(c, j.id), { force: true });
+});
+
+test("worktree cli: a fix with --log finds its one log file; none or two is LOG_NOT_FOUND and the cut is undone", async () => {
+  const { root, c } = specTree();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { readJob } = await import("../src/store.mjs");
+  const { actions } = await import("../src/job-actions.mjs");
+  actions.add(c, { kind: "fix", title: "Wallet rounding", logOf: "7" });
+  const f = cutJob(c, "f-1", { fetch: false });
+  assert.equal(f.record.log, "spec/decisions/7-wallet.md");
+  assert.equal(f.record.n, 7);
+  actions.add(c, { kind: "fix", title: "Nothing there", logOf: "5" });
+  assert.throws(() => cutJob(c, "f-2", { fetch: false }), (e) => e.code === "LOG_NOT_FOUND");
+  actions.add(c, { kind: "fix", title: "Two logs", logOf: "3" });
+  assert.throws(() => cutJob(c, "f-3", { fetch: false }), (e) => e.code === "LOG_NOT_FOUND" && /3-a\.md/.test(e.message));
+  for (const [id, slug] of [["f-2", "nothing-there"], ["f-3", "two-logs"]]) {
+    assert.equal(readJob(c, id).worktree, null); assert.equal(branchExists(root, `feature/${slug}`), false);
+  }
+  remove(c, readJob(c, "f-1"), { force: true });
 });

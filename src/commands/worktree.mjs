@@ -4,14 +4,15 @@ import { findRepoRoot, loadConfig } from "../config.mjs";
 // sanctioned exception to "only job.mjs writes": cut and remove change no stage and append no
 // history, and the branch/base/worktree/slug/lockToken fields belong to them. The job is re-read
 // after the git work and only those fields are patched, so a stage change made meanwhile survives.
-import { readJob, writeJob, withJobLock } from "../store.mjs";
+import { readJob, writeJob, withJobLock, listJobs } from "../store.mjs";
+import { resolveRecord } from "../record.mjs";
 import { cut, remove, resolveBase } from "../worktree.mjs";
 import { fail } from "../errors.mjs";
 import { git, branchExists } from "../git.mjs";
 import { release } from "../lock.mjs";
 import { existsSync } from "node:fs";
 
-const CUT_FIELDS = ["branch", "base", "worktree", "slug", "lockToken"];
+const CUT_FIELDS = ["branch", "base", "worktree", "slug", "lockToken", "record"];
 
 /** Cut a job's worktree and record it. `afterAdd` is the TEST-ONLY hook passed through to cut(). */
 export function cutJob(c, id, { slug, afterAdd, fetch = true, warn = (m) => process.stderr.write(m) } = {}) {
@@ -35,7 +36,10 @@ export function cutJob(c, id, { slug, afterAdd, fetch = true, warn = (m) => proc
     return withJobLock(c, id, () => {
       const fresh = readJob(c, id);
       if (fresh.worktree) fail("WORKTREE_EXISTS", `${id} already has a worktree (${fresh.worktree}); this cut was undone`);
-      for (const k of CUT_FIELDS) fresh[k] = made[k];
+      for (const k of CUT_FIELDS) if (k !== "record") fresh[k] = made[k];
+      // The record paths are resolved here, under the job lock, from the new worktree and the other cards' records;
+      // a fix whose --log names no single log is LOG_NOT_FOUND, and the cut is undone below.
+      fresh.record = resolveRecord(c, fresh, made.worktree, listJobs(c));
       return writeJob(c, fresh);
     });
   } catch (e) { undo(); throw e; }
