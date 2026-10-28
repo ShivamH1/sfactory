@@ -435,7 +435,18 @@ test("skills/sfactory: design §12 is quoted verbatim", () => {
   for (const b of bullets) assert.ok(orch.includes(b), `quotes: ${b}`);
 });
 
-/** Every move the skill scripts, from the stage its step runs in: each line must be in the skill and legal in TRANSITIONS. */
+/** The run loop's section of the skill for a stage: from its bold heading line to the next heading line. */
+const SECTION_HEADING = { backlog: "backlog", planning: "planning", "awaiting-approval": "awaiting-approval", reviewing: "reviewing and fixing", fixing: "reviewing and fixing", verifying: "verifying", pushing: "pushing" };
+function stageSection(stage) {
+  const lines = orch.split("\n");
+  const start = lines.indexOf(`**${SECTION_HEADING[stage]}**`);
+  assert.ok(start >= 0, `a **${SECTION_HEADING[stage]}** section`);
+  let end = start + 1;
+  while (end < lines.length && !/^\*\*[a-z][a-z ,-]*\*\*$/.test(lines[end]) && !lines[end].startsWith("## ")) end++;
+  return lines.slice(start, end).join("\n");
+}
+
+/** Every move the skill scripts, from the stage its step runs in: each line must be in that stage's section and legal in TRANSITIONS. */
 const ORCH_MOVES = [
   ["backlog", "planning", "sfactory job set <id> planning"],
   ["planning", "awaiting-approval", "sfactory job set <id> awaiting-approval"],
@@ -458,11 +469,14 @@ test("skills/sfactory: every move is a legal from -> to edge and every park is a
   for (const [from, to, line] of ORCH_MOVES) {
     assert.ok(orch.includes("`" + line), `the skill scripts ${line}`);
     assert.ok(TRANSITIONS[from].includes(to), `${from} -> ${to} is an edge`);
+    // ... and the line sits in the section of the skill that works the stage it moves from.
+    assert.ok(stageSection(from).includes("`" + line), `${line} is in the ${from} section`);
   }
   const scripted = new Set(ORCH_MOVES.map((m) => m[1]));
   for (const m of orch.matchAll(/sfactory job set <[a-z]+> ([a-z-]+)/g)) assert.ok(scripted.has(m[1]), `a move to ${m[1]} is in the table`);
   for (const [from, pending] of ORCH_PARKS) assert.ok(PARK_PENDING[from].includes(pending), `park ${pending} from ${from}`);
-  assert.ok(orch.includes("`sfactory job park <id> --pending parallel --reason"), "the parallel park");
+  assert.ok(orch.includes("`sfactory job park <id> --pending parallel --with <A> --reason"), "the parallel park names the partner");
+  for (const s of ["STACKED_PAIR", "NOT_PARTNER", "MERGE_ABORT_FAILED", "plan/parallel-check.md", "parallelWith", "Only a pair cut side by side merges"]) assert.ok(orch.includes(s), `names ${s}`);
   assert.ok(orch.includes('`sfactory job park <id> --reason "'), "the decision park");
   // The approval gate leaves only through approve; a pushed card is marked merged.
   assert.ok(TRANSITIONS["awaiting-approval"].includes("building") && orch.includes("`sfactory job approve <id>"));

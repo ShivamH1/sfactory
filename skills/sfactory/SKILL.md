@@ -75,9 +75,9 @@ A run ends when nothing is left but `pushed`, `merged` and `stopped` cards, or e
 
 1. **Milestones: the cap and the queue.** A milestone is **active** while it has a worktree and is not `pushed`, `merged` or `stopped`.
    - Never start a milestone when `limits.parallelMilestones` milestones are already active. It stays in backlog, and nobody is asked.
-   - A queued card (`parallel` is `queued`) waits until no other milestone is active.
+   - A queued card (`parallel` is `queued`) waits on its partner: it starts once the card named in its `parallelWith` is no longer active.
 2. **Move and cut.** Run `sfactory job set <id> planning --reason "started"`. Then cut the worktree, unless the job's `worktree` is already set (a resumed or queued card keeps it):
-   - **A card whose `parallel` is `approved`**, with an active partner A: `sfactory worktree cut <id> --base-of <A>`. It starts from A's recorded base, side by side.
+   - **A card whose `parallel` is `approved`**, beside the active partner A that its `parallelWith` names: `sfactory worktree cut <id> --base-of <A>`. It starts from A's recorded base, side by side.
    - **Any other card,** milestone or fix: `sfactory worktree cut <id>`.
 
    The cut comes before any brainstorming. It also fills the job's `record`. A fix with `--log <n>` gets milestone `<n>`'s existing log as its `record.log`.
@@ -90,9 +90,15 @@ A run ends when nothing is left but `pushed`, `merged` and `stopped` cards, or e
 3. **The plan.** Its transition to `sfactory:writing-plans` is run by the plan role (section 6):
    - **A Claude subagent** follows `${CLAUDE_PLUGIN_ROOT}/skills/writing-plans/SKILL.md`, with the same inputs.
    - **In `codex` mode**, render a prompt into `<JOB_DIR>/plan/plan-prompt.md`. It names the brief, the plan path and that skill's Task Structure and What the Parser Refuses rules, and says that Codex never commits. Run `sfactory codex exec --cwd <WORKTREE> --profile <agents.codex.implement> --out <JOB_DIR>/plan/codex-plan --job <id> --stage planning < <JOB_DIR>/plan/plan-prompt.md`. Then do the skill's self-review check 4 yourself and commit the plan with `sfactory commit --cwd <WORKTREE> --holder <id> --m "docs: plan for <title>" -- <record.plan>`.
-   - **When section 5 applies** (a milestone with another milestone active and `parallel` still null), tell the plan role to commit the plan and hand back without its final `job set`.
+   - **Hold the move back when the parallel check is due.** The check is due for a milestone whose real-plan check (section 5) has not run yet (there is no `plan/parallel-check.md`), when either:
+     - another milestone is active and `parallel` is still null; or
+     - `parallel` is already `approved`.
+
+     Tell the plan role to commit the plan and hand back without its final `job set`.
 4. **Milestone.**
-   - When section 5 applies, run its parallel check now. The card parks, and after a yes it comes back to `planning`.
+   - When the check is due, run it now (section 5, step 1).
+     - With `parallel` null, the card then parks for the question, and after a yes it comes back to `planning`.
+     - With `parallel` already `approved`, a FAIL row parks it for a decision from `planning`.
    - Then `sfactory job set <id> awaiting-approval --reason "brief and plan written"`, if writing-plans has not already made that move.
 5. **Fix:** run `sfactory fixcard <WORKTREE>/<record.plan>` (an absolute path).
    - **Exit 0:** writing-plans runs `sfactory job set <id> building`.
@@ -167,7 +173,7 @@ The sdd skill's whole-branch review, run in this order:
 **pushing**
 
 1. **The stop.** If `pushing` is in `stops`, park the card the same way as in verifying.
-2. **The parallel merge.** For a parallel card whose partner has already pushed, run the merge of section 5 first.
+2. **The parallel merge.** For a parallel card cut side by side whose partner has already pushed, run the merge of section 5 first. A stacked card does not merge (section 5, step 8).
 3. **Close the record**, in WORKTREE:
    - Write the closing section of `record.log`: what was built, the review verdicts, the suite count and the deviations.
    - Tick the plan's checkboxes for every completed task.
@@ -177,7 +183,7 @@ The sdd skill's whole-branch review, run in this order:
 5. **Write `<JOB_DIR>/pr.md`.** Its first line is the card's title. Then add:
    - a summary;
    - the review verdicts (the first line of the latest `reviews/*-judge.md` and `reviews/*-bug-hunt.md`);
-   - the base branch, `base.branch`, which the pull request targets;
+   - the branch the pull request targets: the card's `base.branch`, which for a card stacked on its partner is the partner's branch, so the two pull requests chain;
    - the pushed head;
    - **for a parallel card that merged its partner:** the partner's branch and the commits the merge brought in (`git -C <WORKTREE> log --oneline <base.head>..<the partner's branch>`), so the reviewer knows they are not this card's work.
 6. **Move the card:** `sfactory job set <id> pushed --reason "pushed <head7>"`.
@@ -190,22 +196,32 @@ The sdd skill's whole-branch review, run in this order:
 
 ## 5. Parallel milestones
 
-**When it applies.** A milestone being planned while another milestone A is active (section 4, backlog), whose `parallel` field is still null. The question is asked on its real plan: after the plan is committed and before `awaiting-approval`.
+**When it applies.** A milestone being planned while another milestone A is active (section 4, backlog), whose `parallel` field is still null; and a card already `approved` beside A (step 6), whose plan the check has not yet read. The check runs on its real plan: after the plan is committed and before `awaiting-approval` (section 4, planning, holds the move back).
 
-1. **The check.** For each active milestone A whose plan exists, run `sfactory independence milestones <A's worktree>/<A's record.plan> <WORKTREE>/<record.plan>`. Add one row comparing this card's `base.head` with A's `base.head`. When they differ, say where this card was cut from: under `newest-feature-branch` that is A's own branch, so the card is stacked on A.
-2. **Never above the cap.** Do not propose when the card would make more than `limits.parallelMilestones` active milestones: leave it to wait.
-3. **Ask the person** with `sfactory job park <id> --pending parallel --reason "<the reason>"`. The park writes `plan/parallel.md`. The reason carries:
+1. **The check.**
+   - For each active milestone A whose plan exists, run `sfactory independence milestones <A's worktree>/<A's record.plan> <WORKTREE>/<record.plan>`.
+   - Add one row comparing this card's `base.head` with A's `base.head`. The same head means side by side. When they differ, say where this card was cut from: under `newest-feature-branch` that is A's own branch, so the card is stacked on A.
+   - Write the rows to `<JOB_DIR>/plan/parallel-check.md`. That file is how a later step knows the check has run.
+2. **The cap is already kept.** Section 4's backlog rule never starts a milestone above `limits.parallelMilestones`, so a card that reached this step is within the cap. Never propose one that is not.
+3. **Ask the person** with `sfactory job park <id> --pending parallel --with <A> --reason "<the reason>"`. The park records A as the card's `parallelWith` and writes `plan/parallel.md`. The reason carries:
    - **the rows**, every one, ok or FAIL;
    - **the recommendation:** "no" when any row FAILs (still ask: a FAIL is their reason to say no, never your reason to skip the question);
    - **the cost:** no extra agent runs. What parallel adds is a merge and a second suite at push, a wait for the `live` lock at verify, and a second port block;
    - **one line on why parallel helps** here (for example, both cards reach review days sooner).
 4. **Yes** (`parallel` is `approved`): the card returns to `planning`. Run `sfactory job set <id> awaiting-approval --reason "brief and plan written"` and carry on.
-5. **No** (`parallel` is `queued`): the card goes back to backlog with its plan written. It waits until no other milestone is active, then resumes at planning, skipping straight to the approval move.
-6. **Side by side from the start.** If the person asks, before a card starts, to run it beside A, park it from backlog with `sfactory job park <id> --pending parallel --reason "<their request, and the cost above>"`. After their yes, its cut is `sfactory worktree cut <id> --base-of <A>`. The real-plan check of step 1 still runs once its plan is written, and a FAIL then parks it for a decision (`sfactory job park <id> --reason "<the rows>"`).
+5. **No** (`parallel` is `queued`): the card goes back to backlog with its plan written. It waits on its partner (`parallelWith`) until that card is no longer active, then resumes at planning, skipping straight to the approval move.
+6. **Side by side from the start.** If the person asks, before a card starts, to run it beside A:
+   1. Park it from backlog with `sfactory job park <id> --pending parallel --with <A> --reason "<their request, and the cost above>"`.
+   2. After their yes, cut it with `sfactory worktree cut <id> --base-of <A>`.
+   3. Section 4's planning holds its approval move back until the check of step 1 has read its real plan. A FAIL then parks it for a decision from `planning` (`sfactory job park <id> --reason "<the rows>"`).
 7. **Both work at once.** Building and reviewing overlap, `sfactory suite` serialises the suites, the `live` lock serialises verifying, and each card has its own ports.
-8. **The second to finish merges the first** at pushing, before its push: `sfactory worktree merge <id> --from <A>`. Then run `sfactory suite --cwd <WORKTREE> --job <id>`.
-   - **A red suite** parks the card with the suite's summary: `sfactory job park <id> --reason "<the summary>"`.
-   - **`MERGE_CONFLICT`** (the merge was aborted, and the files are named) parks the card with those files.
+8. **Only a pair cut side by side merges.** A side-by-side pair shares one `base.head`.
+   - **The second to finish merges the first** at pushing, before its push: `sfactory worktree merge <id> --from <A>`. Then run `sfactory suite --cwd <WORKTREE> --job <id>`.
+     - **A red suite** parks the card with the suite's summary: `sfactory job park <id> --reason "<the summary>"`.
+     - **`MERGE_CONFLICT`** (the merge was aborted, and the files are named) parks the card with those files.
+     - **`MERGE_ABORT_FAILED`** means the merge failed and so did its abort: the worktree is mid-merge. Stop the card (`sfactory job stop <id> --reason "<the error>"`) and tell the person.
+   - **A stacked pair never merges.** One card was cut from the other's branch, so `sfactory worktree merge` refuses it with `STACKED_PAIR`. Its pull requests chain instead: the stacked card's targets its partner's branch (its `base.branch`).
+   - **`--from` must name the recorded partner,** the card in one side's `parallelWith`. Any other card is refused with `NOT_PARTNER`.
 
 ## 6. Roles by mode
 
