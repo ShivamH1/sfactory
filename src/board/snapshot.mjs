@@ -45,8 +45,12 @@ function lockView(c, name) {
   return { held: !!s.held, holder: s.holder ?? null, since: s.since ?? null };
 }
 
-export function buildSnapshot(c, { now = new Date().toISOString(), demo = false } = {}) {
-  const jobs = listJobs(c).map((j) => {
+export function buildSnapshot(c, { now: nowArg, demo = false } = {}) {
+  const all = listJobs(c);
+  // demo jobs carry fixed past stamps: measure them against their own latest moment, not the real clock
+  const latest = demo ? all.flatMap((j) => [j.started, j.updated, j.ended]).filter(Boolean).sort().at(-1) : null;
+  const now = nowArg ?? latest ?? new Date().toISOString();
+  const jobs = all.map((j) => {
     const cost = readCost(c, j.id).total ?? { usd: 0, unpriced: 0 };
     return {
       id: j.id, kind: j.kind, title: j.title, stage: j.stage, column: COLUMNS[j.stage] ?? null,

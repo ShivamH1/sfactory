@@ -76,6 +76,7 @@ test("actions: stop/resume, merged, rework, list and show", () => {
   assert.equal(actions.rework(c, { id: "f-1", notes: "keep it small" }).stage, "building");
   assert.equal(jobFileExists(c, "f-1", "rework/1.md"), true);
   throwsCode(() => actions.rework(c, { id: "f-1" }), "BAD_ARGS");
+  throwsCode(() => actions.rework(c, { id: "f-1", notes: "  " }), "BAD_ARGS");
   throwsCode(() => actions.rework(c, { id: "f-1", notes: "n" }), "ILLEGAL_TRANSITION");
   assert.equal(actions.stop(c, { id: "f-1", reason: "usage limit" }).stage, "stopped");
   assert.equal(actions.resume(c, { id: "f-1" }).stage, "building");

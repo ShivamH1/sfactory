@@ -25,3 +25,14 @@ test("page: both light theme blocks", () => {
   assert.match(html, /prefers-color-scheme: light\)\s*\{\s*:root:not\(\[data-theme="dark"\]\)/);
   assert.match(html, /:root\[data-theme="light"\]/);
 });
+
+test("page: fix round 1 behaviours are in the source", () => {
+  assert.match(html, /function portsText/);
+  assert.match(html, /k !== "block"/);
+  assert.ok(html.includes("\b(?:Approved|Needs fixes|ok|red)\b"));
+  assert.match(html, /hr >= 48/);
+  assert.match(html, /#board\.has-cards \.col\.is-empty/);
+  assert.match(html, /"tag you", "needs you"/);
+  assert.match(html, /function required/);
+  assert.equal(/#[0-9a-f]{3,8}/i.test(html.split("</style>")[0].split(/:root\[data-theme="light"\]/)[1].split("* {")[1]), false);
+});

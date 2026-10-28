@@ -77,7 +77,7 @@ Write the answer to decisions/${k}-answer.md, then run: sfactory job answer ${jo
   merged(c, { id, by = "session" }) { return locked(c, id, (job) => writeJob(c, transition(job, "merged", { by, reason: "merged" }))); },
   rework(c, { id, notes, by = "session" }) {
     return locked(c, id, (job) => {
-      if (typeof notes !== "string") fail("BAD_ARGS", "rework needs --notes");
+      if (typeof notes !== "string" || !notes.trim()) fail("BAD_ARGS", "rework needs --notes");
       if (!["reviewing", "pushed"].includes(job.stage)) fail("ILLEGAL_TRANSITION", `rework needs reviewing or pushed, ${job.id} is ${job.stage}`);
       const next = transition(job, "building", { by, reason: "rework" });
       writeJobFile(c, job.id, `rework/${next.rework}.md`, `# Rework ${next.rework}\n\n${notes}\n`);

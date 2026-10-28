@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync } from "node:fs";
 import { tmpDir } from "./helpers.mjs";
 import { addJob, withJobLock, writeJob, writeJobFile, jobDir } from "../src/store.mjs";
 import { park, transition } from "../src/job.mjs";
@@ -33,7 +33,7 @@ test("snapshot: shape, columns, needsYou, files, cost, elapsed, no secrets", () 
   writeJobFile(c, a.id, "plan/x.json.tmp", "x");
   writeJobFile(c, a.id, "run.log", "l");
   set(b.id, (j) => { j.stage = "awaiting-approval"; j.lockToken = "SECRET"; return j; });
-  set(p.id, (j) => { j.stage = "pushed"; j.ended = "2026-10-27T10:05:00.000Z"; j.ports = [4000]; return j; });
+  set(p.id, (j) => { j.stage = "pushed"; j.ended = "2026-10-27T10:05:00.000Z"; j.ports = { block: 4000, api: 4000, web: 4001 }; return j; });
   writeJobFile(c, p.id, "pr.md", "PR body");
   addCost(c, a.id, { stage: "building", agent: "x", model: "m", usd: 1.5 });
   const lk = acquireSync(c, "live", { holder: "h" });
@@ -58,7 +58,7 @@ test("snapshot: shape, columns, needsYou, files, cost, elapsed, no secrets", () 
   assert.equal(byId[p.id].prText, "PR body");
   assert.equal(byId[p.id].elapsedMs, 300000);
   assert.equal(byId[a.id].prText, null);
-  assert.deepEqual(s.ports, [{ id: p.id, ports: [4000] }]);
+  assert.deepEqual(s.ports, [{ id: p.id, ports: { block: 4000, api: 4000, web: 4001 } }]);
   assert.equal(s.locks.live.held, true);
   assert.equal(s.locks.suite.held, false);
   const text = JSON.stringify(s);
@@ -90,4 +90,15 @@ test("snapshot: demo is present only when asked for", () => {
   const { c } = setup();
   assert.equal("demo" in buildSnapshot(c, { now: NOW }), false);
   assert.equal(buildSnapshot(c, { now: NOW, demo: true }).demo, true);
+});
+
+test("snapshot: a demo snapshot measures elapsed against the latest stamp in its jobs", () => {
+  const { c } = setup();
+  const a = addJob(c, "fix", "Old demo", { now: T0 });
+  const file = join(jobDir(c, a.id), "job.json"); // fixed stamps, as a demo folder carries them
+  const raw = JSON.parse(readFileSync(file, "utf8"));
+  writeFileSync(file, JSON.stringify({ ...raw, updated: "2026-10-27T10:30:00.000Z" }));
+  const s = buildSnapshot(c, { demo: true });
+  assert.equal(s.generatedAt, "2026-10-27T10:30:00.000Z");
+  assert.equal(s.jobs[0].elapsedMs, 30 * 60 * 1000);
 });
