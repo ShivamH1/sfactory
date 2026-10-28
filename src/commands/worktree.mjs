@@ -23,6 +23,9 @@ export function cutJob(c, id, { slug, afterAdd, fetch = true, warn = (m) => proc
   const undo = () => {
     const left = [];
     try { if (existsSync(made.worktree)) git(["worktree", "remove", "--force", made.worktree], { cwd: c.repoRoot }); } catch { left.push(`worktree ${made.worktree}`); }
+    // cut() added this worktree. Before branch -D: a registered worktree whose folder is gone (or that remove
+    // could not delete) still holds the branch, so prune the stale entry first.
+    try { git(["worktree", "prune"], { cwd: c.repoRoot }); } catch { /* best effort: branch -D names what is left */ }
     try { if (branchExists(c.repoRoot, made.branch)) git(["branch", "-D", made.branch], { cwd: c.repoRoot }); } catch { left.push(`branch ${made.branch}`); }
     try { release(c, `worktree:${made.slug}`, { holder: made.id, token: made.lockToken }); } catch { left.push(`lock worktree:${made.slug}`); }
     if (left.length) warn(`cut undone for ${made.id}, but could not remove: ${left.join(", ")}

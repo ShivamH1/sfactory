@@ -229,3 +229,20 @@ test("worktree: the cut rollback prunes before deleting the branch, and only whe
   assert.equal(calls2.includes("worktree prune"), false, `no prune without an add: ${calls2.join(" | ")}`);
   assert.equal(status(s2.c, "worktree:no-add").held, false);
 });
+
+test("worktree cli: a cut whose job update fails after its worktree folder vanished still deletes its branch (prune before branch -D)", async () => {
+  const { root, c } = setup();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { writeJob: raw, withJobLock } = await import("../src/store.mjs");
+  withJobLock(c, "m-1", () => raw(c, newJob({ id: "m-1", kind: "milestone", title: "Gone" })));
+  const afterAdd = () => {
+    rmSync(join(c.worktrees.dir, "gone"), { recursive: true, force: true }); // the folder is gone, git still lists the worktree
+    rmSync(join(c.stateDir, "jobs", "m-1"), { recursive: true, force: true });
+  };
+  const warned = [];
+  assert.throws(() => cutJob(c, "m-1", { afterAdd, warn: (m) => warned.push(m) }), (e) => e.code === "JOB_NOT_FOUND");
+  assert.equal(branchExists(root, "feature/gone"), false, "the branch is deleted");
+  assert.ok(!worktrees(root).some((w) => w.branch === "feature/gone"), "the stale worktree entry is pruned");
+  assert.equal(status(c, "worktree:gone").held, false);
+  assert.deepEqual(warned, []);
+});

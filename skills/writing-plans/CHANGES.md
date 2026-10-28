@@ -12,7 +12,7 @@ Source: superpowers `skills/writing-plans/` (see ATTRIBUTION.md). Every edit mad
 1. Frontmatter `description`: rewritten to say the skill is the sfactory planning stage's second part and that it writes the format the factory's scripts parse.
 2. Overview: a paragraph added — `sfactory independence tasks` and `sfactory fixcard` read the plan, so the format rules are not style.
 3. Announce line names `sfactory:writing-plans`.
-4. Context: the using-git-worktrees reference replaced — there is no worktree at planning; `sfactory worktree cut` cuts it at `building`; the orchestrator's inputs are named.
+4. (superseded by 15) Context: the using-git-worktrees reference replaced — there is no worktree at planning; `sfactory worktree cut` cuts it at `building`; the orchestrator's inputs are named.
 5. Save plans to: the card's `record.plan` path, never the upstream plans folder.
 6. Scope Check: "spec" became "brief"; sub-project specs became separate cards.
 7. File Structure: a bullet added — a task touches only its declared files; the factory stops a card that leaves any other file changed.
@@ -28,3 +28,7 @@ Source: superpowers `skills/writing-plans/` (see ATTRIBUTION.md). Every edit mad
 
 15. Context: WORKTREE is an input; the worktree is cut when the card enters `planning` and already holds the committed brief, so the plan is written, parsed (`sfactory independence tasks` in WORKTREE) and committed there (`sfactory commit --cwd <WORKTREE> --holder <JOB>`); "no worktree yet" and the checkout choice are removed.
 16. The job is touched with `sfactory job touch <JOB> --note "<start|finish> writing-plans"` at the start and at the hand-over.
+
+## Fix round 2 (review of Task 7)
+
+17. The hand-over touch comes before the move (`sfactory job touch` in step 2 of Commit and Move On, then `sfactory job set`): a touch after the move to `awaiting-approval` writes nothing.

@@ -17,7 +17,7 @@ The plan is also read by scripts: `sfactory independence tasks` decides from it 
 
 **Context:** You run in the card's `planning` stage, after sfactory:brainstorming. The orchestrator hands you the card's id (JOB), kind, job folder (JOB_DIR), the **WORKTREE** and the record paths (`record.brief`, `record.plan`, `record.log`, filled for this card, relative to WORKTREE). The worktree is cut when the card enters `planning` (`sfactory worktree cut <JOB>`), and the brief is already committed there: write and commit the plan in WORKTREE, on the card's branch, so the build starts from it. Never write in the main checkout.
 
-**Touch the job** when you start and when you hand over: `sfactory job touch <JOB> --note "<start|finish> writing-plans"`. If the orchestrator runs this skill in a subagent, it touches the job when that agent starts and finishes.
+**Touch the job** when you start and at the hand-over, before the move (step 2 of Commit and Move On): `sfactory job touch <JOB> --note "<start|finish> writing-plans"`. A touch after the move to `awaiting-approval` writes nothing, because that stage is not a working stage. If the orchestrator runs this skill in a subagent, it touches the job when that agent starts and finishes.
 
 **Save plans to:** the card's `record.plan` path — the project's plan location for this card, never a folder of the factory's own choosing.
 
@@ -186,7 +186,7 @@ If you find issues, fix them inline. No need to re-review — just fix and move 
 The plan offers no execution choice: the factory builds it with sfactory:sdd once the card is in `building`. After the self-review:
 
 1. Commit the plan through the factory, on the card's branch: `sfactory commit --cwd <WORKTREE> --holder <JOB> --m "docs: plan for <title>" -- <record.plan>`.
-2. Move the card:
+2. Touch the job for the hand-over, `sfactory job touch <JOB> --note "finish writing-plans"`, then move the card:
    - a milestone: `sfactory job set <JOB> awaiting-approval --reason "brief and plan written"`. The card parks at the approval stop; the person reads the brief, the plan and `plan/questionnaire.md` (when sfactory:brainstorming wrote one) and approves on the board or with `/sfactory approve`.
    - a fix: `sfactory job set <JOB> building --reason "fix plan written"` once `sfactory fixcard` passed.
 3. Report the plan path and the batches `sfactory independence tasks` printed, and hand back to the orchestrator. Do not start building.

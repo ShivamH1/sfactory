@@ -50,3 +50,9 @@ Source: superpowers `skills/subagent-driven-development/` (see ATTRIBUTION.md). 
 33. Suite logs are `suite-<r>.log` everywhere (`<r>` = 0 for the first run, then the fix round), including the Claude implementer's TEST_COMMAND.
 34. `{{test_command}}` renders the task's focused tests, never `commands.suite`; after a green full suite the skill adds `Full suite (orchestrator): <summary>` to the task's log entry, since Codex leaves the count out.
 35. `scripts/task-brief` strips a trailing carriage return from every line, so a plan saved with CRLF line ends yields an LF brief and its headings match.
+
+## Fix round 2 (review of Task 7)
+
+36. Branch fix rounds: `<r>` is the job's `round` (`review/round-<r>/`, `suite-<r>.log`, `reviews/<k>-rereview-<r>.md`), and `<k>` has one meaning everywhere, the number of a stored review.
+37. The branch-level scoped re-review: its TASK is the brief and its FINDINGS the round's `review/round-<r>/brief.md`; in `codex` and `mixed` modes the re-reviewer is `sfactory codex review` (`--base` the head the judge last saw, `--stage reviewing`).
+38. The verdict rule names a scoped re-review that leaves a finding NOT ADDRESSED as blocking, like a judge ❌.
