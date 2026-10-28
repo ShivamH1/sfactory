@@ -45,7 +45,7 @@ model = "<your-model>"
 model_reasoning_effort = "high"
 ```
 
-Run Codex through `sfactory codex exec --cwd <dir> --profile implement --out <dir> < prompt` and `sfactory codex review --cwd <dir> --base <branch> --out <dir> < prompt`. The child gets your environment without any `*_SECRET`, `*_TOKEN` or `*_KEY` variable (except `CODEX_*` and `OPENAI_*`) and without any variable named in `secrets.neverHandToAgents`. `codex review` has no profile flag, so it uses the base `config.toml`.
+Run Codex through `sfactory codex exec --cwd <dir> --profile implement --out <dir> < prompt` and `sfactory codex review --cwd <dir> --profile review --base <branch> --out <dir> < prompt`. The child gets your environment without any `*_SECRET`, `*_TOKEN` or `*_KEY` variable (except `CODEX_*` and `OPENAI_*`) and without any variable named in `secrets.neverHandToAgents`. Review runs as `codex exec -C <dir> -p review -s read-only review --base <branch> --json -o <file> -`, so it uses the `review` profile and a read-only sandbox (plain `codex review` has no profile flag).
 
 npm users run `sfactory <command>`; plugin users also get the `sfactory-<command>` shims.
 

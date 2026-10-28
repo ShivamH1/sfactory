@@ -2,14 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { spawnSync } from "node:child_process";
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpRepo, tmpDir, writeConfig } from "./helpers.mjs";
 import { loadConfig } from "../src/config.mjs";
-import { filterEnv, runCodexExec, runCodexReview, usageOf } from "../src/codex.mjs";
+import { filterEnv, runCodexExec, runCodexReview, usageOf, profileModel } from "../src/codex.mjs";
 import { readCost } from "../src/cost.mjs";
 import { main } from "../src/cli.mjs";
+import { runDoctor } from "../src/doctor.mjs";
 
 function cfg(extra = {}) {
   const root = tmpRepo();
@@ -48,7 +48,7 @@ test("exec: argv, stdin prompt, env filter, usage summed, last message read", as
   const env = { PATH: process.env.PATH, MY_PRIVATE: "a", GH_TOKEN: "b", DB_SECRET: "c", API_KEY: "d", OPENAI_API_KEY: "e", CODEX_TOKEN: "f", HOME: "h" };
   const r = await runCodexExec(c, { cwd: "/work", profile: "implement", prompt: "do it", outDir: out, spawn, which: () => true, codexHome: homeWith("implement"), env });
   assert.equal(r.ok, true);
-  assert.deepEqual(r.usage, { inputTokens: 15, outputTokens: 5 });
+  assert.deepEqual(r.usage, { inputTokens: 15, outputTokens: 5, cacheReadTokens: 0 });
   assert.equal(r.lastMessage, "done\n");
   assert.equal(calls[0].stdin, "do it");
   const a = joined(calls[0]);
@@ -92,7 +92,7 @@ test("round 4: off win32 codex spawns detached and follows the parent's signals 
       const { spawn, calls } = fakeSpawn((child) => { during.push(counts()); emit(child, [], 0); });
       const base = { cwd: "/w", prompt: "p", spawn, which: () => true };
       await runCodexExec(cfg(), { ...base, profile: "implement", outDir: tmpDir("sf-out-"), codexHome: homeWith("implement") });
-      await runCodexReview(cfg(), { ...base, base: "main", outDir: tmpDir("sf-out-") });
+      await runCodexReview(cfg(), { ...base, base: "main", profile: "review", outDir: tmpDir("sf-out-"), codexHome: homeWith("review") });
       const hung = fakeSpawn(() => { /* never answers */ });
       const t = await runCodexExec(cfg(), { ...base, spawn: hung.spawn, profile: "implement", outDir: tmpDir("sf-out-"), codexHome: homeWith("implement"), timeoutMs: 30 });
       assert.equal(t.timedOut, true); assert.equal(hung.calls[0].child.killed, true);
@@ -109,18 +109,54 @@ test("round 4: off win32 codex spawns detached and follows the parent's signals 
   assert.deepEqual(win.after, before);
 });
 
-test("review: base and commit argv, prompt from stdin via -", async () => {
-  const { spawn, calls } = fakeSpawn((child) => { child.stdout.write("findings\n"); child.stdout.end(); setImmediate(() => child.emit("close", 0)); });
+test("review: runs exec review under the review profile and a read-only sandbox, prompt on stdin", async () => {
+  const out = tmpDir("sf-out-");
+  const { spawn, calls } = fakeSpawn((child) => { writeFileSync(join(out, "last-message.md"), "findings\n"); emit(child, [{ type: "turn.completed", usage: { input_tokens: 9, output_tokens: 1 } }]); });
   const c = cfg();
-  const r = await runCodexReview(c, { cwd: "/w", base: "main", prompt: "review this", outDir: tmpDir("sf-out-"), spawn, which: () => true });
+  const home = homeWith("review");
+  const r = await runCodexReview(c, { cwd: "/w", base: "main", profile: "review", prompt: "review this", outDir: out, spawn, which: () => true, codexHome: home });
   assert.deepEqual([r.ok, r.text], [true, "findings\n"]);
-  assert.equal(joined(calls[0]), "review --base main -");
+  assert.deepEqual(r.usage, { inputTokens: 9, outputTokens: 1, cacheReadTokens: 0 });
+  assert.equal(joined(calls[0]), `exec -C /w -p review -s read-only review --base main --json -o ${join(out, "last-message.md")} -`);
   assert.equal(calls[0].stdin, "review this");
-  await runCodexReview(c, { cwd: "/w", commit: "abc123", prompt: "p", outDir: tmpDir("sf-out-"), spawn, which: () => true });
-  assert.equal(joined(calls[1]), "review --commit abc123 -");
-  await assert.rejects(runCodexReview(c, { cwd: "/w", prompt: "p", outDir: tmpDir("sf-out-"), spawn, which: () => true }), { code: "BAD_ARGS" });
-  await assert.rejects(runCodexReview(c, { cwd: "/w", base: "a", commit: "b", prompt: "p", outDir: tmpDir("sf-out-"), spawn, which: () => true }), { code: "BAD_ARGS" });
-  await assert.rejects(runCodexReview(c, { cwd: "/w", base: "a", prompt: "p", outDir: tmpDir("sf-out-"), spawn, which: () => false }), { code: "CODEX_MISSING" });
+  await runCodexReview(c, { cwd: "/w", commit: "abc123", profile: "review", prompt: "p", outDir: tmpDir("sf-out-"), spawn, which: () => true, codexHome: home });
+  assert.match(joined(calls[1]), /-s read-only review --commit abc123 --json/);
+  const base = { cwd: "/w", profile: "review", prompt: "p", outDir: tmpDir("sf-out-"), spawn, which: () => true, codexHome: home };
+  await assert.rejects(runCodexReview(c, { ...base, codexHome: homeWith(), base: "a" }), { code: "CODEX_PROFILE_MISSING" });
+  await assert.rejects(runCodexReview(c, base), { code: "BAD_ARGS" });
+  await assert.rejects(runCodexReview(c, { ...base, base: "a", commit: "b" }), { code: "BAD_ARGS" });
+  await assert.rejects(runCodexReview(c, { ...base, base: "a", which: () => false }), { code: "CODEX_MISSING" });
+});
+
+test("review: a timeout kills the child and reports timedOut", async () => {
+  const { spawn, calls } = fakeSpawn(() => {});
+  const r = await runCodexReview(cfg(), { cwd: "/w", base: "main", profile: "review", prompt: "p", outDir: tmpDir("sf-out-"), spawn, which: () => true, codexHome: homeWith("review"), timeoutMs: 30 });
+  assert.equal(r.ok, false); assert.equal(r.timedOut, true); assert.equal(calls[0].child.killed, true);
+});
+
+test("exec: a stale last-message.md from an earlier run is removed before spawning", async () => {
+  const out = tmpDir("sf-out-");
+  writeFileSync(join(out, "last-message.md"), "OLD");
+  const { spawn } = fakeSpawn((child) => emit(child, [], 1));
+  const r = await runCodexExec(cfg(), { cwd: "/w", profile: "implement", prompt: "p", outDir: out, spawn, which: () => true, codexHome: homeWith("implement") });
+  assert.equal(r.lastMessage, ""); assert.equal(existsSync(join(out, "last-message.md")), false);
+});
+
+test("exec: cached tokens are split out; a stream with both turn usage and token_count counts one source", async () => {
+  const tc = (i, o, cached) => ({ type: "token_count", payload: { info: { last_token_usage: { input_tokens: i, output_tokens: o, ...(cached ? { cached_input_tokens: cached } : {}) } } } });
+  const { spawn } = fakeSpawn((child) => emit(child, [tc(50, 5, 10), { type: "turn.completed", usage: { input_tokens: 100, cached_input_tokens: 30, output_tokens: 8 } }, tc(50, 3)]));
+  const r = await runCodexExec(cfg(), { cwd: "/w", profile: "implement", prompt: "p", outDir: tmpDir("sf-out-"), spawn, which: () => true, codexHome: homeWith("implement") });
+  assert.deepEqual(r.usage, { inputTokens: 70, outputTokens: 8, cacheReadTokens: 30 });
+  const { spawn: s2 } = fakeSpawn((child) => emit(child, [tc(50, 5, 10), tc(20, 2)]));
+  const r2 = await runCodexExec(cfg(), { cwd: "/w", profile: "implement", prompt: "p", outDir: tmpDir("sf-out-"), spawn: s2, which: () => true, codexHome: homeWith("implement") });
+  assert.deepEqual(r2.usage, { inputTokens: 60, outputTokens: 7, cacheReadTokens: 10 });
+});
+
+test("profileModel reads the model from the profile file, null when absent", () => {
+  const d = tmpDir("sf-chome-");
+  writeFileSync(join(d, "a.config.toml"), "# c\nmodel = \"m-9\"\nmodel_reasoning_effort = \"high\"\n");
+  writeFileSync(join(d, "b.config.toml"), "model_reasoning_effort = \"high\"\n");
+  assert.equal(profileModel("a", d), "m-9"); assert.equal(profileModel("b", d), null); assert.equal(profileModel("zz", d), null);
 });
 
 test("filterEnv: secrets, *_SECRET/*_TOKEN/*_KEY dropped, CODEX_ and OPENAI_ kept", () => {
@@ -130,13 +166,13 @@ test("filterEnv: secrets, *_SECRET/*_TOKEN/*_KEY dropped, CODEX_ and OPENAI_ kep
 });
 
 test("usageOf: reads usage, token_count and bare token fields leniently; null otherwise", () => {
-  assert.deepEqual(usageOf({ usage: { input_tokens: 4, output_tokens: 1 } }), { inputTokens: 4, outputTokens: 1 });
-  assert.deepEqual(usageOf({ payload: { info: { last_token_usage: { input_tokens: 2, output_tokens: 2 } } } }), { inputTokens: 2, outputTokens: 2 });
-  assert.deepEqual(usageOf({ input_tokens: 7 }), { inputTokens: 7, outputTokens: 0 });
+  assert.deepEqual(usageOf({ usage: { input_tokens: 4, output_tokens: 1 } }), { inputTokens: 4, outputTokens: 1, cacheReadTokens: 0, source: "usage" });
+  assert.deepEqual(usageOf({ payload: { info: { last_token_usage: { input_tokens: 2, output_tokens: 2 } } } }), { inputTokens: 2, outputTokens: 2, cacheReadTokens: 0, source: "token_count" });
+  assert.deepEqual(usageOf({ input_tokens: 7 }), { inputTokens: 7, outputTokens: 0, cacheReadTokens: 0, source: "usage" });
   assert.equal(usageOf({ type: "message" }), null);
 });
 
-test("cli codex exec: records cost when usage and a job are given; review prints the text", async () => {
+test("cli codex: records cost (model from the profile file), validates --job before running, review uses the profile", async () => {
   const root = tmpRepo();
   writeConfig(root, { project: "p", agents: { mode: "codex" }, commands: { suite: "npm test" }, stateDir: tmpDir("sf-cli-"), worktrees: { dir: tmpDir("sf-clw-") }, ports: { base: 47950 } });
   const outs = [], errs = [];
@@ -144,23 +180,48 @@ test("cli codex exec: records cost when usage and a job are given; review prints
   assert.equal(await main(["job", "add", "milestone", "t", "--json"], io()), 0, errs.join(""));
   const jid = JSON.parse(outs.join("")).id; outs.length = 0;
   const seen = [];
+  const usage = { inputTokens: 100, outputTokens: 20, cacheReadTokens: 30 };
   const runners = {
-    exec: async (c, o) => { seen.push(o); return { ok: true, exitCode: 0, lastMessage: "", usage: { inputTokens: 100, outputTokens: 20 }, logPath: "l", lastMessagePath: "m", durationMs: 1 }; },
-    review: async (c, o) => { seen.push(o); return { ok: true, text: "looks fine", logPath: "l" }; },
+    exec: async (c, o) => { seen.push(o); return { ok: true, exitCode: 0, lastMessage: "", usage, logPath: "l", lastMessagePath: "m", durationMs: 1 }; },
+    review: async (c, o) => { seen.push(o); return { ok: true, text: "looks fine", usage, logPath: "l" }; },
   };
   const code = await main(["codex", "exec", "--cwd", ".", "--profile", "implement", "--out", "o", "--job", jid, "--stage", "implement", "--model", "m1"], io({ runners }));
   assert.equal(code, 0, errs.join(""));
   assert.equal(seen[0].prompt, "prompt text"); assert.equal(seen[0].profile, "implement");
-  const entries = readCost(loadConfig(root), jid).entries;
-  assert.equal(entries.length, 1); assert.equal(entries[0].agent, "codex"); assert.equal(entries[0].inputTokens, 100); assert.equal(entries[0].model, "m1");
-  outs.length = 0;
-  assert.equal(await main(["codex", "review", "--cwd", ".", "--base", "main", "--out", "o"], io({ runners })), 0);
-  assert.equal(outs.join(""), "looks fine\n"); assert.equal(seen[1].base, "main");
+  let entries = readCost(loadConfig(root), jid).entries;
+  assert.equal(entries.length, 1); assert.equal(entries[0].agent, "codex"); assert.equal(entries[0].inputTokens, 100); assert.equal(entries[0].cacheReadTokens, 30); assert.equal(entries[0].model, "m1");
+  const home = tmpDir("sf-chome-"); writeFileSync(join(home, "review.config.toml"), "model = \"from-profile\"\n");
+  const prev = process.env.CODEX_HOME; process.env.CODEX_HOME = home;
+  try {
+    outs.length = 0;
+    assert.equal(await main(["codex", "review", "--cwd", ".", "--base", "main", "--profile", "review", "--out", "o", "--job", jid], io({ runners })), 0, errs.join(""));
+  } finally { if (prev === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = prev; }
+  assert.equal(outs.join(""), "looks fine\n"); assert.equal(seen[1].base, "main"); assert.equal(seen[1].profile, "review");
+  entries = readCost(loadConfig(root), jid).entries;
+  assert.equal(entries.length, 2); assert.equal(entries[1].model, "from-profile"); assert.equal(entries[1].stage, "review");
+  const before = seen.length;
+  assert.equal(await main(["codex", "exec", "--cwd", ".", "--profile", "implement", "--out", "o", "--job", "no-such-job"], io({ runners })), 2);
+  assert.equal(seen.length, before, "a bad --job must fail before Codex runs");
   assert.equal(await main(["codex", "exec", "--cwd", ".", "--out", "o"], io({ runners })), 2);
+  assert.equal(await main(["codex", "review", "--cwd", ".", "--base", "main", "--out", "o"], io({ runners })), 2);
 });
 
-test("live (opt-in): codex exec -s read-only says ok", { skip: process.env.SFACTORY_CODEX_LIVE !== "1" }, () => {
-  const r = spawnSync("codex", ["exec", "-s", "read-only", "say ok"], { encoding: "utf8", shell: process.platform === "win32" });
-  assert.equal(r.status, 0, r.stderr);
-  assert.ok(!existsSync("/nonexistent"));
+test("doctor honours CODEX_HOME for the profile files", () => {
+  const home = homeWith("implement", "review");
+  const prev = process.env.CODEX_HOME; process.env.CODEX_HOME = home;
+  try {
+    const r = runDoctor(cfg({ agents: { mode: "codex" } }), { exec: () => ({ status: 0, stdout: "1.0\n", stderr: "" }) });
+    const rows = r.checks.filter((k) => k.name.startsWith("codex profile"));
+    assert.equal(rows.length, 2);
+    assert.ok(rows.every((k) => k.ok), JSON.stringify(r.checks));
+  } finally { if (prev === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = prev; }
+});
+
+// Live and opt-in: never runs unless SFACTORY_CODEX_LIVE=1. Needs implement and review profile files.
+test("live (opt-in): runCodexExec read-only and the exec review form", { skip: process.env.SFACTORY_CODEX_LIVE !== "1" }, async () => {
+  const root = tmpRepo(), c = cfg();
+  const r = await runCodexExec(c, { cwd: root, profile: "implement", prompt: "say ok", sandbox: "read-only", outDir: tmpDir("sf-live-"), timeoutMs: 300_000 });
+  assert.equal(r.ok, true, r.lastMessage);
+  const v = await runCodexReview(c, { cwd: root, base: "main", profile: "review", prompt: "review the diff briefly", outDir: tmpDir("sf-live-"), timeoutMs: 300_000 });
+  assert.equal(v.ok, true, v.text);
 });

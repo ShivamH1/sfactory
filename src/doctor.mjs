@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, accessSync, constants, readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { homedir } from "node:os";
+import { codexHomeDir } from "./codex.mjs";
 
 const which = (exec, cmd) => {
   // On Windows an npm-installed shim is a .cmd, which needs a shell; pass one string so no args are concatenated.
@@ -9,7 +9,7 @@ const which = (exec, cmd) => {
   return r && r.status === 0 ? (r.stdout || "").trim().split("\n")[0] : null;
 };
 
-export function runDoctor(c, { exec = spawnSync, codexHome = join(homedir(), ".codex") } = {}) {
+export function runDoctor(c, { exec = spawnSync, codexHome = codexHomeDir() } = {}) {
   const checks = [];
   const add = (name, ok, detail) => checks.push({ name, ok, detail });
   const major = Number(process.versions.node.split(".")[0]);

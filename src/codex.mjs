@@ -1,5 +1,5 @@
 import { spawn as nodeSpawn } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, delimiter, join } from "node:path";
 import { fail } from "./errors.mjs";
@@ -59,32 +59,47 @@ function preflight({ profile, which, home, requireProfile }) {
 }
 
 const num = (v) => (Number.isFinite(v) ? v : 0);
-/** Lenient usage read from one JSONL event; null when the event carries none. */
+const shape = (u, source) => ({ inputTokens: Math.max(0, num(u.input_tokens) - num(u.cached_input_tokens)), outputTokens: num(u.output_tokens), cacheReadTokens: num(u.cached_input_tokens), source });
+/**
+ * Lenient usage read from one JSONL event; null when the event carries none. `source` says where it came from
+ * ("usage" on a turn event, "token_count" on a per-call counter) so a stream carrying both is counted from one.
+ * input_tokens includes the cached part, so the cached tokens are split out into cacheReadTokens.
+ */
 export function usageOf(ev) {
-  const u = ev?.usage ?? ev?.payload?.info?.last_token_usage ?? ev?.msg?.info?.last_token_usage;
-  if (u && typeof u === "object" && (u.input_tokens != null || u.output_tokens != null)) return { inputTokens: num(u.input_tokens), outputTokens: num(u.output_tokens) };
-  if (ev && (ev.input_tokens != null || ev.output_tokens != null)) return { inputTokens: num(ev.input_tokens), outputTokens: num(ev.output_tokens) };
+  const has = (u) => u && typeof u === "object" && (u.input_tokens != null || u.output_tokens != null);
+  if (has(ev?.usage)) return shape(ev.usage, "usage");
+  const t = ev?.payload?.info?.last_token_usage ?? ev?.msg?.info?.last_token_usage;
+  if (has(t)) return shape(t, "token_count");
+  if (has(ev)) return shape(ev, "usage");
   return null;
 }
 
-export async function runCodexExec(c, { cwd, profile, prompt, sandbox = "workspace-write", outDir, timeoutMs = 3_600_000, spawn = nodeSpawn, which = () => codexOnPath(), codexHome = codexHomeDir(), env = process.env }) {
-  preflight({ profile, which, home: codexHome, requireProfile: true });
+/** The model named in a profile file, or null. */
+export function profileModel(name, home = codexHomeDir()) {
+  try { return /^\s*model\s*=\s*"([^"]+)"/m.exec(readFileSync(profileFile(name, home), "utf8"))?.[1] ?? null; } catch { return null; }
+}
+
+async function runExecLike(c, { args, cwd, prompt, outDir, logName, timeoutMs, spawn, env }) {
   mkdirSync(outDir, { recursive: true });
-  const logPath = join(outDir, "codex.jsonl"), lastMessagePath = join(outDir, "last-message.md");
-  const args = ["exec", "-C", cwd, "-p", profile, "-s", sandbox, "--json", "-o", lastMessagePath];
+  const logPath = join(outDir, logName), lastMessagePath = join(outDir, "last-message.md");
+  rmSync(lastMessagePath, { force: true }); // never read a previous run's answer
   const started = Date.now();
   const log = createWriteStream(logPath, { flags: "w" });
   return new Promise((resolve) => {
-    let settled = false, timedOut = false, buf = "", usage = null, child = null, unfollow = NOOP;
+    let settled = false, timedOut = false, buf = "", child = null, unfollow = NOOP;
+    const sums = { usage: null, token_count: null };
     const take = (line) => {
       if (!line.trim()) return;
       let ev; try { ev = JSON.parse(line); } catch { return; }
       const u = usageOf(ev);
-      if (u) usage = { inputTokens: (usage?.inputTokens ?? 0) + u.inputTokens, outputTokens: (usage?.outputTokens ?? 0) + u.outputTokens };
+      if (!u) return;
+      const cur = sums[u.source] ?? { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
+      sums[u.source] = { inputTokens: cur.inputTokens + u.inputTokens, outputTokens: cur.outputTokens + u.outputTokens, cacheReadTokens: cur.cacheReadTokens + u.cacheReadTokens };
     };
     const finish = (exitCode) => {
       if (settled) return; settled = true; clearTimeout(timer); unfollow();
       if (buf) take(buf);
+      const usage = sums.usage ?? sums.token_count;
       log.end(() => {
         let lastMessage = "";
         try { lastMessage = readFileSync(lastMessagePath, "utf8"); } catch { /* none written */ }
@@ -102,24 +117,17 @@ export async function runCodexExec(c, { cwd, profile, prompt, sandbox = "workspa
   });
 }
 
+export async function runCodexExec(c, { cwd, profile, prompt, sandbox = "workspace-write", outDir, timeoutMs = 3_600_000, spawn = nodeSpawn, which = () => codexOnPath(), codexHome = codexHomeDir(), env = process.env }) {
+  preflight({ profile, which, home: codexHome, requireProfile: true });
+  const args = ["exec", "-C", cwd, "-p", profile, "-s", sandbox, "--json", "-o", join(outDir, "last-message.md")];
+  return runExecLike(c, { args, cwd, prompt, outDir, logName: "codex.jsonl", timeoutMs, spawn, env });
+}
+
+/** `codex exec -C <cwd> -p <profile> -s read-only review (--base|--commit) --json -o <file> -`: exec's own flags carry the profile and sandbox, which plain `codex review` lacks. */
 export async function runCodexReview(c, { cwd, base, commit, prompt, profile, outDir, timeoutMs = 3_600_000, spawn = nodeSpawn, which = () => codexOnPath(), codexHome = codexHomeDir(), env = process.env }) {
   if ((base == null) === (commit == null)) fail("BAD_ARGS", "codex review needs exactly one of base or commit");
-  // codex review has no --profile flag; a given profile is still checked so a misconfigured setup fails early.
-  preflight({ profile, which, home: codexHome, requireProfile: profile != null });
-  mkdirSync(outDir, { recursive: true });
-  const logPath = join(outDir, "codex-review.log");
-  const args = ["review", ...(base != null ? ["--base", base] : ["--commit", commit]), "-"];
-  const log = createWriteStream(logPath, { flags: "w" });
-  return new Promise((resolve) => {
-    let settled = false, text = "", child = null, unfollow = NOOP;
-    const finish = (code) => { if (settled) return; settled = true; clearTimeout(timer); unfollow(); log.end(() => resolve({ ok: code === 0, text, logPath })); };
-    const timer = setTimeout(() => { killTree(child); setTimeout(() => finish(null), 50); }, timeoutMs);
-    try { ({ child, unfollow } = launch(spawn, args, cwd, filterEnv(c, env))); } catch (e) { log.write(`spawn failed: ${e.message}\n`); return finish(null); }
-    child.stdout.on("data", (d) => { text += String(d); log.write(d); });
-    child.stderr.on("data", (d) => log.write(d));
-    child.stdin.on("error", () => {});
-    child.on("error", (e) => { log.write(`spawn failed: ${e.message}\n`); finish(null); });
-    child.on("close", (code) => finish(code));
-    child.stdin.end(prompt);
-  });
+  preflight({ profile, which, home: codexHome, requireProfile: true });
+  const args = ["exec", "-C", cwd, "-p", profile, "-s", "read-only", "review", ...(base != null ? ["--base", base] : ["--commit", commit]), "--json", "-o", join(outDir, "last-message.md"), "-"];
+  const r = await runExecLike(c, { args, cwd, prompt, outDir, logName: "codex-review.jsonl", timeoutMs, spawn, env });
+  return { ...r, text: r.lastMessage };
 }
