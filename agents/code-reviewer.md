@@ -1,6 +1,6 @@
 ---
 name: code-reviewer
-description: Read-only bug-hunt of a task or branch, with a scoped re-review mode after a fix round.
+description: "Read-only bug-hunt of a task or branch, with a scoped re-review mode after a fix round."
 tools: Read, Grep, Glob
 ---
 

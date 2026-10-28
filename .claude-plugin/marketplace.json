@@ -2,6 +2,6 @@
   "name": "sfactory",
   "owner": { "name": "Shivam Sanjay", "url": "https://github.com/ShivamH1" },
   "plugins": [
-    { "name": "sfactory", "source": "./", "description": "Software factory: backlog → plan → build → review → verify → pushed, with a kanban board. Claude, Codex or both." }
+    { "name": "sfactory", "source": "./", "description": "Software factory for Claude Code: plan, build, review, verify and push cards with Claude, Codex or both, watched on a local board." }
   ]
 }

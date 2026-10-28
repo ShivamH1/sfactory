@@ -1,6 +1,6 @@
 ---
 name: writing-plans
-description: The sfactory planning stage, part two - writes a card's implementation plan to its record.plan path in the format the factory's scripts parse (every task with a Depends on line and a Files block), then moves the card on. Used by the sfactory orchestrator after sfactory:brainstorming.
+description: "The sfactory planning stage, part two - writes a card's implementation plan to its record.plan path in the format the factory's scripts parse (every task with a Depends on line and a Files block), then moves the card on. Used by the sfactory orchestrator after sfactory:brainstorming."
 ---
 
 # Writing Plans

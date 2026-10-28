@@ -1,6 +1,6 @@
 ---
 name: sdd
-description: The sfactory building and reviewing stages - works a card's plan task by task in the card's worktree with an implementer, a spec review and a code review per task (Claude subagents or Codex, by agents.mode), then the whole-branch bug-hunt and the judge. Used by the sfactory orchestrator; adapted from subagent-driven-development.
+description: "The sfactory building and reviewing stages - works a card's plan task by task in the card's worktree with an implementer, a spec review and a code review per task (Claude subagents or Codex, by agents.mode), then the whole-branch bug-hunt and the judge. Used by the sfactory orchestrator; adapted from subagent-driven-development."
 ---
 
 # Subagent-Driven Development (sfactory)

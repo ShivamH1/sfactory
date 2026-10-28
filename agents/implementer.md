@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: Implements one task of a plan inside the files it is given, writes the log entry, commits through the factory and reports.
+description: "Implements one task of a plan inside the files it is given, writes the log entry, commits through the factory and reports."
 tools: Read, Grep, Glob, Edit, Write, Bash
 ---
 

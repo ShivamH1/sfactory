@@ -1,6 +1,6 @@
 # Attribution
 
-The agent definitions in this folder were adapted from the superpowers skills by Jesse Vincent, which are MIT licensed. Sources adapted:
+The agent definitions in `agents/` were adapted from the superpowers skills by Jesse Vincent, which are MIT licensed. Sources adapted:
 
 - subagent-driven-development/implementer-prompt.md
 - subagent-driven-development/task-reviewer-prompt.md

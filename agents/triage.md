@@ -1,6 +1,6 @@
 ---
 name: triage
-description: Cheap read-only agent that turns raw bug-hunt or red-suite output into findings with severity, file:line and confirmed, plausible or not reproducible.
+description: "Cheap read-only agent that turns raw bug-hunt or red-suite output into findings with severity, file:line and confirmed, plausible or not reproducible."
 tools: Read, Grep, Glob
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: spec-reviewer
-description: Read-only review of one task against its brief: missing, extra, misunderstood, files outside the list, log versus code.
+description: "Read-only review of one task against its brief: missing, extra, misunderstood, files outside the list, log versus code."
 tools: Read, Grep, Glob
 ---
 

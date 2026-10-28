@@ -1,6 +1,6 @@
 ---
 name: judge
-description: Read-only judge of a finished branch against its brief, done-when by done-when.
+description: "Read-only judge of a finished branch against its brief, done-when by done-when."
 tools: Read, Grep, Glob
 ---
 

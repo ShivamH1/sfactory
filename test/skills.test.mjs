@@ -101,7 +101,7 @@ test("secrets: example configs' neverHandToAgents entries are not named in any f
 });
 
 test("all expected Task 6 files exist", () => {
-  for (const f of ["agents/implementer.md", "agents/spec-reviewer.md", "agents/code-reviewer.md", "agents/judge.md", "agents/triage.md", "prompts/codex-implement.md", "prompts/codex-review.md", "prompts/codex-judge.md", "agents/ATTRIBUTION.md", "prompts/ATTRIBUTION.md"])
+  for (const f of ["agents/implementer.md", "agents/spec-reviewer.md", "agents/code-reviewer.md", "agents/judge.md", "agents/triage.md", "prompts/codex-implement.md", "prompts/codex-review.md", "prompts/codex-judge.md", "docs/attribution/agents.md", "prompts/ATTRIBUTION.md"])
     assert.ok(existsSync(join(root, f)), f);
 });
 
@@ -518,4 +518,46 @@ test("skills/sfactory: every refusal worktree merge can raise has a row in the s
   assert.match(orch, /another card's approved `parallelWith` names it/, "who is a side of a pair");
   assert.match(orch, /run the check of section 5, step 1 again on the revised plan/, "changes re-check the pair");
   assert.match(orch, /queued card \(`parallel` is `queued`\) resuming while another milestone is active/, "a resumed queued card is check due");
+});
+
+// Strict YAML-subset rule for frontmatter: an unquoted plain value must not contain ": " or " #", nor start with a
+// YAML indicator. Claude Code drops every field of a file whose frontmatter fails to parse (the tools list included).
+export function frontmatterProblems(text) {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  if (!m) return ["no frontmatter"];
+  const problems = [];
+  for (const line of m[1].split(/\r?\n/)) {
+    if (!line.trim() || /^\s/.test(line)) continue;
+    const kv = /^([A-Za-z][\w-]*):(?:\s+(.*))?$/.exec(line);
+    if (!kv) { problems.push(`not a key: value line: ${line.slice(0, 60)}`); continue; }
+    const v = (kv[2] ?? "").trim();
+    if (!v) continue;
+    if (/^"(?:[^"\\]|\\.)*"$/.test(v) || /^'(?:[^']|'')*'$/.test(v)) continue;
+    if (/^["']/.test(v)) problems.push(`${kv[1]}: unterminated or trailing text after a quoted value`);
+    else if (/^[-?:,\[\]{}#&*!|>'"%@`]/.test(v)) problems.push(`${kv[1]}: plain value starts with a YAML indicator (${v[0]})`);
+    else if (/: /.test(v) || /:$/.test(v)) problems.push(`${kv[1]}: plain value contains ": " and must be quoted`);
+    else if (/ #/.test(v)) problems.push(`${kv[1]}: plain value contains " #" and must be quoted`);
+  }
+  return problems;
+}
+
+test("frontmatter rule: sees the old spec-reviewer description red, and a quoted one green", () => {
+  assert.ok(frontmatterProblems("---\nname: x\ndescription: Read-only review: missing, extra\n---\nbody").length > 0);
+  assert.ok(frontmatterProblems("---\nname: x\ndescription: a # b\n---\n").length > 0);
+  assert.ok(frontmatterProblems("---\nname: x\ndescription: *star\n---\n").length > 0);
+  assert.deepEqual(frontmatterProblems('---\nname: x\ndescription: "Read-only review: missing, extra"\ntools: Read, Grep\n---\n'), []);
+});
+
+for (const rel of [
+  ...readdirSync(join(root, "agents")).filter((f) => f.endsWith(".md")).map((f) => `agents/${f}`),
+  ...readdirSync(join(root, "skills")).map((d) => `skills/${d}/SKILL.md`).filter((p) => existsSync(join(root, p))),
+]) {
+  test(`${rel}: frontmatter parses under the strict YAML-subset rule`, () => {
+    assert.deepEqual(frontmatterProblems(readFileSync(join(root, rel), "utf8")), []);
+  });
+}
+
+test("agents/ holds only agent definitions (every .md there loads as an agent)", () => {
+  assert.ok(!existsSync(join(root, "agents", "ATTRIBUTION.md")));
+  assert.ok(existsSync(join(root, "docs", "attribution", "agents.md")));
 });
