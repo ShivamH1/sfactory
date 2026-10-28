@@ -169,3 +169,25 @@ test("worktree cli: a cut whose job update fails (job vanished) undoes the workt
   assert.equal(branchExists(root, "feature/vanish"), false);
   assert.equal(status(c, "worktree:vanish").held, false);
 });
+
+test("worktree cli: an undo that cannot remove everything names what is left on stderr, and still removes the rest", async () => {
+  const { root, c } = setup();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { writeJob: raw, withJobLock } = await import("../src/store.mjs");
+  const { rmSync, readdirSync, unlinkSync } = await import("node:fs");
+  const { acquireSync } = await import("../src/lock.mjs");
+  withJobLock(c, "m-1", () => raw(c, newJob({ id: "m-1", kind: "milestone", title: "Stolen" })));
+  const afterAdd = () => {
+    const dir = join(c.stateDir, "locks");
+    for (const f of readdirSync(dir)) if (f.includes("stolen")) unlinkSync(join(dir, f));
+    acquireSync(c, "worktree:stolen", { holder: "thief", durable: true });
+    rmSync(join(c.stateDir, "jobs", "m-1"), { recursive: true, force: true });
+  };
+  const warned = [];
+  assert.throws(() => cutJob(c, "m-1", { afterAdd, warn: (m) => warned.push(m) }), (e) => e.code === "JOB_NOT_FOUND");
+  assert.equal(existsSync(join(c.worktrees.dir, "stolen")), false);
+  assert.equal(branchExists(root, "feature/stolen"), false);
+  assert.equal(warned.length, 1);
+  assert.match(warned[0], /could not remove: lock worktree:stolen\n$/);
+  assert.equal(status(c, "worktree:stolen").holder, "thief"); // not ours: left alone
+});

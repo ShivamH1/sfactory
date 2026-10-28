@@ -84,10 +84,10 @@ export function profileModel(name, home = codexHomeDir()) {
   try { return (() => { const m = /^\s*model\s*=\s*(?:"([^"]+)"|'([^']+)')/m.exec(readFileSync(profileFile(name, home), "utf8")); return m?.[1] ?? m?.[2] ?? null; })(); } catch { return null; }
 }
 
-/** On win32 the args pass through cmd.exe: a quote, a percent sign or an empty value cannot be quoted safely, so refuse them. */
+/** On win32 the args pass through cmd.exe: a quote, a percent sign or a control character (a LF ends the cmd.exe line) or an empty value cannot be quoted safely, so refuse them. */
 function assertShellSafe(args) {
   if (process.platform !== "win32") return;
-  for (const a of args) if (a === "" || /["%]/.test(a)) fail("BAD_ARGS", `codex argument cannot be passed through cmd.exe: ${JSON.stringify(a)}`);
+  for (const a of args) if (a === "" || /["%\x00-\x1f]/.test(a)) fail("BAD_ARGS", `codex argument cannot be passed through cmd.exe: ${JSON.stringify(a)}`);
 }
 
 async function runExecLike(c, { args, cwd, prompt, outDir, logName, timeoutMs, spawn, env }) {

@@ -277,3 +277,24 @@ test("codex command: a bare --profile is BAD_ARGS", async () => {
   const code = await main(["codex", "exec", "--cwd", ".", "--profile", "--out", "o"], { cwd: root, stdin: () => "p", stdout: () => {}, stderr: (s) => errs.push(s), runners: { exec: async () => { throw new Error("must not run"); } } });
   assert.equal(code, 2, errs.join(""));
 });
+
+test("codex command: a bare --sandbox is BAD_ARGS and nothing runs", async () => {
+  const root = cfg().repoRoot;
+  const errs = [];
+  const code = await main(["codex", "exec", "--cwd", ".", "--profile", "implement", "--out", "o", "--sandbox"], { cwd: root, stdin: () => "p", stdout: () => {}, stderr: (s) => errs.push(s), runners: { exec: async () => { throw new Error("must not run"); } } });
+  assert.equal(code, 2, errs.join(""));
+  assert.match(errs.join(""), /BAD_ARGS.*--sandbox needs a value/s);
+});
+
+test("codex: win32 refuses a control character in any argument (a LF would cut the cmd.exe line)", async () => {
+  const c = cfg();
+  const { spawn } = fakeSpawn((child) => emit(child, [], 0));
+  const home = homeWith("implement");
+  const ex = (o) => runCodexExec(c, { cwd: "/w", profile: "implement", prompt: "p", outDir: tmpDir("sf-out-"), spawn, which: () => true, codexHome: home, ...o });
+  const desc = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { ...desc, value: "win32" });
+  try {
+    for (const ch of ["\n", "\r", "\t", "\x00", "\x1b"]) await assert.rejects(ex({ cwd: `C:\a${ch}b` }), { code: "BAD_ARGS" }, JSON.stringify(ch));
+    await ex({ cwd: "C:\plain dir" });
+  } finally { Object.defineProperty(process, "platform", desc); }
+});

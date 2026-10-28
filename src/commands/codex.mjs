@@ -27,6 +27,8 @@ register("codex", async ({ positional: [verb], flags }, io) => {
 ${USAGE}`);
   const profile = typeof flags.profile === "string" ? flags.profile : c.agents?.codex?.[verb === "exec" ? "implement" : "review"];
   if (typeof profile !== "string" || !profile) fail("BAD_ARGS", `codex needs --profile (or agents.codex.${verb === "exec" ? "implement" : "review"} in the config)\n${USAGE}`);
+  if (flags.sandbox === true) fail("BAD_ARGS", `--sandbox needs a value
+${USAGE}`);
   if (typeof flags.job === "string") readJob(c, flags.job); // a bad job id fails before Codex is run
   const record = (usage) => {
     if (!usage || typeof flags.job !== "string") return;
