@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { request } from "node:http";
 import { tmpDir } from "./helpers.mjs";
-import { addJob, readJob, readJobFile, writeJobFile } from "../src/store.mjs";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { addJob, readJob, readJobFile, writeJobFile, withJobLock, writeJob, jobDir } from "../src/store.mjs";
 import { actions } from "../src/job-actions.mjs";
 import { startBoard } from "../src/board/server.mjs";
 
@@ -153,10 +155,28 @@ test("server: by is used when given, blank falls back to board", async () => {
 test("server: a 500 answers the code and no message", async () => {
   const c = mk();
   const j = addJob(c, "milestone", "Corrupt");
-  writeJobFile(c, j.id, "job.json", "{ broken");
+  writeFileSync(join(jobDir(c, j.id), "job.json"), "{ broken");
   await withBoard(c, {}, async (b) => {
     const r = await post(b, `jobs/${j.id}/approve`);
     assert.equal(r.status, 500);
     assert.deepEqual(await r.json(), { code: "JOB_CORRUPT" });
+  });
+});
+
+test("server: a POST answers an allow-listed job view, never the lock token or history", async () => {
+  const c = mk();
+  const j = addJob(c, "milestone", "Secret");
+  toApproval(c, j.id);
+  withJobLock(c, j.id, () => { const x = readJob(c, j.id); x.lockToken = "TOKEN-SECRET-123"; writeJob(c, x); });
+  await withBoard(c, {}, async (b) => {
+    const r = await post(b, `jobs/${j.id}/approve`);
+    assert.equal(r.status, 200);
+    const text = await r.text();
+    assert.ok(!text.includes("TOKEN-SECRET-123"));
+    assert.ok(!text.includes("lockToken"));
+    const body = JSON.parse(text);
+    assert.equal(body.job.id, j.id);
+    assert.equal(body.job.stage, "building");
+    assert.equal(body.job.history, undefined);
   });
 });

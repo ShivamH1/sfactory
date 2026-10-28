@@ -54,6 +54,7 @@ Write the answer to decisions/${k}-answer.md, then run: sfactory job answer ${jo
     return locked(c, id, (job) => {
       if (job.stage !== "decision-needed" || job.pending !== "decision") fail("ILLEGAL_TRANSITION", `${job.id} is not waiting for a decision`);
       const k = nextNo(c, job.id, (n) => `decisions/${n}.md`) - 1;
+      if (k < 1) fail("ILLEGAL_TRANSITION", `${job.id} has no decision to answer (decisions/1.md is missing)`);
       if (text !== undefined) {
         if (typeof text !== "string") fail("BAD_ARGS", "the answer must be text");
         if (!String(text).trim()) fail("ANSWER_REQUIRED", "the answer is empty");

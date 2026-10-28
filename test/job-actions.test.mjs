@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tmpDir } from "./helpers.mjs";
 import { actions } from "../src/job-actions.mjs";
-import { readJob, jobFileExists, readJobFile, writeJobFile } from "../src/store.mjs";
+import { readJob, jobFileExists, readJobFile, writeJobFile, withJobLock, writeJob } from "../src/store.mjs";
 import { acquireSync, status } from "../src/lock.mjs";
 
 const cfg = () => ({ stateDir: tmpDir("sf-ja-"), limits: { lockStaleMs: 60_000 } });
@@ -145,3 +145,15 @@ test("actions: add with a bad kind is BAD_ARGS and leaves no folder", () => {
   throwsCode(() => actions.add(c, { kind: "milestone ", title: "t" }), "BAD_ARGS");
   assert.deepEqual(existsSync(join(c.stateDir, "jobs")) ? readdirSync(join(c.stateDir, "jobs")) : [], []);
 });
+
+test("actions: answer with no decision file is refused and writes nothing", () => {
+  const c = cfg();
+  actions.add(c, { kind: "fix", title: "x" });
+  // a decision-needed job whose decisions/<k>.md is missing
+  withJobLockForTest(c, "f-1", (j) => { j.stage = "decision-needed"; j.pending = "decision"; j.returnStage = "building"; });
+  throwsCode(() => actions.answer(c, { id: "f-1", text: "yes" }), "ILLEGAL_TRANSITION", /no decision/);
+  assert.equal(jobFileExists(c, "f-1", "decisions/0-answer.md"), false);
+});
+function withJobLockForTest(c, id, mutate) {
+  return withJobLock(c, id, () => { const j = readJob(c, id); mutate(j); return writeJob(c, j); });
+}

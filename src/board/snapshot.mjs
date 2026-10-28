@@ -45,26 +45,29 @@ function lockView(c, name) {
   return { held: !!s.held, holder: s.holder ?? null, since: s.since ?? null };
 }
 
+/** The one allow-list of a job as the board shows it: snapshot and POST answers both use it, so job.json's other fields (lockToken, history) never leave. */
+export function jobView(c, j, now = new Date().toISOString()) {
+  const cost = readCost(c, j.id).total ?? { usd: 0, unpriced: 0 };
+  return {
+    id: j.id, kind: j.kind, title: j.title, stage: j.stage, column: COLUMNS[j.stage] ?? null,
+    pending: j.pending ?? null, returnStage: j.returnStage ?? null, branch: j.branch ?? null, base: j.base ?? null,
+    worktree: j.worktree ?? null, ports: j.ports ?? null, slug: j.slug ?? null,
+    tasks: j.tasks ?? null, round: j.round ?? 0, rework: j.rework ?? 0, parallel: j.parallel ?? null,
+    started: j.started ?? null, updated: j.updated ?? null, ended: j.ended ?? null,
+    elapsedMs: Date.parse(j.ended ?? now) - Date.parse(j.started),
+    cost: { usd: cost.usd ?? 0, unpriced: cost.unpriced ?? 0 },
+    files: collectFiles(jobDir(c, j.id)),
+    needsYou: needsYou(c, j),
+    prText: readJobFile(c, j.id, "pr.md"),
+  };
+}
+
 export function buildSnapshot(c, { now: nowArg, demo = false } = {}) {
   const all = listJobs(c);
   // demo jobs carry fixed past stamps: measure them against their own latest moment, not the real clock
   const latest = demo ? all.flatMap((j) => [j.started, j.updated, j.ended]).filter(Boolean).sort().at(-1) : null;
   const now = nowArg ?? latest ?? new Date().toISOString();
-  const jobs = all.map((j) => {
-    const cost = readCost(c, j.id).total ?? { usd: 0, unpriced: 0 };
-    return {
-      id: j.id, kind: j.kind, title: j.title, stage: j.stage, column: COLUMNS[j.stage] ?? null,
-      pending: j.pending ?? null, returnStage: j.returnStage ?? null, branch: j.branch ?? null, base: j.base ?? null,
-      worktree: j.worktree ?? null, ports: j.ports ?? null, slug: j.slug ?? null,
-      tasks: j.tasks ?? null, round: j.round ?? 0, rework: j.rework ?? 0, parallel: j.parallel ?? null,
-      started: j.started ?? null, updated: j.updated ?? null, ended: j.ended ?? null,
-      elapsedMs: Date.parse(j.ended ?? now) - Date.parse(j.started),
-      cost: { usd: cost.usd ?? 0, unpriced: cost.unpriced ?? 0 },
-      files: collectFiles(jobDir(c, j.id)),
-      needsYou: needsYou(c, j),
-      prText: readJobFile(c, j.id, "pr.md"),
-    };
-  });
+  const jobs = all.map((j) => jobView(c, j, now));
   return {
     project: c.project ?? null,
     board: { pollMs: c.board?.pollMs ?? 2000 },

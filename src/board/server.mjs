@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
-import { buildSnapshot } from "./snapshot.mjs";
+import { buildSnapshot, jobView } from "./snapshot.mjs";
 import { actions } from "../job-actions.mjs";
 import { readJobFile, readJob } from "../store.mjs";
 import { SfactoryError } from "../errors.mjs";
@@ -79,7 +79,7 @@ export function startBoard(c, { port = c.board.port, host = "127.0.0.1", demoDir
         for (const k of ["text", "notes", "yes", "reason"]) if (body[k] !== undefined) args[k] = body[k];
         // synchronous, under the job lock: nothing is awaited between here and the write
         const job = actions[ROUTES[parts[2]]](view, args);
-        return sendJson(res, 200, { job });
+        return sendJson(res, 200, { job: jobView(view, job) });
       }
 
       return sendJson(res, 404, { code: "NOT_FOUND" });
@@ -92,8 +92,11 @@ export function startBoard(c, { port = c.board.port, host = "127.0.0.1", demoDir
   });
 
   return new Promise((resolve, reject) => {
-    server.once("error", reject);
+    const onStartError = (e) => reject(e);
+    server.once("error", onStartError);
     server.listen(port, host, () => {
+      server.off("error", onStartError);
+      server.on("error", (e) => log(`board: ${e?.code ?? "error"}`)); // after startup: log the code only, never crash
       boundPort = server.address().port;
       resolve({
         url: `http://127.0.0.1:${boundPort}/`,

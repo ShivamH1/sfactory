@@ -31,7 +31,7 @@ Node >= 20, git, and Claude Code and/or Codex CLI depending on `agents.mode`.
 
 `sfactory board` serves a kanban view of your jobs, read from the same job files the commands write. It prints a URL (default port 4317, or `board.port` in the config; `--port n` overrides) and stays up until Ctrl+C.
 
-- **Demo:** `sfactory board --demo` shows six sample jobs from `examples/jobs`. It needs no config and no repo, and it is read-only: every button answers 403.
+- **Demo:** `sfactory board --demo` shows six sample jobs from `examples/jobs`. It needs no config and no repo, and it is read-only: the page renders no gate controls, and a hand-sent POST answers 403.
 - **The gates:** each button calls the same gate function the `sfactory job` commands call, so an illegal move, a missing approval or a busy job is refused with the same reason (*Request changes* exists only on the board). Each write is made under the job lock, and a POST must carry the `X-Sfactory-Board: 1` header.
 - **Local only:** the server binds to 127.0.0.1 and refuses any Host header other than `127.0.0.1:<port>` or `localhost:<port>`. It is not reachable from another machine.
 - `examples/jobs/generate.mjs` rebuilds the demo folders through the job state functions, so they follow the schema.

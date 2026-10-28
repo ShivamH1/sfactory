@@ -1,5 +1,5 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, existsSync, statSync } from "node:fs";
-import { join, dirname, resolve, sep } from "node:path";
+import { join, dirname, resolve, sep, relative } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fail } from "./errors.mjs";
 import { acquireSync, status } from "./lock.mjs";
@@ -48,9 +48,17 @@ export function withJobLock(c, id, fn, { retries = 40, delayMs = 50 } = {}) {
   let lock;
   for (let i = 0; ; i++) {
     try { lock = acquireSync(c, `job:${id}`, { holder: HOLDER, pid: process.pid }); break; }
-    catch (e) { if (e.code !== "LOCK_HELD" || i >= retries) fail("JOB_BUSY", `${id} is being written by another process: ${e.message}`); sleepSync(delayMs); }
+    catch (e) {
+      if (e.code !== "LOCK_HELD") throw e;
+      if (i >= retries) fail("JOB_BUSY", `${id} is being written by another process: ${e.message}`);
+      sleepSync(delayMs);
+    }
   }
-  try { return fn(); } finally { try { lock.release(); } catch { /* lock already gone */ } }
+  try {
+    const out = fn();
+    if (out && typeof out.then === "function") fail("LOCK_ASYNC", "withJobLock runs a synchronous callback; an async one would run outside the lock");
+    return out;
+  } finally { try { lock.release(); } catch { /* lock already gone */ } }
 }
 
 /** Write text to f atomically: a unique temp file, then a rename (retried on the EPERM/EBUSY a reader can cause on Windows). */
@@ -63,7 +71,7 @@ export function atomicWrite(f, text) {
   }
 }
 
-/** Called inside withJobLock by the job commands (src/job.mjs, src/job-actions.mjs, src/commands/*) and by addJob. Atomic via atomicWrite. */
+/** Called inside withJobLock by the job commands (src/job-actions.mjs, src/commands/*) and by addJob. Atomic via atomicWrite. */
 export function writeJob(c, job) {
   const s = status(c, `job:${job.id}`);
   if (!s.held || s.holder !== HOLDER) fail("JOB_LOCK_REQUIRED", `writeJob(${job.id}) needs withJobLock`);
@@ -98,6 +106,7 @@ export function nextId(c, kind) {
 }
 export function writeJobFile(c, id, rel, text) {
   const f = jobPath(c, id, rel);
+  if (["job.json", "cost.json"].includes(relative(resolve(jobDir(c, id)), f).split(sep).join("/"))) fail("BAD_PATH", `"${rel}" is the job's own state file`);
   mkdirSync(dirname(f), { recursive: true });
   writeFileSync(f, text);
   return f;
