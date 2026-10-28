@@ -88,6 +88,12 @@ function tickedItems(rest, where, first = false) {
   return { paths, prose };
 }
 
+/** Text holding backticked paths and separators alone, at least one path (round 6, R2). */
+function onlyPaths(text) {
+  const items = [...text.matchAll(TICKED)].map((m) => m[1].trim());
+  return items.length > 0 && items.every((s) => tickedIsPath(s) || ALLOWED.has(s)) && text.replace(TICKED, " ").split(/[\s,;]+/).every((t) => !t || SEPARATOR.test(t));
+}
+
 /** The paths named on a Files line's text after the op (or after the Files label): { paths, prose }. */
 function pathsOf(rest, where) {
   if (/^none\b/i.test(rest)) {
@@ -349,6 +355,11 @@ function scan(md) {
  * as ordering and as the list's continuation (N3). A "**Files:** none" inside a
  * comment spanning lines exempts nothing (N4), and a line skipped as code still
  * counts as a path mention (O1).
+ *
+ * Round 6: a loose "depends on" continuation keeps the comma state it met (B1);
+ * a task heading, op Files line or Files label inside code is refused,
+ * PLAN_CODE_HIDES_TASK (R1); and an unindented bullet of backticked paths alone,
+ * directly after a Files line or its continuation, is its item, as touch (R2).
  */
 export function parsePlan(md) {
   const lines = scan(md);
@@ -440,11 +451,20 @@ export function parsePlan(md) {
     ? `${emptyLabel.at}: a bare "- ${emptyLabel.op}:" line with nothing under it - list its files under it`
     : `${emptyLabel.at}: a Files label with nothing under it - list the files under it, or write "**Files:** none"`);
 
+  /** Round 6, R1: a task heading, op Files line or Files label inside code would be hidden. */
+  const codeHidesTask = (text, no) => {
+    const t = unquote(text).s.trimStart();
+    const what = heading.test(t) ? "a task heading" : fileLine(t) ? "a Files line" : label.test(t) ? "a Files label" : null;
+    if (what) fail("PLAN_CODE_HIDES_TASK", `line ${no}: ${what} inside code ("${t.trim()}") - a fence that re-pairs or an indented block would hide it; fix the fences (use a longer fence around nested ones) or move it out of the code`);
+  };
+
   const step = (k) => {
     const { text: raw, no, suspect, code: skipped } = lines[k];
     // A line skipped as code still counts as a path mention, so a task whose only
-    // Files lines are code is not accepted file-less (round 5, O1).
-    if (skipped !== undefined) note(skipped);
+    // Files lines are code is not accepted file-less (round 5, O1). A task heading or
+    // a Files line there is refused (round 6, R1): two nested fences of one length
+    // re-pair and swallow what lies between, a whole task included.
+    if (skipped !== undefined) { codeHidesTask(skipped, no); note(skipped); }
     const where = () => `Task ${cur.n} (line ${no})`;
     const h = raw.match(heading);
     if (h) {
@@ -528,7 +548,10 @@ export function parsePlan(md) {
     const lazy = !!cont && !cont.afterBlank && !/^\s/.test(raw) && !BULLET_RE.test(raw) && !/^#{1,6}(\s|$)/.test(raw) && !boldLabel.test(raw);
     // An unindented bullet in a label's list is an item (R2-4), and so is one under a bare op line (R4-4).
     const bare = !!cont && (cont.label || cont.list) && !/^\s/.test(raw) && !commaCont && BULLET_RE.test(raw) && !STEP.test(raw);
-    if (cont && !/^\s*#/.test(raw) && !label.test(raw) && (/^\s/.test(raw) || commaCont || bare || lazy)) {
+    // Round 6, R2: an unindented bullet of backticked paths alone, directly after a Files
+    // line or its continuation, is that line's item, read as touch (as in a label's list).
+    const sibling = !!cont && !cont.afterBlank && !commaCont && !bare && !/^\s/.test(raw) && BULLET_RE.test(raw) && !STEP.test(raw) && onlyPaths(raw.trim().replace(BULLET_RE, ""));
+    if (cont && !/^\s*#/.test(raw) && !label.test(raw) && (/^\s/.test(raw) || commaCont || bare || lazy || sibling)) {
       cont.afterBlank = false;
       emptyLabel = null;
       const text = raw.trim().replace(BULLET_RE, "");
@@ -536,8 +559,10 @@ export function parsePlan(md) {
       const item = (!!cont.list || bare) && itemBullet.test(raw);
       const r = text.includes("`") ? tickedItems(text, where(), item) : (checkProse(text, where()), { paths: [], prose: true });
       // An unindented bullet in a label's list carries no op of its own; under a bare op line it is that op's.
-      record(bare && !cont.list ? "touch" : cont.op, r, text);
-      cont.comma = /,\s*$/.test(text);
+      record((bare && !cont.list) || sibling ? "touch" : cont.op, r, text);
+      // A loose "depends on" line keeps the comma state it met, so the list goes on past it (round 6, B1).
+      const comma = /,\s*$/.test(text);
+      cont.comma = looseBoth ? cont.comma || comma : comma;
       return;
     }
     // A loose line that is not the list's continuation leaves the list as it was (R4-2).

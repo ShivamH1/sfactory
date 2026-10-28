@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { parsePlan } from "../src/plan.mjs";
+import { taskBatches } from "../src/independence.mjs";
 import { acceptancePlans } from "../scripts/acceptance-plans.mjs";
 
 // Plan C entry criteria: the five parked parser holes (N1-N5) and dependency
@@ -417,7 +418,10 @@ test("fix R4-3: fenced and 4-space indented code is skipped; nested lists are no
   const each = (extra) => "### Task 1: A\n- Create: `a.ts`\n" + extra + "\n### Task 2: B\n- Create: `b.ts`\n" + extra + "\n";
   assert.equal(info(each("\nExample:\n\n    **Depends on:** none")), "none");
   assert.equal(info(each("\n    **Depends on:** none")), "none");
-  assert.deepEqual(files(one("- Create: `a.ts`\n\nExample:\n\n    - Modify: `x.ts`")), ["create a.ts"]);
+  // Round 6 (R1) superseded this: an op Files line inside code is now refused, not skipped,
+  // since nested fences can re-pair and hide one. Code holding other text is still skipped.
+  assert.equal(code(one("- Create: `a.ts`\n\nExample:\n\n    - Modify: `x.ts`")), "PLAN_CODE_HIDES_TASK");
+  assert.deepEqual(files(one("- Create: `a.ts`\n\nExample:\n\n    edit `x.ts`")), ["create a.ts"]);
   // A fence inside a list item, indented four spaces, is still a fence.
   assert.equal(info(each("- Note:\n\n    ```md\n    **Depends on:** none\n    ```")), "none");
   // A list item's fence ends with the item: the next item is read, not hidden.
@@ -537,10 +541,58 @@ test("fix round 5 N4: a '**Files:** none' inside a comment spanning lines exempt
 });
 
 test("fix round 5 O1: lines skipped as code still count as path mentions", () => {
+  // Round 6 (R1) superseded the three Files-line forms below: an op Files line inside code was
+  // PLAN_TASK_NO_FILES (or skipped beside a real Files line) and is now refused outright, since
+  // nested fences can re-pair and hide one. O1 still holds for code that names a path otherwise.
   // A task whose only Files line is indented four spaces under its heading is code, and parses file-less no more.
-  assert.equal(code(one("    - Modify: `secret.ts`") + tail), "PLAN_TASK_NO_FILES");
+  assert.equal(code(one("    - Modify: `secret.ts`") + tail), "PLAN_CODE_HIDES_TASK");
+  assert.equal(code(one("    edit `secret.ts`") + tail), "PLAN_TASK_NO_FILES");
   // Beside a real Files line, code is still not read for files.
-  assert.deepEqual(files(one("- Create: `a.ts`\n\nExample:\n\n    - Modify: `x.ts`")), ["create a.ts"]);
+  assert.equal(code(one("- Create: `a.ts`\n\nExample:\n\n    - Modify: `x.ts`")), "PLAN_CODE_HIDES_TASK");
+  assert.deepEqual(files(one("- Create: `a.ts`\n\nExample:\n\n    edit `x.ts`")), ["create a.ts"]);
   // Fenced code counts the same way.
-  assert.equal(code(one("```\n- Modify: `secret.ts`\n```") + tail), "PLAN_TASK_NO_FILES");
+  assert.equal(code(one("```\n- Modify: `secret.ts`\n```") + tail), "PLAN_CODE_HIDES_TASK");
+  assert.equal(code(one("```\nedit `secret.ts`\n```") + tail), "PLAN_TASK_NO_FILES");
+});
+
+// Round 6 (owner-approved extra): three holes that let a plan parse "ok" while hiding a write or a task.
+const mig1 = "### Task 1: A\n**Depends on:** none\n- Create: `db/migrations/001/m.sql`\n";
+const batch = (md) => taskBatches(parsePlan(md), 4, { migrationsDir: "db/migrations" });
+
+test("fix round 6 B1: a loose 'depends on' continuation keeps the Files line's comma state", () => {
+  // The comma on "- Modify: `a.ts`," carries the list past the loose line to the next bullet.
+  const p = mig1 + "### Task 2: B\n**Depends on:** none\n- Modify: `a.ts`,\n  depends on the new schema\n- `db/migrations/002/m.sql`\n";
+  assert.deepEqual(files(p, 1), ["modify a.ts", "modify db/migrations/002/m.sql"]);
+  assert.deepEqual(batch(p), [[1], [2]]);
+  // A loose line that ends in a comma opens the comma state itself, as before.
+  assert.deepEqual(files(one("- Modify: `a.ts`\n  depends on the schema in,\n- `b.ts`")), ["modify a.ts", "modify b.ts"]);
+});
+
+test("fix round 6 R1: a task heading or Files line inside code is refused, never hidden", () => {
+  // Two same-length fences nested re-pair: the stray closer opens a fence that swallows Task 2 whole.
+  const nested = "### Task 1: A\n- Create: `a.ts`\n\n```md\n```ts\nconst x = 1;\n```\n```\n\n### Task 2: B\n- Create: `b.ts`\n\n```bash\nnpm test\n```\n\n### Task 3: C\n- Create: `c.ts`\n";
+  assert.equal(code(nested), "PLAN_CODE_HIDES_TASK");
+  assert.throws(() => parsePlan(nested), /line 10/);
+  // Every heading form the parser takes as a task, in fenced, indented and quoted code.
+  assert.equal(code(one("- Create: `a.ts`\n\n```\n## Task 2: B\n```")), "PLAN_CODE_HIDES_TASK");
+  assert.equal(code(one("- Create: `a.ts`\n\nExample:\n\n    ### Task 2: B")), "PLAN_CODE_HIDES_TASK");
+  assert.equal(code(one("- Create: `a.ts`\n\n> ```\n> ### Task 2: B\n> ```")), "PLAN_CODE_HIDES_TASK");
+  // An op Files line or a Files label in code.
+  assert.equal(code(one("- Create: `a.ts`\n\n```\n- Modify: `b.ts`\n```")), "PLAN_CODE_HIDES_TASK");
+  assert.equal(code(one("- Create: `a.ts`\n\n```\n**Files:** `b.ts`\n```")), "PLAN_CODE_HIDES_TASK");
+  // Before the first task too.
+  assert.equal(code("```\n### Task 1: A\n```\n### Task 2: B\n- Create: `b.ts`\n"), "PLAN_CODE_HIDES_TASK");
+  // Code that names paths, or mentions a task in prose, is still read for mentions only.
+  assert.deepEqual(files(one("- Create: `a.ts`\n\n```ts\nimport x from \"./b.ts\"; // see Task 2: B\n```")), ["create a.ts"]);
+});
+
+test("fix round 6 R2: an unindented path-only bullet right after a Files line is that line's item, as touch", () => {
+  const p = mig1 + "### Task 2: B\n**Depends on:** none\n- Modify: `a.ts`\n- `db/migrations/002/m.sql`\n";
+  assert.deepEqual(files(p, 1), ["modify a.ts", "touch db/migrations/002/m.sql"]);
+  assert.deepEqual(batch(p), [[1], [2]]);
+  // After a continuation line too, several paths on one bullet, and the next sibling after it.
+  assert.deepEqual(files(one("- Modify: `a.ts` and\n  `b.ts`\n- `c.ts`, `d.ts`\n- `e.ts`")), ["modify a.ts", "modify b.ts", "touch c.ts", "touch d.ts", "touch e.ts"]);
+  // A bullet with prose beside its paths, or a step, is not an item.
+  assert.deepEqual(files(one("- Modify: `a.ts`\n- Run `npm test` in `src/x.ts`")), ["modify a.ts"]);
+  assert.deepEqual(files(one("- Modify: `a.ts`\n- [ ] `b.ts`")), ["modify a.ts"]);
 });

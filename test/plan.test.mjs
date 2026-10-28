@@ -24,6 +24,10 @@ test("plan: real format - h2 headings, no-colon lines, several paths, letter ids
   assert.deepEqual(real.tasks[0].title, "Service");
   assert.deepEqual(real.tasks[1].files.map((f) => f.path), ["src/a.ts", "src/b.ts"]);
   assert.deepEqual(real.tasks[1].dependsOn, [1]);
+  // Round 6 (R1): the fixture's fence held "### Task 9: ..." and "- Create: `fenced.ts`", skipped as code then.
+  // A task heading or Files line inside code is now refused (nested fences re-pair and hide a task), so the
+  // fixture's fence holds a mention instead and the old form is pinned here.
+  assert.throws(() => parsePlan("## Task 1: A\n- Create: `a.ts`\n\n```md\n### Task 9: A fake heading inside a fence\n- Create: `fenced.ts`\n```\n"), { code: "PLAN_CODE_HIDES_TASK" });
 });
 
 const code = (md) => { try { parsePlan(md); } catch (e) { return e.code; } return null; };
@@ -42,9 +46,15 @@ const tail = "### Task 2: Next\n- Create: `next.ts`\n";
 const names = (md) => parsePlan(md).tasks.map((t) => t.n);
 
 test("plan: CommonMark fences", () => {
+  // Round 6 (R1) superseded the first case: a task heading and a Files line inside a
+  // (correctly closed) four-backtick fence were skipped; any such line inside code is now
+  // refused, since same-length nested fences re-pair and hide a task. The fence-length
+  // rule itself is still pinned below with code that holds neither.
   const four = "### Task 1: A\n- Create: `a.ts`\n````md\n```js\n### Task 9: fake\n- Create: `leak.ts`\n```\n````\n" + tail;
-  assert.deepEqual(names(four), [1, 2]);
-  assert.deepEqual(parsePlan(four).tasks[0].files, [{ op: "create", path: "a.ts" }]);
+  assert.equal(code(four), "PLAN_CODE_HIDES_TASK");
+  const fourPlain = "### Task 1: A\n- Create: `a.ts`\n````md\n```js\nconst leak = \"leak.ts\";\n```\n````\n" + tail;
+  assert.deepEqual(names(fourPlain), [1, 2]);
+  assert.deepEqual(parsePlan(fourPlain).tasks[0].files, [{ op: "create", path: "a.ts" }]);
   assert.deepEqual(names("### Task 1: A\n- Create: `a.ts`\n~~~\n```\n~~~\n" + tail), [1, 2]);
   assert.equal(code("### Task 1: A\n- Create: `a.ts`\n```\n### Task 2: hidden\n"), "PLAN_UNCLOSED_FENCE");
 });

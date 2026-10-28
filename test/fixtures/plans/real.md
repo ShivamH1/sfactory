@@ -9,9 +9,9 @@
 
 The retry depends on the clock: 5 minutes of waiting.
 
+<!-- Round 6 (R1): this fence held "### Task 9: ..." and "- Create: `fenced.ts`"; a task heading or Files line inside code is now refused, so it holds a mention instead. -->
 ```md
-### Task 9: A fake heading inside a fence
-- Create: `fenced.ts`
+Task 9, a fake task inside a fence, would create `fenced.ts`
 ```
 
 ## Task 6a: Prep
