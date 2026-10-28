@@ -261,7 +261,7 @@ test("round 2: push protects a derived integration branch (integrationBranch nul
   const { r } = repoWithRemote();
   sh("git", ["checkout", "-q", "-b", "development"], r);
   sh("git", ["push", "-q", "origin", "development"], r);
-  const c = cfg(); c.worktrees.branchPrefix = "";
+  const c = cfg();
   c.worktrees.branchPrefix = "dev";
   assert.throws(() => push(c, { cwd: r }), (e) => e.code === "BRANCH_REFUSED" && /protected/.test(e.message));
 });
@@ -285,4 +285,20 @@ test("round 2: a fetch that outlives its timeout is killed with its children; th
   await new Promise((r2) => setTimeout(r2, 500));
   let alive = true; try { process.kill(pid, 0); } catch { alive = false; }
   assert.equal(alive, false, "the ssh child is gone");
+});
+
+test("round 3: fetch leaves the ssh command to the repo core.sshCommand (and GIT_SSH)", async () => {
+  const { fetchOrigin } = await import("../src/worktree.mjs");
+  const { existsSync } = await import("node:fs");
+  const d = tmpDir("sf-cfgssh-");
+  const marker = join(d, "ran");
+  writeFileSync(join(d, "mark.mjs"), `import{writeFileSync}from"node:fs";writeFileSync(${JSON.stringify(marker)},"x");`);
+  const r = tmpRepo();
+  sh("git", ["remote", "add", "origin", "ssh://example.invalid/x.git"], r);
+  const fwd = (p) => p.split("\\").join("/");
+  sh("git", ["config", "core.sshCommand", `"${fwd(process.execPath)}" "${fwd(join(d, "mark.mjs"))}"`], r);
+  const old = process.env.GIT_SSH_COMMAND, oldSsh = process.env.GIT_SSH;
+  delete process.env.GIT_SSH_COMMAND; delete process.env.GIT_SSH;
+  try { fetchOrigin(r, { timeoutMs: 20000 }); } finally { if (old !== undefined) process.env.GIT_SSH_COMMAND = old; if (oldSsh !== undefined) process.env.GIT_SSH = oldSsh; }
+  assert.equal(existsSync(marker), true, "core.sshCommand ran");
 });

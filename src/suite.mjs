@@ -12,6 +12,10 @@ export function killTree(p) {
   if (process.platform === "win32" && p.pid) {
     try { spawnSync("taskkill", ["/pid", String(p.pid), "/T", "/F"], { stdio: "ignore" }); } catch { /* best effort */ }
   }
+  if (process.platform !== "win32" && p.pid) {
+    // POSIX: callers spawn with detached: true, so the child leads its own group; -pid reaches its descendants.
+    try { process.kill(-p.pid, "SIGKILL"); return; } catch { /* not a group leader: fall back */ }
+  }
   try { p.kill(); } catch { /* best effort */ }
 }
 
@@ -38,7 +42,7 @@ function spawnToLog(command, cwd, logPath) {
       settle(result(false, null, null));
     };
     // shell: true is deliberate: the command is the user's own, from config.
-    const p = child = spawn(command, { cwd, shell: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, CI: "1" } });
+    const p = child = spawn(command, { cwd, shell: true, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, CI: "1" } });
     p.stdout.on("data", (d) => { out.write(d); keep(d); });
     p.stderr.on("data", (d) => { out.write(d); keep(d); });
     const done = (code, signal, note) => {

@@ -35,7 +35,7 @@ export function resolveBase(c, { fetch = true } = {}) {
 const FETCH_WRAPPER = `
 import { spawn } from "node:child_process";
 import { killTree } from ${JSON.stringify(new URL("./suite.mjs", import.meta.url).href)};
-const p = spawn("git", ["fetch", "--quiet", "origin"], { stdio: ["ignore", "ignore", "pipe"] });
+const p = spawn("git", ["fetch", "--quiet", "origin"], { stdio: ["ignore", "ignore", "pipe"], detached: process.platform !== "win32" });
 let err = "";
 p.stderr.on("data", (d) => { err += d; });
 const t = setTimeout(() => { killTree(p); process.stderr.write("fetch timed out"); process.exit(124); }, Number(process.env.SF_FETCH_TIMEOUT_MS) || 60000);
@@ -44,7 +44,9 @@ p.on("close", (code) => { clearTimeout(t); process.stderr.write(err); process.ex
 `;
 export function fetchOrigin(cwd, { timeoutMs = 60_000 } = {}) {
   const env = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never", SF_FETCH_TIMEOUT_MS: String(timeoutMs) };
-  if (!process.env.GIT_SSH_COMMAND) env.GIT_SSH_COMMAND = "ssh -o BatchMode=yes";
+  // Git ranks GIT_SSH_COMMAND above core.sshCommand and GIT_SSH, so only set it when the user has configured neither.
+  const userSsh = process.env.GIT_SSH_COMMAND || process.env.GIT_SSH || spawnSync("git", ["config", "--get", "core.sshCommand"], { cwd, encoding: "utf8" }).stdout?.trim();
+  if (!userSsh) env.GIT_SSH_COMMAND = "ssh -o BatchMode=yes";
   return spawnSync(process.execPath, ["--input-type=module", "-e", FETCH_WRAPPER], { cwd, encoding: "utf8", timeout: timeoutMs + 15_000, env });
 }
 const hasBranch = (cwd, b) => branchExists(cwd, b) || remoteHead(cwd, b) !== null;
