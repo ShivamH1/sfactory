@@ -5,7 +5,7 @@ import { findRepoRoot, loadConfig } from "../config.mjs";
 // history, and the branch/base/worktree/slug/lockToken fields belong to them. The job is re-read
 // after the git work and only those fields are patched, so a stage change made meanwhile survives.
 import { readJob, writeJob, withJobLock, listJobs } from "../store.mjs";
-import { resolveRecord } from "../record.mjs";
+import { resolveRecord, withRecordLock } from "../record.mjs";
 import { cut, remove, resolveBase } from "../worktree.mjs";
 import { fail } from "../errors.mjs";
 import { git, branchExists, isClean } from "../git.mjs";
@@ -34,7 +34,7 @@ export function partnerBase(c, id, partnerId) {
 }
 
 /** Cut a job's worktree and record it. `afterAdd` is the TEST-ONLY hook passed through to cut(). */
-export function cutJob(c, id, { slug, afterAdd, fetch = true, baseOf, warn = (m) => process.stderr.write(m) } = {}) {
+export function cutJob(c, id, { slug, afterAdd, fetch = true, baseOf, recordRetries, warn = (m) => process.stderr.write(m) } = {}) {
   const base = baseOf === undefined ? null : partnerBase(c, id, baseOf);
   const made = cut(c, readJob(c, id), { slug, afterAdd, fetch, base });
   // Only the re-read, patch and write hold the job lock; the cut above (its fetch included) can take minutes.
@@ -59,10 +59,13 @@ export function cutJob(c, id, { slug, afterAdd, fetch = true, baseOf, warn = (m)
       const fresh = readJob(c, id);
       if (fresh.worktree) fail("WORKTREE_EXISTS", `${id} already has a worktree (${fresh.worktree}); this cut was undone`);
       for (const k of CUT_FIELDS) if (k !== "record") fresh[k] = made[k];
-      // The record paths are resolved here, under the job lock, from the new worktree and the other cards' records;
-      // a fix whose --log names no single log is LOG_NOT_FOUND, and the cut is undone below.
-      fresh.record = resolveRecord(c, fresh, made.worktree, listJobs(c));
-      return writeJob(c, fresh);
+      // The record paths are resolved here, under the job lock and the shared record lock, from the new worktree and
+      // the other cards' records, and written before the record lock is released, so two cuts never take one {n}.
+      // A fix whose --log names no single log is LOG_NOT_FOUND, and the cut is undone below.
+      return withRecordLock(c, id, () => {
+        fresh.record = resolveRecord(c, fresh, made.worktree, listJobs(c));
+        return writeJob(c, fresh);
+      }, recordRetries === undefined ? {} : { retries: recordRetries });
     });
   } catch (e) { undo(); throw e; }
 }
@@ -71,7 +74,9 @@ export function removeJob(c, id, { force = false } = {}) {
   const left = remove(c, readJob(c, id), { force });
   return withJobLock(c, id, () => {
     const fresh = readJob(c, id);
-    for (const k of CUT_FIELDS) if (k in left) fresh[k] = left[k]; else delete fresh[k];
+    // remove() hands back the job it was given with its own fields reset; record is not one of them (the cut wrote
+    // it after cut() returned), so it is cleared here with the worktree it described.
+    for (const k of CUT_FIELDS) if (k !== "record" && k in left) fresh[k] = left[k]; else delete fresh[k];
     return writeJob(c, fresh);
   });
 }

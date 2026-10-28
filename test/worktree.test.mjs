@@ -418,3 +418,42 @@ test("worktree cli: merge --from merges a pushed parallel partner into a pushing
   assert.equal(sh("git", ["status", "--porcelain"], b.worktree), "", "the merge was aborted");
   for (const id of ["m-1", "m-2"]) remove(c, readJob(c, id), { force: true });
 });
+
+test("record: a resolved path outside the worktree is refused, whatever the config held", async () => {
+  const { resolveRecord } = await import("../src/record.mjs");
+  const { c } = setup();
+  const job = { id: "m-1", slug: "x" };
+  assert.throws(() => resolveRecord({ ...c, record: { ...c.record, brief: "../{n}.md" } }, job, tmpDir("sf-rr-")), (e) => e.code === "BAD_RECORD_PATH");
+  assert.throws(() => resolveRecord({ ...c, record: { ...c.record, log: "/abs/{id}.md" } }, job, tmpDir("sf-rr-")), (e) => e.code === "BAD_RECORD_PATH");
+  assert.equal(resolveRecord(c, job, tmpDir("sf-rr-")).brief, "docs/sfactory/m-1/brief.md");
+});
+
+test("worktree cli: {n} is resolved under the shared record lock; a held lock makes the cut fail RECORD_BUSY and undo itself", async () => {
+  const { root, c } = setup();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { addJob, readJob } = await import("../src/store.mjs");
+  const { acquireSync } = await import("../src/lock.mjs");
+  addJob(c, "milestone", "Locked out");
+  const held = acquireSync(c, "record", { holder: "another-cut" });
+  assert.throws(() => cutJob(c, "m-1", { fetch: false, recordRetries: 2 }), (e) => e.code === "RECORD_BUSY");
+  assert.equal(readJob(c, "m-1").worktree, null);
+  assert.equal(branchExists(root, "feature/locked-out"), false);
+  held.release();
+  const j = cutJob(c, "m-1", { fetch: false });
+  assert.equal(j.record.n, 1);
+  assert.equal(status(c, "record").held, false, "the record lock is released after the cut");
+  remove(c, j, { force: true });
+});
+
+test("worktree cli: remove clears the record with the other cut fields", async () => {
+  const { c } = setup();
+  const { cutJob, removeJob } = await import("../src/commands/worktree.mjs");
+  const { addJob, readJob } = await import("../src/store.mjs");
+  addJob(c, "milestone", "Cleared");
+  cutJob(c, "m-1", { fetch: false });
+  assert.ok(readJob(c, "m-1").record, "recorded at the cut");
+  removeJob(c, "m-1", { force: true });
+  const after = readJob(c, "m-1");
+  assert.equal("record" in after, false);
+  assert.equal(after.worktree, null);
+});

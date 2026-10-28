@@ -1,6 +1,29 @@
 import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, isAbsolute } from "node:path";
 import { fail } from "./errors.mjs";
+import { acquireSync } from "./lock.mjs";
+
+const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+/**
+ * Run fn holding the machine-wide "record" lock, so two cuts never take the same {n}: each reads the briefs and
+ * every other card's record.n, and writes its own, inside it. Synchronous (the cut is), retried like the job lock;
+ * RECORD_BUSY once the retries are spent. Lock order: job:<id> (outer, cutJob) then record (inner), never the reverse.
+ */
+export function withRecordLock(c, holder, fn, { retries = 100, delayMs = 50 } = {}) {
+  let lock;
+  for (let i = 0; ; i++) {
+    try { lock = acquireSync(c, "record", { holder }); break; }
+    catch (e) {
+      if (e.code !== "LOCK_HELD") throw e;
+      if (i >= retries) fail("RECORD_BUSY", `another cut is resolving its record paths: ${e.message}`);
+      sleepSync(delayMs);
+    }
+  }
+  try { return fn(); } finally { try { lock.release(); } catch { /* lock already gone */ } }
+}
+
+const outside = (p) => isAbsolute(p) || /^(\/|\\|[A-Za-z]:)/.test(p) || p.split(/[\/\\]/).includes("..");
 
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -63,5 +86,7 @@ export function resolveRecord(c, job, worktree, others = []) {
     if (hits.length !== 1) fail("LOG_NOT_FOUND", hits.length ? `--log ${job.logOf} matches more than one log (${hits.join(", ")}); refile the fix naming one` : `--log ${job.logOf}: no file in the worktree matches ${r.log}`);
     log = hits[0];
   }
-  return { brief: fill(r.brief, v), plan: fill(r.plan, v), log, stories: r.stories ?? null, n };
+  const out = { brief: fill(r.brief, v), plan: fill(r.plan, v), log, stories: r.stories ?? null, n };
+  for (const k of ["brief", "plan", "log", "stories"]) if (typeof out[k] === "string" && outside(out[k])) fail("BAD_RECORD_PATH", `record.${k} resolves to "${out[k]}", outside the worktree`);
+  return out;
 }
