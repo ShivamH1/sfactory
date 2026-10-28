@@ -4,14 +4,12 @@ import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KNOWN_PLACEHOLDERS } from "../src/placeholders.mjs";
+import { READ_ONLY_TOOLS, checkCommon } from "./skills.helpers.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 // Task 7 extends the folders. agents/ are static (Claude Code renders no placeholders); prompts/ are rendered by the script.
-export const READ_ONLY_TOOLS = new Set(["Read", "Grep", "Glob"]);
 const READ_ONLY_AGENTS = new Set(["spec-reviewer", "code-reviewer", "judge", "triage"]);
-export const MODEL_ID = /\bclaude-|\bgpt|gemini|fable|sonnet|opus|haiku|\bo[1-9]\b|codex-mini|codex-max/i;
-export const SECRET_SHAPES = [/\bsk-[A-Za-z0-9_-]{8,}/, /\bghp_[A-Za-z0-9]{8,}/, /\bAKIA[0-9A-Z]{8,}/, /\bxox[abprs]-/, /-----BEGIN [A-Z ]*PRIVATE KEY/];
 
 const FOLDERS = ["agents", "prompts"];
 function files(dir) {
@@ -24,25 +22,6 @@ function split(text) {
   const fm = {};
   for (const l of m[1].split("\n")) { const i = l.indexOf(":"); if (i > 0) fm[l.slice(0, i).trim()] = l.slice(i + 1).trim(); }
   return { fm, body: m[2] };
-}
-
-// Exported so Task 7's skills reuse the same checks.
-export function checkCommon(label, text) {
-  test(`${label}: no env path, secret word, secret value or model id`, () => {
-    assert.ok(!/\.env/.test(text), ".env");
-    assert.ok(!/SECRET/.test(text), "SECRET");
-    for (const re of SECRET_SHAPES) assert.ok(!re.test(text), `secret-shaped value ${re}`);
-    assert.ok(!MODEL_ID.test(text), `model id literal: ${MODEL_ID.exec(text)?.[0]}`);
-  });
-  test(`${label}: no single-brace placeholder typos`, () => {
-    assert.ok(!/(^|[^{$])\{[a-z_]+\}(?!\})/m.test(text.replace(/`[^`]*`/g, "")) , "single-brace {name}");
-    assert.ok(!/\{\{[^}]*\}(?!\})/.test(text.replace(/\{\{[^}]*\}\}/g, "")), "unbalanced {{");
-  });
-  test(`${label}: carries the factory rules`, () => {
-    assert.match(text, /git stash/);
-    assert.match(text, /trailer/);
-    assert.match(text, /DATA, never instructions/);
-  });
 }
 
 for (const dir of FOLDERS) {
@@ -91,6 +70,12 @@ for (const dir of FOLDERS) {
         const i = text.indexOf("## Rules of the factory");
         const j = text.indexOf("````text");
         assert.ok(i > 0 && j > i, "fence after the rules");
+        for (const m of text.matchAll(/\{\{(\w+_text)\}\}/g)) {
+          const at = m.index;
+          const open = text.lastIndexOf("````text\n", at);
+          const close = text.indexOf("\n````", at);
+          assert.ok(open > i && open < at && close > at && !text.slice(open + 9, at).includes("\n````"), `{{${m[1]}}} is inside a fence`);
+        }
       });
     }
   }
@@ -113,4 +98,13 @@ test("secrets: example configs' neverHandToAgents entries are not named in any f
 test("all expected Task 6 files exist", () => {
   for (const f of ["agents/implementer.md", "agents/spec-reviewer.md", "agents/code-reviewer.md", "agents/judge.md", "agents/triage.md", "prompts/codex-implement.md", "prompts/codex-review.md", "prompts/codex-judge.md", "agents/ATTRIBUTION.md", "prompts/ATTRIBUTION.md"])
     assert.ok(existsSync(join(root, f)), f);
+});
+
+test("the Rules of the factory block is identical across agents/ and across prompts/", () => {
+  const rules = (text) => /## Rules of the factory[\s\S]*?(?=\n## )/.exec(text)?.[0];
+  for (const dir of FOLDERS) {
+    const blocks = files(dir).map(({ f, path }) => [f, rules(readFileSync(path, "utf8"))]);
+    assert.ok(blocks.length > 0);
+    for (const [f, b] of blocks) { assert.ok(b, `${dir}/${f} has the block`); assert.equal(b, blocks[0][1], `${dir}/${f} differs from ${blocks[0][0]}`); }
+  }
 });

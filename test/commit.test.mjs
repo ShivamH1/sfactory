@@ -70,3 +70,17 @@ test("commit: a bracketed route file commits as its literal name", async () => {
   await commit(cfg(), { cwd: r, paths: ["app/[id]/page.tsx"], message: "feat: route", holder: "t" });
   assert.equal(git(["show", "--name-only", "--format=", "HEAD"], { cwd: r }), "app/[id]/page.tsx");
 });
+
+test("commit: refuses a path listed in secrets.neverHandToAgents (SECRET_PATH), before any lock or git call", async () => {
+  const r = tmpRepo();
+  mkdirSync(join(r, "apps/api"), { recursive: true });
+  writeFileSync(join(r, "apps/api/.env"), "X=1"); writeFileSync(join(r, "ok.txt"), "ok");
+  const c = { ...cfg(), repoRoot: r, secrets: { neverHandToAgents: [join(r, "apps/api/.env")] } };
+  await assert.rejects(() => commit(c, { cwd: r, paths: ["apps/api/.env"], message: "feat: x" }), (e) => e.code === "SECRET_PATH");
+  await assert.rejects(() => commit(c, { cwd: r, paths: ["ok.txt", "apps/api/../api/.env"], message: "feat: x" }), (e) => e.code === "SECRET_PATH");
+  // from a worktree elsewhere the same repo-relative path is still refused
+  const wt = tmpDir("sf-wt-");
+  mkdirSync(join(wt, "apps/api"), { recursive: true });
+  await assert.rejects(() => commit(c, { cwd: wt, paths: ["apps/api/.env"], message: "feat: x" }), (e) => e.code === "SECRET_PATH");
+  assert.ok(await commit(c, { cwd: r, paths: ["ok.txt"], message: "feat: ok" }));
+});

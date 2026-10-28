@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { isAbsolute, join, posix } from "node:path";
+import { isAbsolute, join, posix, relative, resolve } from "node:path";
 import { fail } from "./errors.mjs";
 import { git } from "./git.mjs";
 import { withLock } from "./lock.mjs";
@@ -41,9 +41,23 @@ export function assertNamedPaths(paths, { cwd } = {}) {
   }
 }
 
+/** A path named in secrets.neverHandToAgents is never committed: matched as the same repo-relative path (a worktree has another root) or the same absolute file. */
+export function assertNotSecret(c, paths, { cwd } = {}) {
+  const secrets = c.secrets?.neverHandToAgents ?? [];
+  if (!secrets.length) return;
+  const key = (p) => (process.platform === "win32" ? p.toLowerCase() : p);
+  const rel = new Set(secrets.map((s) => key(posix.normalize((c.repoRoot ? relative(c.repoRoot, s) : s).split("\\").join("/")))));
+  const abs = new Set(secrets.map((s) => key(resolve(s))));
+  for (const p of paths) {
+    const norm = key(posix.normalize(String(p).split("\\").join("/")));
+    if (rel.has(norm) || (cwd && abs.has(key(resolve(cwd, p))))) fail("SECRET_PATH", `"${p}" is listed in secrets.neverHandToAgents; it is never committed`);
+  }
+}
+
 export async function commit(c, { cwd, paths, message, holder }) {
   if (typeof message !== "string" || !message.trim()) fail("BAD_ARGS", "commit needs a message");
   if (c.git.namedPathsOnly !== false) assertNamedPaths(paths, { cwd });
+  assertNotSecret(c, paths, { cwd });
   const trailers = hasTrailers(message, { cwd });
   if (trailers.length && c.git.trailers !== true) fail("TRAILER_REFUSED", `trailers are off (git.trailers): ${trailers.join("; ")}`);
   return withLock(c, "commit", { holder: holder ?? "session", waitMs: 60_000 }, async () => {
