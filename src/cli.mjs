@@ -11,7 +11,7 @@ const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
 
 /** Flags that never consume the next argument. */
-export const BOOLEAN_FLAGS = new Set(["json", "yes", "no", "apply", "dry-run", "force", "guard", "durable", "no-fetch", "allow-undeclared", "demo", "once"]);
+export const BOOLEAN_FLAGS = new Set(["json", "yes", "no", "apply", "dry-run", "force", "guard", "durable", "no-fetch", "allow-undeclared", "demo", "once", "check", "codex"]);
 
 /**
  * Minimal arg parser: positionals plus --flag, --flag=value, --flag value.
@@ -66,6 +66,7 @@ await Promise.all([
   import("./commands/doctor.mjs"),
   import("./commands/fixcard.mjs"),
   import("./commands/independence.mjs"),
+  import("./commands/init.mjs"),
   import("./commands/job.mjs"),
   import("./commands/lock.mjs"),
   import("./commands/ports.mjs"),
