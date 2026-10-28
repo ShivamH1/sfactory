@@ -29,10 +29,21 @@ test("page: both light theme blocks", () => {
 test("page: fix round 1 behaviours are in the source", () => {
   assert.match(html, /function portsText/);
   assert.match(html, /k !== "block"/);
-  assert.ok(html.includes("\b(?:Approved|Needs fixes|ok|red)\b"));
   assert.match(html, /hr >= 48/);
   assert.match(html, /#board\.has-cards \.col\.is-empty/);
   assert.match(html, /"tag you", "needs you"/);
   assert.match(html, /function required/);
-  assert.equal(/#[0-9a-f]{3,8}/i.test(html.split("</style>")[0].split(/:root\[data-theme="light"\]/)[1].split("* {")[1]), false);
+  assert.equal(/#[0-9a-f]{3,8}\b/i.test(html.split("</style>")[0].split(/:root\[data-theme="light"\]/)[1].split("* {")[1]), false);
+});
+
+test("page: the verdict regex matches whole words and colours them", () => {
+  const m = /var VERDICT = \/(.*)\/(\w*);/.exec(html);
+  assert.ok(m, "VERDICT found");
+  assert.equal(/[\x00-\x08]/.test(m[1]), false, "no control bytes in the pattern");
+  const re = new RegExp(m[1], m[2]);
+  for (const s of ["Approved", "Needs fixes: two", "Status: ok", "red"]) assert.ok(re.exec(s), s);
+  for (const s of ["covered", "Broken", "deferred"]) assert.equal(re.exec(s), null, s);
+  const bad = (s) => /^(?:❌|needs fixes|red)$/i.test(re.exec(s)[0]);
+  assert.equal(bad("✅ all covered"), false);
+  assert.equal(bad("Needs fixes"), true);
 });

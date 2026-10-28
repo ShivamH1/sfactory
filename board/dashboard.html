@@ -138,7 +138,7 @@
 <script>
 (function () {
   "use strict";
-  var VERDICT = /✅|❌|(?:Approved|Needs fixes|ok|red)/i;
+  var VERDICT = /✅|❌|\b(?:Approved|Needs fixes|ok|red)\b/i;
   var cols = {};
   document.querySelectorAll("[data-column]").forEach(function (el) { cols[el.getAttribute("data-column")] = el; });
   var cards = {};          // id -> { el, sig }
