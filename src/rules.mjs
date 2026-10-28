@@ -3,7 +3,7 @@ import { join, basename } from "node:path";
 import { fail } from "./errors.mjs";
 
 const TOOL_OF = { "AGENTS.md": "Codex", "CLAUDE.md": "Claude Code" };
-const lf = (s) => s.replace(/\r\n/g, "\n");
+const lf = (s) => s.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
 
 /** Rewrite "guidance to Claude Code" (and its "(claude.ai/code)" tag) to the target's tool name, in the first lines only. */
 export function adaptText(text, targetName) {
@@ -25,6 +25,7 @@ export function adaptText(text, targetName) {
  */
 export function syncRules(root, rules, { check = false } = {}) {
   if (!Array.isArray(rules) || rules.length < 2) fail("RULES_NEEDED", "sync-rules needs at least two paths in the config's rules (the first is the source)");
+  if (basename(rules[0]) !== "CLAUDE.md") fail("RULES_SOURCE_UNSUPPORTED", `the first rules entry is the source and must be a CLAUDE.md (got ${rules[0]}); put CLAUDE.md first`);
   const srcPath = join(root, rules[0]);
   if (!existsSync(srcPath)) fail("RULES_SOURCE_MISSING", `${rules[0]} does not exist`);
   const srcRaw = readFileSync(srcPath, "utf8");
@@ -38,7 +39,8 @@ export function syncRules(root, rules, { check = false } = {}) {
     differs.push(t);
     if (check) continue;
     const crlf = have !== null ? have.includes("\r\n") : srcRaw.includes("\r\n");
-    writeFileSync(p, crlf ? want.replace(/\n/g, "\r\n") : want);
+    const bom = have !== null && have.startsWith("\uFEFF") ? "\uFEFF" : "";
+    writeFileSync(p, bom + (crlf ? want.replace(/\n/g, "\r\n") : want));
     written.push(t);
   }
   return { source: rules[0], differs, written };

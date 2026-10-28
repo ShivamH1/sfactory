@@ -108,6 +108,7 @@ ${(r.stderr ?? "").slice(-2000)}`);
     }
   } catch (e) {
     if (worktreeAdded) { try { git(["worktree", "remove", "--force", dir], { cwd: c.repoRoot }); } catch { /* best effort */ } }
+    try { git(["worktree", "prune"], { cwd: c.repoRoot }); } catch { /* best effort */ }
     if (branchCreated && branchExists(c.repoRoot, branch)) { try { git(["branch", "-D", branch], { cwd: c.repoRoot }); } catch { /* best effort */ } }
     try { lock.release(); } catch { /* best effort */ }
     throw e;

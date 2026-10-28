@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpRepo, tmpDir, writeConfig, sh } from "./helpers.mjs";
 import { loadConfig } from "../src/config.mjs";
@@ -190,4 +190,13 @@ test("worktree cli: an undo that cannot remove everything names what is left on 
   assert.equal(warned.length, 1);
   assert.match(warned[0], /could not remove: lock worktree:stolen\n$/);
   assert.equal(status(c, "worktree:stolen").holder, "thief"); // not ours: left alone
+});
+
+test("worktree: a cut whose worktree folder vanished mid-way still deletes its branch (git worktree prune first)", () => {
+  const { root, c } = setup();
+  const dir = join(c.worktrees.dir, "vanish");
+  const afterAdd = () => { rmSync(dir, { recursive: true, force: true }); throw new Error("boom"); };
+  assert.throws(() => cut(c, newJob({ id: "m-1", kind: "milestone", title: "Vanish" }), { afterAdd }), /boom/);
+  assert.equal(branchExists(root, "feature/vanish"), false);
+  assert.equal(worktrees(root).some((w) => w.branch === "feature/vanish"), false);
 });

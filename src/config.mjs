@@ -81,6 +81,7 @@ export function validateConfig(raw) {
     if (v == null) continue;
     if (!Array.isArray(v) || !v.every((x) => typeof x === "string")) errs.push(`${k}: must be an array of strings`);
   }
+  if (Array.isArray(raw.rules)) for (const r of raw.rules) if (typeof r === "string" && (isAbsolute(r) || /^(\/|\\|[A-Za-z]:)/.test(r) || r.split(/[\/\\]/).includes(".."))) errs.push(`rules: "${r}" must be a path inside the repo (no "..", not absolute)`);
   if (raw.worktrees?.baseRule != null && !BASE_RULES.includes(raw.worktrees.baseRule) && typeof raw.worktrees.baseRule !== "string")
     errs.push("worktrees.baseRule: newest-feature-branch, integration-branch or a branch name");
   if (raw.ports != null) {

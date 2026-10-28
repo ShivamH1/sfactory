@@ -117,3 +117,10 @@ test("validateConfig: board.activeMs is a positive integer", () => {
   assert.deepEqual(validateConfig({ ...base, board: { activeMs: 5000 } }), []);
   assert.equal(DEFAULTS.board.activeMs, 120000);
 });
+
+test("config: rules entries with .. or an absolute path are refused", () => {
+  const base = { project: "p", agents: { mode: "claude" }, commands: { suite: "x" } };
+  for (const bad of ["../CLAUDE.md", "a/../../b.md", "/etc/x.md", "C:/x.md", "C:" + String.fromCharCode(92) + "x.md"])
+    assert.ok(validateConfig({ ...base, rules: ["CLAUDE.md", bad] }).some((e) => /^rules/.test(e)), bad);
+  assert.deepEqual(validateConfig({ ...base, rules: ["CLAUDE.md", "docs/AGENTS.md"] }), []);
+});

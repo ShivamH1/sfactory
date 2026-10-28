@@ -266,7 +266,7 @@ test("codex inputs: base, commit, profile and sandbox are validated; win32 refus
   Object.defineProperty(process, "platform", { ...desc, value: "win32" });
   try {
     await assert.rejects(ex({ cwd: 'a "b&echo PWNED" c' }), { code: "BAD_ARGS" });
-    await assert.rejects(ex({ cwd: "C:\%PATH%" }), { code: "BAD_ARGS" });
+    await assert.rejects(ex({ cwd: String.raw`C:\%PATH%` }), { code: "BAD_ARGS" });
     await assert.rejects(ex({ cwd: "" }), { code: "BAD_ARGS" });
   } finally { Object.defineProperty(process, "platform", desc); }
 });
@@ -294,7 +294,7 @@ test("codex: win32 refuses a control character in any argument (a LF would cut t
   const desc = Object.getOwnPropertyDescriptor(process, "platform");
   Object.defineProperty(process, "platform", { ...desc, value: "win32" });
   try {
-    for (const ch of ["\n", "\r", "\t", "\x00", "\x1b"]) await assert.rejects(ex({ cwd: `C:\a${ch}b` }), { code: "BAD_ARGS" }, JSON.stringify(ch));
-    await ex({ cwd: "C:\plain dir" });
+    for (const ch of ["\n", "\r", "\t", "\x00", "\x1b"]) await assert.rejects(ex({ cwd: String.raw`C:\a${ch}b` }), { code: "BAD_ARGS" }, JSON.stringify(ch));
+    await ex({ cwd: String.raw`C:\plain dir` });
   } finally { Object.defineProperty(process, "platform", desc); }
 });

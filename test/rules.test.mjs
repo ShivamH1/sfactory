@@ -40,3 +40,18 @@ test("sync-rules: fewer than two rules, or a missing source, is refused; a missi
   await run(mk, ["sync-rules"]);
   assert.equal(readFileSync(join(mk, "AGENTS.md"), "utf8"), "a\r\nb\r\n");
 });
+
+test("sync-rules: a source that is not a CLAUDE.md is refused with a clear message", async () => {
+  const r = setup(["AGENTS.md", "CLAUDE.md"]);
+  writeFileSync(join(r, "AGENTS.md"), "a\n");
+  const o = await run(r, ["sync-rules"]);
+  assert.equal(o.code, 2); assert.match(o.err, /RULES_SOURCE_UNSUPPORTED/); assert.match(o.err, /CLAUDE\.md/);
+});
+
+test("sync-rules: a target keeps its BOM, and a BOM alone is not a difference", async () => {
+  const r = setup(["CLAUDE.md", "AGENTS.md"]);
+  writeFileSync(join(r, "CLAUDE.md"), SRC); writeFileSync(join(r, "AGENTS.md"), "\uFEFFold\n");
+  await run(r, ["sync-rules"]);
+  assert.equal(readFileSync(join(r, "AGENTS.md"), "utf8").charCodeAt(0), 0xFEFF);
+  assert.equal((await run(r, ["sync-rules", "--check"])).code, 0);
+});

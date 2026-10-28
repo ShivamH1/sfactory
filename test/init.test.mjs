@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, existsSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpRepo, sh } from "./helpers.mjs";
 import { main } from "../src/cli.mjs";
 import { validateConfig } from "../src/config.mjs";
+import { findEnvFiles } from "../src/init.mjs";
 
 const run = async (cwd, args) => { let out = "", err = ""; const code = await main(args, { cwd, stdout: (s) => (out += s), stderr: (s) => (err += s) }); return { code, out, err }; };
 const cfgOf = (root) => JSON.parse(readFileSync(join(root, "sfactory.config.json"), "utf8"));
@@ -52,4 +53,45 @@ test("init: refuses an existing config without --force, replaces it with --force
   assert.deepEqual(validateConfig(cfgOf(root)), []);
   assert.equal(readFileSync(join(root, ".gitignore"), "utf8").match(/\.sfactory\//g).length, 1);
   assert.ok(!existsSync(join(root, ".sfactory")));
+});
+
+test("init: the placeholder suite command is one echo carrying the hint, then exit 1", async () => {
+  const bare = tmpRepo();
+  await run(bare, ["init"]);
+  const cmd = cfgOf(bare).commands.suite;
+  assert.match(cmd, /^echo ".*commands\.suite.*" && exit 1$/);
+});
+
+test("init: env scan finds .envrc, *.env, symlinked names (never read) and files two deep under any top-level dir, skipping node_modules", async () => {
+  const root = tmpRepo();
+  for (const d of ["svc/api/deep", "node_modules/x", "web"]) mkdirSync(join(root, d), { recursive: true });
+  writeFileSync(join(root, ".envrc"), "x"); writeFileSync(join(root, "prod.env"), "x");
+  writeFileSync(join(root, "svc/api/.env"), "x"); writeFileSync(join(root, "svc/api/deep/.env"), "x");
+  writeFileSync(join(root, "node_modules/x/.env"), "x"); writeFileSync(join(root, "web/.env.example"), "x");
+  let linked = false;
+  try { symlinkSync("prod.env", join(root, ".env.linked")); linked = true; } catch { /* no symlink right on this machine */ }
+  const found = findEnvFiles(root);
+  for (const f of [".envrc", "prod.env", "svc/api/.env"]) assert.ok(found.includes(f), f + " in " + JSON.stringify(found));
+  assert.ok(!found.includes("svc/api/deep/.env"), "three deep is out");
+  assert.ok(!found.some((f) => f.startsWith("node_modules") || f.endsWith("example")));
+  if (linked) assert.ok(found.includes(".env.linked"));
+});
+
+test("init: the integration guess includes master and a branch that exists only as origin/*", async () => {
+  const a = tmpRepo(); sh("git", ["branch", "-m", "master"], a);
+  assert.equal((await run(a, ["init"])).code, 0);
+  assert.equal(cfgOf(a).worktrees.integrationBranch, "master");
+  const b = tmpRepo(); sh("git", ["branch", "-m", "scratch"], b);
+  sh("git", ["update-ref", "refs/remotes/origin/develop", "HEAD"], b);
+  assert.equal((await run(b, ["init"])).code, 0);
+  assert.equal(cfgOf(b).worktrees.integrationBranch, "develop");
+});
+
+test("init: .gitignore append keeps CRLF, and an existing .sfactory/* line counts as ignored", async () => {
+  const a = tmpRepo(); writeFileSync(join(a, ".gitignore"), "dist/\r\nlogs");
+  await run(a, ["init"]);
+  assert.equal(readFileSync(join(a, ".gitignore"), "utf8"), "dist/\r\nlogs\r\n.sfactory/\r\n");
+  const b = tmpRepo(); writeFileSync(join(b, ".gitignore"), ".sfactory/*\n");
+  await run(b, ["init"]);
+  assert.equal(readFileSync(join(b, ".gitignore"), "utf8"), ".sfactory/*\n");
 });
