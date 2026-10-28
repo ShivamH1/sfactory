@@ -16,6 +16,7 @@ const files = (md, i = 0) => parsePlan(md).tasks[i].files.map((f) => `${f.op} ${
 const deps = (md, i = 0) => parsePlan(md).tasks[i].dependsOn;
 const one = (body) => "### Task 1: A\n" + body + "\n";
 const tail = "### Task 2: B\n- Create: `b.ts`\n";
+const names = (md) => parsePlan(md).tasks.map((t) => t.n);
 
 test("N1: a Files line after a heading that closed the task is refused, not dropped", () => {
   assert.equal(code("### Task 1: A\n- Create: `a.ts`\n### Notes\n- Modify: `b.ts`\n"), "PLAN_FILES_OUTSIDE_TASK");
@@ -101,10 +102,15 @@ test("deps: Consumes lines name tasks in every real shape", () => {
   assert.deepEqual(d("**Consumes:** Task 1's `foo`"), [1]);
   assert.deepEqual(d("- **Consumes:** Tasks 5, 6 and 7's services; Task 3/4's `x`"), [5, 6, 7, 3, 4]);
   assert.deepEqual(d("- Consumes (Task 2): `ApiClient.x`"), [2]);
-  assert.deepEqual(d("- Consumes from history state (Task 6 writes it): `{ a: 1 }`"), [6]);
+  // Fix round 2 (R2-1, fail closed): every number naming an earlier task counts,
+  // the "1" inside the code span included.
+  assert.deepEqual(d("- Consumes from history state (Task 6 writes it): `{ a: 1 }`"), [6, 1]);
   assert.deepEqual(d("- Consumes: the Task 3 schemas."), [3]);
-  // Another milestone's task is not this plan's.
-  assert.deepEqual(d("- Consumes: `v` (M44 Task 6); `w` (M44's Task 2); Task 1"), [1]);
+  // Fix round 2 (R2-1, fail closed) changed this expectation: every number in a
+  // Consumes line that names an earlier task of this plan counts, so "M44 Task 6"
+  // over-serialises behind this plan's Task 6. A milestone or "T17" token is not
+  // a number of its own.
+  assert.deepEqual(d("- Consumes: `v` (M44 Task 6); `w` (M44's Task 2); Task 1"), [6, 2, 1]);
   assert.deepEqual(d("- Consumes: M18's `grantAllowance`; T17's helper"), []);
   // A wrapped Consumes line continues onto its indented lines; Produces is not a dependency.
   assert.deepEqual(d("- Consumes: Task 1 (`a`), Task 2\n  (`b`), Task 3\n  (`c`).\n- Produces: `z`; Task 4 consumes all of these."), [1, 2, 3]);
@@ -166,13 +172,80 @@ test("fix I1: a Consumes line keeps only earlier tasks; Depends on stays literal
   assert.deepEqual(deps(l, 1), [6]);
 });
 
-test("fix m2: numbers after a task list that are not task refs are not dependencies", () => {
+test("fix m2: digits inside an ISO date are not dependencies", () => {
   const p = "### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Create: `b.ts`\n### Task 3: C\n- Create: `c.ts`\n### Task 9: D\n- Create: `d.ts`\n";
   const d = (line) => deps(p + line + "\n", 3);
   assert.deepEqual(d("- Consumes: Task 1, 2026-10-07 ruling"), [1]);
-  assert.deepEqual(d("- Consumes: Task 1, 3 days later"), [1]);
-  assert.deepEqual(d("- Consumes: Task 1 and 2 more helpers"), [1]);
+  assert.deepEqual(d("- Consumes: Task 1, 2026-10-02 ruling"), [1]);
+  // Fix round 2 (R2-1) superseded m2's terminator rule: it dropped real lists
+  // ("Tasks 2 and 3 outputs"). A number naming an earlier task now counts, fail
+  // closed, so these over-serialise.
+  assert.deepEqual(d("- Consumes: Task 1, 3 days later"), [1, 3]);
+  assert.deepEqual(d("- Consumes: Task 1 and 2 more helpers"), [1, 2]);
   assert.deepEqual(d("- Consumes: Tasks 1, 2 and 3's services"), [1, 2, 3]);
   assert.deepEqual(d("- Consumes: Tasks 1–3."), [1, 2, 3]);
   assert.deepEqual(d("- Consumes: (Tasks 1, 3)"), [1, 3]);
+});
+
+// Fix round 2 (re-review of 1aebd8f / 2c8e093).
+
+const four = "### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Create: `b.ts`\n### Task 3: C\n- Create: `c.ts`\n### Task 4: D\n- Create: `d.ts`\n";
+
+test("fix R2-1: a Consumes line keeps every number naming an earlier task (fail closed)", () => {
+  const d = (line) => deps(four + line + "\n", 3);
+  assert.deepEqual(d("- Consumes: Tasks 2 and 3 outputs"), [2, 3]);
+  assert.deepEqual(d("- Consumes: Tasks 1, 2 produced"), [1, 2]);
+  assert.deepEqual(d("- Consumes: Tasks 1,2,3 output"), [1, 2, 3]);
+  assert.deepEqual(d("- Consumes: Tasks 1 & 2 output"), [1, 2]);
+  assert.deepEqual(d("- Consumes: Task 1 or 2 output"), [1, 2]);
+  assert.deepEqual(d("- Consumes: Task 1, 2 helpers, Task 3"), [1, 2, 3]);
+  // A number naming no task is prose in a Consumes line.
+  assert.deepEqual(d("- Consumes: Task 1 and 9 more, see entry 47"), [1]);
+  // A Depends on line stays literal: a missing task is a loud error at batch time.
+  assert.deepEqual(deps(four + "**Depends on:** Task 9\n", 3), [9]);
+});
+
+test("fix R2-2: 'earlier' is plan position, not task number", () => {
+  assert.deepEqual(deps("### Task 7: A\n- Create: `a.ts`\n### Task 6: B\n- Consumes: Task 7's `a`\n- Create: `b.ts`\n", 1), [7]);
+  assert.deepEqual(deps("### Task 6: A\n- Consumes: Task 7's `a`\n- Create: `a.ts`\n### Task 7: B\n- Create: `b.ts`\n", 0), []);
+});
+
+test("fix R2-3: a dependency line inside an open Files list does not close it", () => {
+  const p = "### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n";
+  for (const body of [
+    "- Modify:\n  - `b.ts`\n  - Consumes: Task 1\n  - `secret.ts`",
+    "- Modify:\n  - `b.ts`\n  - Depends on: Task 1\n  - `secret.ts`",
+    "- Modify: `b.ts`,\n**Depends on:** Task 1\n`secret.ts`",
+    "- Modify: `b.ts`\n  - Consumes: Task 1\n  `secret.ts`",
+  ]) {
+    assert.deepEqual(files(p + body + "\n", 1), ["modify b.ts", "modify secret.ts"], body);
+    assert.deepEqual(deps(p + body + "\n", 1), [1], body);
+  }
+});
+
+test("fix R2-4: an empty **Files:** label opens a list", () => {
+  const p = "### Task 1: A\n- Create: `a.ts`\n";
+  assert.deepEqual(files(p + "**Files:**\n- `secret.ts`\n"), ["create a.ts", "touch secret.ts"]);
+  assert.deepEqual(files(p + "**Files:**\n  `secret.ts`\n"), ["create a.ts", "touch secret.ts"]);
+  // A bare item after an op line in a label's list is a file too.
+  assert.deepEqual(files("### Task 1: A\n**Files:**\n- Create: `a.ts`\n- `secret.ts`\n"), ["create a.ts", "touch secret.ts"]);
+  // The list ends at a blank line.
+  assert.deepEqual(files(p + "**Files:**\n- `b.ts`\n\n- step one\n"), ["create a.ts", "touch b.ts"]);
+});
+
+test("fix R2-5: more Files line forms, and an indented task heading", () => {
+  assert.deepEqual(files(one("1. Create: `x.ts`\n2) Modify: `y.ts`")), ["create x.ts", "modify y.ts"]);
+  assert.deepEqual(files(one("Files: `x.ts`, `y.ts`")), ["touch x.ts", "touch y.ts"]);
+  assert.deepEqual(files(one("**Files (new):** `x.ts`")), ["touch x.ts"]);
+  assert.deepEqual(files(one("**Files (all three):**\n- Create: `x.ts`")), ["create x.ts"]);
+  const md = "### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Create: `b.ts`\n- Consumes: Task 1 **Files:** `secret.ts`\n";
+  assert.deepEqual(files(md, 1), ["create b.ts", "touch secret.ts"]);
+  assert.deepEqual(deps(md, 1), [1]);
+  assert.deepEqual(names("### Task 1: A\n- Create: `a.ts`\n   ### Task 2: B\n- Create: `b.ts`\n"), [1, 2]);
+  assert.deepEqual(files("### Task 1: A\n- Create: `a.ts`\n   ### Task 2: B\n- Create: `b.ts`\n", 1), ["create b.ts"]);
+  // Four spaces is an indented code block, not a heading.
+  assert.deepEqual(names("### Task 1: A\n- Create: `a.ts`\n    ### Task 2: B\n"), [1]);
+  // Outside a task these forms are refused like the others.
+  assert.equal(code("1. Create: `x.ts`\n### Task 1: A\n- Create: `a.ts`\n"), "PLAN_FILES_OUTSIDE_TASK");
+  assert.equal(code("### Task 1: A\n- Create: `a.ts`\n## Notes\nFiles: `x.ts`\n"), "PLAN_FILES_OUTSIDE_TASK");
 });

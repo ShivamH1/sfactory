@@ -4,6 +4,9 @@ const norm = (p) => p.trim().replace(/^`|`$/g, "").replace(/\\/g, "/").replace(/
 const id = (s) => (/^\d+$/.test(s) ? Number(s) : s.toLowerCase());
 const ID = "\\d+[a-z]?";
 const OPS = "Create|Modify|Test|Delete|Read|Add|Remove|Edit|Rename|Move|Touch";
+/** A list marker: "-", "*", "+", or an ordered "1." / "1)" (R2-5). */
+const BULLET = "(?:[-*+]|\\d+[.)])";
+const BULLET_RE = new RegExp(`^\\s*${BULLET}\\s+`);
 const FILE = /^[\w.-]+\.([A-Za-z0-9]{1,6})$/;
 const TICKED = /`([^`]+)`/g;
 /** Extension-less names that are files wherever they stand on a Files line (N4). */
@@ -114,7 +117,7 @@ function pathsOf(rest, where) {
  * Returns { op, rest, plain } or null; `plain` is the "- Op: items" form.
  */
 function fileLine(raw) {
-  const m = raw.match(new RegExp(`^\\s*[-*]\\s+(${OPS})\\b(.*)$`, "i"));
+  const m = raw.match(new RegExp(`^\\s*${BULLET}\\s+(${OPS})\\b(.*)$`, "i"));
   if (!m) return null;
   const op = m[1].toLowerCase(), after = m[2].trimEnd();
   let x = after.match(/^\s*:\s*(.*)$/);
@@ -142,23 +145,15 @@ function idsIn(text) {
 }
 
 /**
- * Task ids a Consumes line names: "Task 2", "Task 2's", "(Task 2)", "Tasks 3–9",
- * "Tasks 5, 6 and 7's", "Task 3/4's". A task a milestone names ("M44 Task 6",
- * "M44's Task 2") is another plan's and is skipped; so is a bare "T17". After
- * the first id, a further list item is at most three digits and must be
- * followed by the list going on or ending, so "Task 1, 3 days later" and
- * "Task 1, 2026-10-07 ruling" name Task 1 only.
+ * A Consumes line's dependencies fail closed (R2-1): every number in it that
+ * names a task earlier in the plan (by position, R2-2) counts, ranges included,
+ * except the digits of a full ISO date. A number naming no earlier task is
+ * prose there. "M44" or "T17" is not a number of its own. Over-serialising
+ * ("Task 1, 3 days later" waits for Task 3 too) is accepted.
  */
-const ONE = "\\d+[a-z]?(?!\\w|\\.\\d)";
-const NEXT = "\\d{1,3}[a-z]?(?!\\w|\\.\\d)(?=\\s*(?:$|[,;:.)\\]&/]|['\\u2019]s\\b|\\band\\b|\\bor\\b|\\bto\\b|[-\\u2013\\u2014]\\s*\\d))";
-const RANGE_END = "\\s*(?:\\bto\\b|[-\\u2013\\u2014])\\s*\\d{1,3}[a-z]?(?!\\w|\\.\\d)";
-const LIST_ITEM = `\\s*(?:,|&|/|\\band\\b|\\bor\\b)\\s*${NEXT}`;
-const TASK_REFS = new RegExp(`(\\bM\\d+(?:\\.\\d+)?(?:['\\u2019]s)?\\s+)?\\bTasks?\\s+(${ONE}(?:${RANGE_END}|${LIST_ITEM})*)`, "gi");
-const taskRefs = (text) => [...text.matchAll(TASK_REFS)].filter((m) => !m[1]).flatMap((m) => idsIn(m[2]));
-
-/** Plan order of two task ids: by number, then letter ("6" < "6a" < "7"). */
-const rank = (n) => { const m = String(n).match(/^(\d+)([a-z]?)$/); return m ? [Number(m[1]), m[2]] : [Infinity, ""]; };
-const earlier = (a, b) => { const [x, s] = rank(a), [y, t] = rank(b); return x < y || (x === y && s < t); };
+const ISO_DATE = /\b\d{4}-\d{2}-\d{2}\b/g;
+/** A `**Files…:**` label standing mid-line, after a Consumes or Depends on line's text (R2-5). */
+const MID_LABEL = /\*\*Files(?:\s*\([^)]*\))?\s*:?\s*\*\*\s*:?/i;
 
 /**
  * Strict plan reader. Fails closed: a plan with no tasks, a task that names a
@@ -190,20 +185,33 @@ export function parsePlan(md) {
   let cur = null;
   let level = 0;      // the current task heading's level
   let fence = null;   // { ch, len } while inside a fenced block
-  let cont = null;    // { op, comma } while a Files line may continue
+  // { op, comma, list, label } while a Files line may continue: `list` after a
+  // bare "- Op:" or label (nested items), `label` inside a Files label's list,
+  // where an unindented bullet is an item too (R2-4).
+  let cont = null;
   let consumes = false;   // while a Consumes line may continue onto indented lines
   let depInfo = false;
-  const heading = new RegExp(`^#{2,3}\\s+Task\\s+(${ID})\\s*:\\s*(.+?)\\s*$`, "i");
+  // CommonMark: a heading may be indented up to three spaces (R2-5).
+  const heading = new RegExp(`^ {0,3}#{2,3}\\s+Task\\s+(${ID})\\s*:\\s*(.+?)\\s*$`, "i");
   const after = new RegExp(`\\(after Task (${ID})\\)`, "i");
   const afterEnd = new RegExp(`\\s*\\(after Task (${ID})\\)\\s*$`, "i");
-  const depends = /^\s*(?:-\s*)?\*{0,2}Depends on\s*\*{0,2}\s*:?\s*\*{0,2}\s*(.+)$/i;
-  const consumesLine = /^\s*(?:[-*]\s+)?\*{0,2}Consumes\b([^:]*):(.*)$/i;
-  const label = /^\s*(?:[-*]\s+)?\*\*Files\s*:?\s*\*\*\s*:?\s*(.*?)\s*$/i;
+  const depends = new RegExp(`^\\s*(?:${BULLET}\\s*)?\\*{0,2}Depends on\\s*\\*{0,2}\\s*:?\\s*\\*{0,2}\\s*(.+)$`, "i");
+  const consumesLine = new RegExp(`^\\s*(?:${BULLET}\\s+)?\\*{0,2}Consumes\\b([^:]*):(.*)$`, "i");
+  // "**Files:**", "**Files**:", "**Files (anything):**", or a plain "Files:" (R2-5).
+  const label = new RegExp(`^\\s*(?:${BULLET}\\s+)?(?:\\*\\*Files(?:\\s*\\([^)]*\\))?\\s*:?\\s*\\*\\*\\s*:?|Files(?:\\s*\\([^)]*\\))?\\s*:)\\s*(.*?)\\s*$`, "i");
+  const itemBullet = new RegExp(`^\\s*${BULLET}\\s+\``);
   const note = (line) => { if (cur && !mentions.has(cur)) { const p = tickedPaths(line)[0]; if (p) mentions.set(cur, p); } };
   const depend = (ns) => { for (const n of ns) if (!cur.dependsOn.includes(n)) cur.dependsOn.push(n); };
-  // A Consumes line names only earlier tasks; a later one is prose ("Task 4 uses
-  // it"). Depends on lines stay literal.
-  const consume = (text) => { const ns = taskRefs(text).filter((n) => earlier(n, cur.n)); if (ns.length) depInfo = true; depend(ns); };
+  // A Consumes line names only tasks earlier in the plan (R2-2), and every
+  // number naming one counts (R2-1). Depends on lines stay literal.
+  const consume = (text) => {
+    const before = new Set(tasks.slice(0, -1).map((t) => t.n));   // cur is the last task pushed
+    const ns = idsIn(text.replace(ISO_DATE, " ")).filter((n) => before.has(n));
+    if (ns.length) depInfo = true;
+    depend(ns);
+  };
+  /** A dependency line's text and the rest after a mid-line Files label, or null. */
+  const splitLabel = (s) => { const m = s.match(MID_LABEL); return m ? [s.slice(0, m.index), s.slice(m.index + m[0].length).trim()] : [s, null]; };
   /** Record a Files line's items under `op`; a read with prose beside its items becomes touch. */
   const record = (op, r, text) => {
     const o = op === "read" && r.prose ? "touch" : op;
@@ -215,13 +223,15 @@ export function parsePlan(md) {
   const add = (op, rest, where, { plain = true, isLabel = false } = {}) => {
     // "- add:" with nothing after it introduces a step's code block; it is a
     // Files line only if indented items follow it (a nested list).
-    if (!rest) { cont = { op, comma: false, list: true }; return; }
+    // A label's list stays a label's list across its op lines.
+    const inLabel = isLabel || !!cont?.label;
+    if (!rest) { cont = { op, comma: false, list: true, label: inLabel }; return; }
     const r = pathsOf(rest, where);
     // Only the "**Files:** none" label declares a file-less task (N5).
     if (isLabel && /^none\b/i.test(rest)) declared.add(cur);
     // A read in the colon-less or qualified form may hide a write (N2).
     const o = record(op === "read" && !plain ? "touch" : op, r, rest);
-    cont = { op: o, comma: /,\s*$/.test(rest) };
+    cont = { op: o, comma: /,\s*$/.test(rest), label: inLabel };
   };
   const lines = String(md).split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
@@ -239,12 +249,12 @@ export function parsePlan(md) {
       const n = id(h[1]);
       if (tasks.some((t) => t.n === n)) fail("PLAN_DUPLICATE_TASK", `Task ${h[1]} appears more than once`);
       cur = { n, title: h[2].replace(afterEnd, "").trim(), files: [], dependsOn: [] };
-      level = raw.match(/^#+/)[0].length;
+      level = raw.trim().match(/^#+/)[0].length;
       const a = h[2].match(after); if (a) { cur.dependsOn.push(id(a[1])); depInfo = true; }
       tasks.push(cur); note(h[2]); cont = null; consumes = false; continue;
     }
     // A heading at the task's level or above ("## Self-review") ends its section.
-    const other = raw.match(/^(#{1,6})\s/);
+    const other = raw.match(/^ {0,3}(#{1,6})\s/);
     if (cur && other && other[1].length <= level) { cur = null; cont = null; consumes = false; }
     if (!cur) {
       // N1: a Files line with no open task would be silently dropped.
@@ -252,32 +262,46 @@ export function parsePlan(md) {
       continue;
     }
     // Dependency lines come before the continuation branch, so a Files line
-    // ending in a comma cannot swallow them (N3).
+    // ending in a comma cannot swallow them (N3). They leave an open Files list
+    // open: the items after them are still its items (R2-3). A `**Files:**`
+    // label later on the same line is a label (R2-5).
     const d = raw.match(depends);
     if (d) {
-      const ns = idsIn(d[1]);
-      if (ns.length || /^\W*none\b/i.test(d[1])) depInfo = true;
-      depend(ns); note(raw); cont = null; consumes = false; continue;
+      const [text, tail] = splitLabel(d[1]);
+      const ns = idsIn(text);
+      if (ns.length || /^\W*none\b/i.test(text)) depInfo = true;
+      depend(ns); note(raw); consumes = false;
+      if (tail !== null) add("touch", tail, where(), { isLabel: true });
+      continue;
     }
     const c = raw.match(consumesLine);
-    if (c) { consume(c[1] + " " + c[2]); note(raw); cont = null; consumes = true; continue; }
+    if (c) {
+      const [text, tail] = splitLabel(c[1] + " " + c[2]);
+      consume(text); note(raw); consumes = tail === null;
+      if (tail !== null) add("touch", tail, where(), { isLabel: true });
+      continue;
+    }
     const f = fileLine(raw);
     if (f) { consumes = false; add(f.op, f.rest, where(), { plain: f.plain }); continue; }
     // A Files label ends a Consumes line; it is never its continuation (C1).
-    if (consumes && /^\s+\S/.test(raw) && !label.test(raw)) { consume(raw); note(raw); continue; }
-    consumes = false;
-    if (cont && raw.trim() && !/^\s*#/.test(raw) && (/^\s/.test(raw) || cont.comma)) {
-      const text = raw.trim().replace(/^[-*]\s+/, "");
-      // In a nested item list under a bare "- Op:", an item that opens its bullet is the op's object.
-      const item = !!cont.list && /^\s*[-*]\s+`/.test(raw);
+    // Inside an open Files list a wrapped Consumes line is read both ways.
+    let both = false;
+    if (consumes && /^\s+\S/.test(raw) && !label.test(raw)) { consume(raw); note(raw); if (!cont) continue; both = true; }
+    if (!both) consumes = false;
+    const bare = cont?.label && !/^\s/.test(raw) && !cont.comma && BULLET_RE.test(raw);
+    if (cont && raw.trim() && !/^\s*#/.test(raw) && !label.test(raw) && (/^\s/.test(raw) || cont.comma || bare)) {
+      const text = raw.trim().replace(BULLET_RE, "");
+      // In a nested item list under a bare "- Op:" or label, an item that opens its bullet is the op's object.
+      const item = (!!cont.list || bare) && itemBullet.test(raw);
       const r = text.includes("`") ? tickedItems(text, where(), item) : (checkProse(text, where()), { paths: [], prose: true });
-      record(cont.op, r, text);
+      // An unindented bullet in a label's list carries no op of its own.
+      record(bare ? "touch" : cont.op, r, text);
       cont.comma = /,\s*$/.test(text);
       continue;
     }
     cont = null;
     const l = raw.match(label);
-    if (l) { if (l[1]) add("touch", l[1], where(), { isLabel: true }); continue; }
+    if (l) { add("touch", l[1], where(), { isLabel: true }); continue; }
     note(raw);
   }
   if (fence) fail("PLAN_UNCLOSED_FENCE", "a fenced code block is never closed; everything after it would be hidden");
