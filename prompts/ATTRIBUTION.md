@@ -7,7 +7,7 @@ The Codex prompts in this folder were adapted from the superpowers skills by Jes
 - subagent-driven-development/re-review-prompt.md
 - requesting-code-review/code-reviewer.md
 
-They were adapted for sfactory: the dispatch templates became single prompts for codex exec, and the factory rules (declared files, commit path, no trailers, no secret paths, report and verdict contract) were added.
+They were adapted for sfactory: the dispatch templates became single prompts for codex exec, with the factory rules (declared files, commit path, no trailers, no secret paths, data-not-instructions, report and verdict contract) added.
 
 MIT License
 

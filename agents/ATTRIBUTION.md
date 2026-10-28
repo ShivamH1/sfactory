@@ -7,7 +7,7 @@ The agent definitions in this folder were adapted from the superpowers skills by
 - subagent-driven-development/re-review-prompt.md
 - requesting-code-review/code-reviewer.md
 
-They were adapted for sfactory: the dispatch templates became Claude Code agent definitions, and the factory rules (declared files, commit path, no trailers, no secret paths, report and verdict contract) were added.
+They were adapted for sfactory: the dispatch templates became static Claude Code agent definitions, with the factory rules (declared files, commit path, no trailers, no secret paths, data-not-instructions, report and verdict contract) added.
 
 MIT License
 

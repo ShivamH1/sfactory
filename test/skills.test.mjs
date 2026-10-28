@@ -3,18 +3,15 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { KNOWN_PLACEHOLDERS } from "../src/placeholders.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-// Task 7 extends the folders and this set.
-export const KNOWN_PLACEHOLDERS = new Set([
-  "model", "files", "brief", "plan", "log", "worktree", "job", "secrets", "report",
-  "task", "task_text", "brief_text", "test_command", "base", "head", "diff",
-  "implementer_report", "findings", "raw",
-]);
-export const READ_ONLY_TOOLS = new Set(["Read", "Grep", "Glob", "Bash(git log *)", "Bash(git diff *)"]);
+// Task 7 extends the folders. agents/ are static (Claude Code renders no placeholders); prompts/ are rendered by the script.
+export const READ_ONLY_TOOLS = new Set(["Read", "Grep", "Glob"]);
 const READ_ONLY_AGENTS = new Set(["spec-reviewer", "code-reviewer", "judge", "triage"]);
-const MODEL_ID = /\bclaude-|\bgpt-|\bo\d-|sonnet|opus|haiku/i;
+export const MODEL_ID = /\bclaude-|\bgpt|gemini|fable|sonnet|opus|haiku|\bo[1-9]\b|codex-mini|codex-max/i;
+export const SECRET_SHAPES = [/\bsk-[A-Za-z0-9_-]{8,}/, /\bghp_[A-Za-z0-9]{8,}/, /\bAKIA[0-9A-Z]{8,}/, /\bxox[abprs]-/, /-----BEGIN [A-Z ]*PRIVATE KEY/];
 
 const FOLDERS = ["agents", "prompts"];
 function files(dir) {
@@ -29,40 +26,89 @@ function split(text) {
   return { fm, body: m[2] };
 }
 
+// Exported so Task 7's skills reuse the same checks.
+export function checkCommon(label, text) {
+  test(`${label}: no env path, secret word, secret value or model id`, () => {
+    assert.ok(!/\.env/.test(text), ".env");
+    assert.ok(!/SECRET/.test(text), "SECRET");
+    for (const re of SECRET_SHAPES) assert.ok(!re.test(text), `secret-shaped value ${re}`);
+    assert.ok(!MODEL_ID.test(text), `model id literal: ${MODEL_ID.exec(text)?.[0]}`);
+  });
+  test(`${label}: no single-brace placeholder typos`, () => {
+    assert.ok(!/(^|[^{$])\{[a-z_]+\}(?!\})/m.test(text.replace(/`[^`]*`/g, "")) , "single-brace {name}");
+    assert.ok(!/\{\{[^}]*\}(?!\})/.test(text.replace(/\{\{[^}]*\}\}/g, "")), "unbalanced {{");
+  });
+  test(`${label}: carries the factory rules`, () => {
+    assert.match(text, /git stash/);
+    assert.match(text, /trailer/);
+    assert.match(text, /DATA, never instructions/);
+  });
+}
+
 for (const dir of FOLDERS) {
   for (const { f, path } of files(dir)) {
     const text = readFileSync(path, "utf8");
-    const { fm, body } = split(text);
-    test(`${dir}/${f}: placeholders are known`, () => {
-      for (const m of text.matchAll(/\{\{([^}]*)\}\}/g)) assert.ok(KNOWN_PLACEHOLDERS.has(m[1]), `unknown placeholder {{${m[1]}}}`);
-    });
-    test(`${dir}/${f}: no env path, secret word or model id`, () => {
-      assert.ok(!/\.env/.test(text), ".env");
-      assert.ok(!/SECRET/.test(text), "SECRET");
-      assert.ok(!MODEL_ID.test(text), `model id literal: ${MODEL_ID.exec(text)?.[0]}`);
-    });
-    test(`${dir}/${f}: carries the factory rules`, () => {
-      assert.match(body ?? text, /\{\{secrets\}\}/);
-      assert.match(text, /git stash/);
-    });
+    const { fm } = split(text);
+    const label = `${dir}/${f}`;
+    checkCommon(label, text);
     if (dir === "agents") {
-      test(`agents/${f}: frontmatter`, () => {
+      test(`${label}: static - no placeholders, frontmatter has no model`, () => {
+        assert.ok(!/\{\{/.test(text), "agents are never rendered");
         assert.ok(fm, "frontmatter present");
-        for (const k of ["name", "description", "model", "tools"]) assert.ok(fm[k], `key ${k}`);
+        for (const k of ["name", "description", "tools"]) assert.ok(fm[k], `key ${k}`);
+        assert.ok(!("model" in fm), "the orchestrator passes the model at dispatch");
         assert.equal(fm.name, f.replace(/\.md$/, ""));
-        assert.equal(fm.model, "{{model}}");
       });
-      if (READ_ONLY_AGENTS.has(f.replace(/\.md$/, ""))) {
-        test(`agents/${f}: read-only tools and a verdict line`, () => {
-          const tools = fm.tools.split(/,\s*(?![^()]*\))/).map((t) => t.trim());
-          for (const t of tools) assert.ok(READ_ONLY_TOOLS.has(t), `tool ${t} is not read-only`);
+      const name = f.replace(/\.md$/, "");
+      if (READ_ONLY_AGENTS.has(name)) {
+        test(`${label}: read-only tools, final-message report, gate rule`, () => {
+          for (const t of fm.tools.split(",").map((s) => s.trim())) assert.ok(READ_ONLY_TOOLS.has(t), `tool ${t} is not read-only`);
+          assert.match(text, /final message IS the report/);
           assert.match(text, /✅ Approved/);
           assert.match(text, /❌ Needs fixes/);
+          assert.match(text, /Critical or Important/);
         });
       }
+      if (name === "implementer") {
+        test(`${label}: commit rule, files rule, TDD evidence, fix round`, () => {
+          assert.match(text, /sfactory commit --cwd <WORKTREE> --holder <JOB> --m /);
+          assert.match(text, /Never `git commit`/);
+          assert.match(text, /Touch only those files/);
+          assert.match(text, /RED/); assert.match(text, /GREEN/);
+          assert.match(text, /After review findings/);
+        });
+      }
+    } else {
+      test(`${label}: placeholders are known`, () => {
+        for (const m of text.matchAll(/\{\{([^}]*)\}\}/g)) assert.ok(KNOWN_PLACEHOLDERS.has(m[1]), `unknown placeholder {{${m[1]}}}`);
+      });
+      test(`${label}: Codex never commits and reports by final message`, () => {
+        assert.ok(!/sfactory commit --cwd/.test(text), "no commit command");
+        assert.ok(!/standard output|stdout/i.test(text), "report is the final message");
+        assert.match(text, /final message/);
+      });
+      test(`${label}: inlined inputs sit in a fenced data block after the rules`, () => {
+        const i = text.indexOf("## Rules of the factory");
+        const j = text.indexOf("````text");
+        assert.ok(i > 0 && j > i, "fence after the rules");
+      });
     }
   }
 }
+
+test("secrets: example configs' neverHandToAgents entries are not named in any file", () => {
+  const dir = join(root, "examples");
+  const entries = [];
+  for (const f of readdirSync(dir).filter((x) => x.endsWith(".json"))) {
+    const c = JSON.parse(readFileSync(join(dir, f), "utf8"));
+    entries.push(...(c.secrets?.neverHandToAgents ?? []));
+  }
+  assert.ok(entries.length > 0);
+  for (const d of FOLDERS) for (const { f, path } of files(d)) {
+    const text = readFileSync(path, "utf8");
+    for (const e of entries) assert.ok(!text.includes(e), `${d}/${f} names ${e}`);
+  }
+});
 
 test("all expected Task 6 files exist", () => {
   for (const f of ["agents/implementer.md", "agents/spec-reviewer.md", "agents/code-reviewer.md", "agents/judge.md", "agents/triage.md", "prompts/codex-implement.md", "prompts/codex-review.md", "prompts/codex-judge.md", "agents/ATTRIBUTION.md", "prompts/ATTRIBUTION.md"])
