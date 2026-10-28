@@ -394,7 +394,7 @@ test("skills/sfactory/SKILL.md: exists, frontmatter names the skill, describes i
   assert.equal(fm.name, "sfactory");
   assert.ok(fm.description && /\/sfactory/.test(fm.description) && fm.description.length > 80, "a description naming /sfactory");
   assert.ok(!("model" in fm), "no model in the frontmatter");
-  for (const t of ["Bash(sfactory *)", "Bash(sfactory-* *)", "Bash(git *)", "Bash(bash *)", "Read", "Write", "Agent"])
+  for (const t of ["Bash(sfactory *)", "Bash(sfactory-* *)", "Bash(git *)", "Bash(bash *)", "Read", "Write", "Agent", "Monitor"])
     assert.ok(fm["allowed-tools"].split(",").map((x) => x.trim()).includes(t), `allowed-tools has ${t}`);
   for (const m of orch.matchAll(/\{\{([^}]*)\}\}/g)) assert.ok(KNOWN_PLACEHOLDERS.has(m[1]), `unknown placeholder {{${m[1]}}}`);
 });
@@ -402,7 +402,7 @@ test("skills/sfactory/SKILL.md: exists, frontmatter names the skill, describes i
 /** Design §10's eleven commands (stop and clean share a row there), plus merged, each with the CLI line its row runs. */
 const ORCH_COMMANDS = {
   init: ["sfactory init"], doctor: ["sfactory doctor"],
-  add: ['sfactory job add milestone "<title>"', 'sfactory job add fix "<title>"'],
+  add: ['sfactory job add milestone "<title>"', 'sfactory job add fix "<title>" --log <n>', 'sfactory job add fix "<title>"'],
   run: ["sfactory job list --json", "sfactory job resume <id>"],
   approve: ["sfactory job approve <id>"], answer: ["sfactory job answer <id>"],
   parallel: ["sfactory job parallel <id> --yes", "sfactory job parallel <id> --no"],
@@ -435,13 +435,38 @@ test("skills/sfactory: design §12 is quoted verbatim", () => {
   for (const b of bullets) assert.ok(orch.includes(b), `quotes: ${b}`);
 });
 
-test("skills/sfactory: every stage it moves a card to is a stage the state machine can reach", async () => {
-  const { STAGES, TRANSITIONS } = await import("../src/job.mjs");
-  const reachable = new Set(Object.values(TRANSITIONS).flat());
-  const targets = [...orch.matchAll(/sfactory job set <[a-z]+> ([a-z-]+)/g)].map((m) => m[1]);
-  assert.ok(targets.length >= 6, "the skill scripts its moves");
-  for (const t of targets) { assert.ok(STAGES.includes(t), `stage ${t}`); assert.ok(reachable.has(t), `${t} is the target of some edge`); }
-  for (const t of ["planning", "awaiting-approval", "building", "verifying", "fixing", "pushing", "pushed"]) assert.ok(targets.includes(t), `moves to ${t}`);
+/** Every move the skill scripts, from the stage its step runs in: each line must be in the skill and legal in TRANSITIONS. */
+const ORCH_MOVES = [
+  ["backlog", "planning", "sfactory job set <id> planning"],
+  ["planning", "awaiting-approval", "sfactory job set <id> awaiting-approval"],
+  ["planning", "building", "sfactory job set <id> building"],
+  ["reviewing", "verifying", "sfactory job set <id> verifying"],
+  ["reviewing", "fixing", "sfactory job set <id> fixing"],
+  ["fixing", "reviewing", "sfactory job set <id> reviewing"],
+  ["verifying", "fixing", 'sfactory job set <id> fixing --reason "verify'],
+  ["verifying", "pushing", "sfactory job set <id> pushing"],
+  ["pushing", "pushed", "sfactory job set <id> pushed"],
+];
+/** Every park the skill scripts, from the stage it parks in, with its pending kind: each must be allowed by PARK_PENDING. */
+const ORCH_PARKS = [
+  ["planning", "parallel"], ["backlog", "parallel"], ["planning", "decision"],
+  ["reviewing", "decision"], ["verifying", "decision"], ["pushing", "decision"], ["building", "decision"],
+];
+
+test("skills/sfactory: every move is a legal from -> to edge and every park is allowed from its stage", async () => {
+  const { TRANSITIONS, PARK_PENDING } = await import("../src/job.mjs");
+  for (const [from, to, line] of ORCH_MOVES) {
+    assert.ok(orch.includes("`" + line), `the skill scripts ${line}`);
+    assert.ok(TRANSITIONS[from].includes(to), `${from} -> ${to} is an edge`);
+  }
+  const scripted = new Set(ORCH_MOVES.map((m) => m[1]));
+  for (const m of orch.matchAll(/sfactory job set <[a-z]+> ([a-z-]+)/g)) assert.ok(scripted.has(m[1]), `a move to ${m[1]} is in the table`);
+  for (const [from, pending] of ORCH_PARKS) assert.ok(PARK_PENDING[from].includes(pending), `park ${pending} from ${from}`);
+  assert.ok(orch.includes("`sfactory job park <id> --pending parallel --reason"), "the parallel park");
+  assert.ok(orch.includes('`sfactory job park <id> --reason "'), "the decision park");
+  // The approval gate leaves only through approve; a pushed card is marked merged.
+  assert.ok(TRANSITIONS["awaiting-approval"].includes("building") && orch.includes("`sfactory job approve <id>"));
+  assert.ok(TRANSITIONS.pushed.includes("merged") && orch.includes("`sfactory job merged <id>"));
 });
 
 test("skills/sfactory: the rulings, the stops and the amendment's rules are stated", () => {
@@ -450,8 +475,12 @@ test("skills/sfactory: the rulings, the stops and the amendment's rules are stat
     "Per-dispatch effort cannot be set", "Codex never commits", "git -C <WORKTREE> status --porcelain", "task wrote outside its declared files",
     "reviews/<k>-<stage>.md", "FIX_ROUNDS_EXHAUSTED", "NOT ADDRESSED", "sfactory lock acquire live --holder <id>", "sfactory services up <id>",
     "sfactory services down <id>", "sfactory push --cwd <WORKTREE>", "pr.md", "sfactory fixcard <WORKTREE>/<record.plan>",
-    "sfactory independence tasks <WORKTREE>/<record.plan> --max <limits.parallelTasks>", "sfactory cost add", "`stops`", "not available yet",
-    "sfactory:sdd", "sfactory:brainstorming", "writing-plans"])
+    "sfactory independence tasks <WORKTREE>/<record.plan> --max <limits.parallelTasks>", "sfactory cost add", "`stops`",
+    "sfactory:sdd", "sfactory:brainstorming", "writing-plans",
+    // fix round 1: the four CLI additions, the gates end the turn, the questionnaire waits, the parallel reason
+    "sfactory worktree cut <id> --base-of <A>", "sfactory worktree merge <id> --from <A>", "sfactory job request-changes <id> --notes-file",
+    "MERGE_CONFLICT", "LOG_NOT_FOUND", "LOCK_HELD", "review/round-<r>/brief.md", "end your turn", "Monitor tool", "30 minutes",
+    "An open questionnaire always waits", "the cost", "why parallel helps", "`/sfactory run` carries on"])
     assert.ok(orch.includes(s), `names ${s}`);
   // The worktree is cut on entering planning, before brainstorming.
   const backlog = orch.indexOf("**backlog**"), cutAt = orch.indexOf("sfactory worktree cut <id>"), brainstorm = orch.indexOf("**planning**");
@@ -459,7 +488,12 @@ test("skills/sfactory: the rulings, the stops and the amendment's rules are stat
   for (const s of ["awaiting-approval", "decision-needed", "verifying", "pushing"]) assert.match(orch.slice(orch.indexOf("## 8. Stops")), new RegExp(s));
 });
 
-/** The shell programs a Markdown text runs: backtick spans and fenced lines that start with a known program. */
+/**
+ * The shell programs a Markdown text runs: backtick spans and fenced lines that start with a known program.
+ * The gap, by design: a program outside PROGRAMS is not seen, and the project's own commands (commands.migrate,
+ * commands.build, commands.typecheck) are config values no allowed-tools entry can name ahead of time, so the
+ * harness asks the person for them; the skill says so.
+ */
 const PROGRAMS = ["sfactory", "git", "bash", "sh", "sleep", "agent-browser", "node", "npm", "npx", "pnpm", "codex", "gh", "curl"];
 function programsRun(text) {
   const out = new Set();
@@ -481,5 +515,8 @@ test("skills/sfactory: allowed-tools covers every program the orchestrator and t
   for (const p of [ORCH, ...SKILLS.flatMap(skillDocs)]) for (const w of programsRun(read(p))) used.add(w);
   for (const w of ["sfactory", "git", "bash"]) assert.ok(used.has(w), `${w} is read from the skills`);
   for (const w of used) assert.ok(allowed.includes(`Bash(${w} *)`), `allowed-tools covers ${w}`);
+  // The gates end the turn or use a bounded Monitor loop; nothing polls with a shell wait.
+  assert.ok(allowed.includes("Monitor"), "Monitor");
+  assert.ok(!allowed.some((t) => /sleep/.test(t)) && !used.has("sleep"), "no sleep");
   assert.deepEqual([...programsRun("Run `git -C x status`, `sfactory doctor`, not `sfactory:sdd` or the `codex` mode; `codex exec x` counts.\n```bash\nbash run.sh\n```")].sort(), ["bash", "codex", "git", "sfactory"]);
 });

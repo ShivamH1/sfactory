@@ -48,6 +48,8 @@ The orchestrator is always the hosting Claude Code session: it runs the skill, c
 
 Why the mixed split: in the comparisons the owner weighed, Codex found more defects per pass and is cheaper per token on bulk implementation, while Claude was stronger on planning, long-horizon judgement and review depth. The judge is therefore the vendor that did not write the code.
 
+*Amendment (2026-10-28, from the Plan C review of the orchestrator skill):* the spec-compliance review of a task and failure triage are Claude subagents in every mode, `codex` included. Read the two `codex` cells above for those rows as "Claude subagent, read-only" and "Claude, lowest tier". The orchestrator is always a Claude Code session, so a Claude subagent is always at hand, and the plugin ships no Codex spec-review or triage prompt (`prompts/` holds implement, review and judge). The skills (`sfactory` and `sdd`) carry the same assignment.
+
 Model names, effort levels and Codex profile names are config, never constants, because they change monthly. A mode whose tool is missing (`codex` not on PATH, or `claude` subagents unavailable) fails at `sfactory doctor`, not mid-run.
 
 ## 4. Stages and transitions
@@ -61,7 +63,7 @@ Only `bin/job` writes `job.json`, and only along these edges.
 | `awaiting-approval` | Needs you | parked | `plan/approval.md` on release | `building` |
 | `building` | In process | the task loop (§5); one log entry per task; commits at each boundary | `tasks/<n>/*`; the record's log | `reviewing` |
 | `reviewing` | Review | whole-branch bug-hunt, then the judge against the brief's done-whens | `review/bug-hunt.md`, `review/judge.md` | `fixing` · `verifying` |
-| `fixing` | Fixed | findings fixed, full suite, back to the judge; at most `limits.fixRounds` rounds | `review/round-<k>/*` | `reviewing` · `stopped` |
+| `fixing` | Fixed | findings fixed, full suite, back to the judge; at most `limits.fixRounds` rounds | `review/round-<r>/*` (`<r>`: the job's round) | `reviewing` · `stopped` |
 | `verifying` | Fixed | takes the `live` lock; the project's verify steps: migrations, services on the card's ports, scripted or headed walkthrough, staging calls | `verify/suite.log`, `verify/walkthrough.md` | `pushing` · `fixing` |
 | `pushing` | Pushed / PR | closing section, plan ticks, carried-forward reconciled, push, PR text | `pr.md` | `pushed` |
 | `pushed` | Pushed / PR | waits for the person's merge; the board checks whether the integration branch contains the head | | `merged` |
