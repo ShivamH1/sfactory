@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir, tmpRepo, writeConfig } from "./helpers.mjs";
+import { execFile } from "node:child_process";
 import { main } from "../src/cli.mjs";
 import { jobDir, writeJob as rawWriteJob, readJob, withJobLock } from "../src/store.mjs";
 const writeJob = (c, job) => withJobLock(c, job.id, () => rawWriteJob(c, job));
@@ -34,8 +35,8 @@ test("services: up substitutes ports into cmd and env, drops secrets, logs, reco
   await withPorts(47600, async (ports) => {
     const out = join(tmpDir("sf-out-"), "env.txt");
     const { c, job } = setup([
-      { name: "api", cmd: listenCmd("{port.api}"), port: "api", env: { P: "{port.web}", OUT: out } },
-      { name: "probe", cmd: 'node -e "require(\'fs\').writeFileSync(process.env.OUT,[process.env.P,process.env.SF_TEST_SECRET||\'none\',process.cwd()].join(\'|\'));setTimeout(()=>{},120000)"', env: { P: "{port.web}", OUT: out } },
+      { name: "api", cmd: listenCmd("{port.api}"), port: "api", env: { P: "{port.web}", OUT: out, SF_TEST_SECRET: "from-entry" } },
+      { name: "probe", cmd: 'node -e "require(\'fs\').writeFileSync(process.env.OUT,[process.env.P,process.env.SF_TEST_SECRET||\'none\',process.cwd()].join(\'|\'));setTimeout(()=>{},120000)"', env: { P: "{port.web}", OUT: out, SF_TEST_SECRET: "from-entry" } },
     ], { secrets: ["SF_TEST_SECRET"] });
     job.ports = ports;
     writeJob(c, job);
@@ -45,7 +46,7 @@ test("services: up substitutes ports into cmd and env, drops secrets, logs, reco
       up = await servicesUp(c, job);
       assert.equal(up.length, 2);
       assert.ok(await waitFor(async () => !(await isFree(ports.api))), "api is listening on its port");
-      assert.ok(await waitFor(() => existsSync(out)));
+      assert.ok(await waitFor(() => existsSync(out) && readFileSync(out, "utf8").split("|").length === 3), "the probe wrote its whole line");
       const [p, secret, cwd] = readFileSync(out, "utf8").split("|");
       assert.equal(p, String(ports.web));
       assert.equal(secret, "none");
@@ -166,4 +167,87 @@ test("services: sfactory services up|status|down drives the same record from the
     r = await run("bogus", "m-1"); assert.equal(r.code, 2);
   } finally { await run("down", "m-1"); }
   assert.equal(readJob(c, "m-1").id, "m-1");
+});
+
+test("services: a stale live lock held by this job does not satisfy a live entry", async () => {
+  await withPorts(48200, async (ports) => {
+    const { c, job } = setup([{ name: "w", cmd: SLEEP, live: true }]);
+    job.ports = ports; writeJob(c, job);
+    const stale = await acquire(c, "live", { holder: job.id, pid: 2147483000 }); // its pid is gone: stale
+    try {
+      await assert.rejects(servicesUp(c, job), (e) => e.code === "LIVE_LOCK_REQUIRED");
+      assert.equal(existsSync(join(jobDir(c, job.id), "verify", "services.json")), false);
+    } finally { try { stale.release(); } catch { /* already judged stale */ } await servicesDown(c, job); }
+  });
+});
+
+test("services: a pid whose start time cannot be read is unknown: reported, kept in the record, blocks up", async () => {
+  await withPorts(48300, async (ports) => {
+    const { c, job } = setup([{ name: "a", cmd: SLEEP }]);
+    job.ports = ports; writeJob(c, job);
+    const rec = join(jobDir(c, job.id), "verify", "services.json");
+    let pid;
+    try {
+      [{ pid }] = await servicesUp(c, job);
+      const none = { startOf: () => null };
+      assert.equal(servicesStatus(c, job, none)[0].state, "unknown");
+      await assert.rejects(servicesUp(c, job, none), (e) => e.code === "SERVICES_UNKNOWN");
+      const d = await servicesDown(c, job, none);
+      assert.deepEqual(d.killed, []);
+      assert.equal(d.skipped[0].alive, true);
+      assert.ok(pidAlive(pid), "an unattributable pid is not killed");
+      assert.ok(existsSync(rec), "and stays in the record");
+    } finally { await servicesDown(c, job); }
+    assert.ok(!pidAlive(pid));
+  });
+});
+
+test("services: a failure after the first service started kills it and leaves no record", async () => {
+  await withPorts(48400, async (ports) => {
+    const { c, job } = setup([{ name: "a", cmd: SLEEP }, { name: "b", cmd: SLEEP }]);
+    job.ports = ports; writeJob(c, job);
+    const seen = [];
+    try {
+      await assert.rejects(servicesUp(c, job, { log: (m) => { seen.push(m); if (/started b /.test(m)) throw new Error("boom"); } }), /boom/);
+      const pid = Number(/started a pid (\d+)/.exec(seen.join("\n"))?.[1]);
+      assert.ok(pid, "a was started first");
+      assert.ok(await waitFor(() => !pidAlive(pid)), "and rolled back");
+      assert.equal(existsSync(join(jobDir(c, job.id), "verify", "services.json")), false);
+    } finally { await servicesDown(c, job); }
+  });
+});
+
+test("services: two concurrent ups from two processes start one set", async () => {
+  const repo = tmpRepo();
+  const ports = await freeBlock(48500);
+  writeConfig(repo, { project: "p", agents: { mode: "claude" }, stateDir: join(repo, ".sf"), commands: { suite: "node -e 0", services: [{ name: "a", cmd: SLEEP }] } });
+  const c = { stateDir: join(repo, ".sf") };
+  writeJob(c, { id: "m-1", kind: "milestone", title: "t", stage: "verifying", started: "2026-01-01T00:00:00Z", history: [], worktree: repo, ports: { block: ports, api: ports, web: ports + 1 } });
+  const bin = join(process.cwd(), "bin", "sfactory-services");
+  const up = () => new Promise((res) => execFile(process.execPath, [bin, "up", "m-1"], { cwd: repo, windowsHide: true }, (err, stdout, stderr) => res({ code: err ? err.code : 0, stderr })));
+  try {
+    const r = await Promise.all([up(), up()]);
+    assert.deepEqual(r.map((x) => x.code).sort(), [0, 2]);
+    assert.match(r.find((x) => x.code === 2).stderr, /SERVICES_RUNNING/);
+    assert.equal(JSON.parse(readFileSync(join(jobDir(c, "m-1"), "verify", "services.json"), "utf8")).services.length, 1);
+  } finally { await main(["services", "down", "m-1"], { cwd: repo, stdout() {}, stderr() {} }); }
+});
+
+test("services: down exits 1 with the reason on stderr when it leaves a pid alive", async () => {
+  const repo = tmpRepo();
+  const ports = await freeBlock(48600);
+  writeConfig(repo, { project: "p", agents: { mode: "claude" }, stateDir: join(repo, ".sf"), commands: { suite: "node -e 0", services: [{ name: "a", cmd: SLEEP }] } });
+  const c = { stateDir: join(repo, ".sf") };
+  writeJob(c, { id: "m-1", kind: "milestone", title: "t", stage: "verifying", started: "2026-01-01T00:00:00Z", history: [], worktree: repo, ports: { block: ports, api: ports, web: ports + 1 } });
+  const run = async (...argv) => { let out = "", err = ""; const code = await main(["services", ...argv], { cwd: repo, stdout: (s) => { out += s; }, stderr: (s) => { err += s; } }); return { code, out, err }; };
+  const rec = join(jobDir(c, "m-1"), "verify", "services.json");
+  let good;
+  try {
+    assert.equal((await run("up", "m-1")).code, 0);
+    good = readFileSync(rec, "utf8");
+    const r = JSON.parse(good); r.services[0].startedAt -= 3_600_000; writeFileSync(rec, JSON.stringify(r));
+    const d = await run("down", "m-1");
+    assert.equal(d.code, 1);
+    assert.match(d.err, /a pid=\d+: pid now belongs to another process/);
+  } finally { if (good) { writeFileSync(rec, good); await run("down", "m-1"); } }
 });

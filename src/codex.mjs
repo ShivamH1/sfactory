@@ -1,17 +1,13 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, delimiter, join } from "node:path";
+import { delimiter, join } from "node:path";
 import { fail } from "./errors.mjs";
 import { killTree, followSignals } from "./suite.mjs";
+import { secretNames } from "./secrets.mjs";
 
 const SECRETISH = /(_SECRET|_TOKEN|_KEY)$/i;
 const ALLOWED_PREFIX = /^(CODEX_|OPENAI_)/i;
-
-/** Config resolves every secrets entry to an absolute path, so an env var name arrives as a path; its basename is the name. Entries that are not env-name shaped (files like .env) are skipped. */
-export function secretNames(c) {
-  return (c?.secrets?.neverHandToAgents ?? []).map((s) => basename(s)).filter((s) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s));
-}
 
 /** The environment a Codex child gets: nothing named in secrets, and no *_SECRET/*_TOKEN/*_KEY unless CODEX_* or OPENAI_*. */
 export function filterEnv(c, env = process.env) {

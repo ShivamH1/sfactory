@@ -16,8 +16,8 @@ register("services", async ({ positional: [verb, id] }, io) => {
   if (verb === "down") {
     const r = await servicesDown(c, job, { log });
     io.stdout(`stopped ${r.killed.length}${r.skipped.length ? `, left ${r.skipped.length}` : ""}\n`);
-    for (const s of r.skipped) io.stdout(`${s.name} pid=${s.pid}: ${s.reason}\n`);
-    return 0;
+    for (const s of r.skipped) (s.alive ? io.stderr : io.stdout)(`${s.name} pid=${s.pid}: ${s.reason}\n`);
+    return r.skipped.some((s) => s.alive) ? 1 : 0;
   }
   const rows = servicesStatus(c, job);
   if (!rows.length) io.stdout("no services recorded\n");
