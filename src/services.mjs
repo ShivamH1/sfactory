@@ -31,7 +31,9 @@ export function processStarts(pids) {
   const list = pids.map(Number).filter((p) => Number.isInteger(p) && p > 0);
   try {
     if (process.platform === "win32") {
-      const cmd = `Get-Process -Id ${list.join(",")} -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Id) $($_.StartTime.ToUniversalTime().ToString('o'))" }`;
+      // CIM, not Get-Process: StartTime is unreadable for other users' and SYSTEM processes, CreationDate is not.
+      const filter = list.map((p) => `ProcessId=${p}`).join(" OR ");
+      const cmd = `Get-CimInstance Win32_Process -Filter "${filter}" | ForEach-Object { "$($_.ProcessId) $($_.CreationDate.ToUniversalTime().ToString('o'))" }`;
       const r = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", cmd], { encoding: "utf8", windowsHide: true, timeout: 15_000 });
       for (const line of String(r.stdout).split(/\r?\n/)) {
         const m = /^(\d+) (\S+)$/.exec(line.trim());
@@ -58,8 +60,11 @@ export function processStarts(pids) {
  */
 function judgeAll(recs, startOf) {
   const live = recs.filter((r) => pidAlive(r.pid));
+  // POSIX: a group id cannot be reused while a member lives, so a dead leader with a live group is still ours.
+  const groupOnly = (r) => process.platform !== "win32" && !pidAlive(r.pid) && groupAlive(r.pid);
   const starts = startOf ? null : processStarts(live.map((r) => r.pid));
   return recs.map((rec) => {
+    if (groupOnly(rec)) return "ours";
     if (!live.includes(rec)) return "dead";
     const began = startOf ? startOf(rec.pid) : starts.get(rec.pid);
     if (began === null || began === undefined) return "unknown";
@@ -120,12 +125,15 @@ export function servicesStatus(c, job, { startOf } = {}) {
 }
 
 /** Ends the process tree. True once nothing of it is left (win32: the root pid is the only member that can be checked). */
-async function killAndWait(pid) {
+async function killAndWait(pid, { kill } = {}) {
+  if (kill) return kill(pid);
   if (process.platform === "win32") {
-    try { spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true, timeout: 10_000 }); } catch { /* checked below */ }
+    let status = null;
+    try { status = spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true, timeout: 10_000 }).status; } catch { /* checked below */ }
     const until = Date.now() + GRACE_MS;
     while (pidAlive(pid) && Date.now() < until) await sleep(50);
-    return !pidAlive(pid);
+    // 128 is "process not found": already gone. Any other failure may have left part of the tree running.
+    return !pidAlive(pid) && (status === 0 || status === 128);
   }
   const gone = async () => { const until = Date.now() + GRACE_MS; while (groupAlive(pid) && Date.now() < until) await sleep(50); return !groupAlive(pid); };
   try { process.kill(-pid, "SIGTERM"); } catch { try { process.kill(pid, "SIGTERM"); } catch { /* gone */ } }
@@ -155,7 +163,7 @@ export function servicesUp(c, job, { log = () => {}, startOf } = {}) {
       const states = judgeAll(rec.services, startOf);
       const named = (st) => rec.services.filter((_, i) => states[i] === st).map((r) => `${r.name}(${r.pid})`).join(", ");
       if (states.includes("ours")) fail("SERVICES_RUNNING", `services already running for ${job.id}: ${named("ours")}; run "sfactory services down ${job.id}"`);
-      if (states.includes("unknown")) fail("SERVICES_UNKNOWN", `recorded pids of ${job.id} are alive but cannot be attributed: ${named("unknown")}; stop them by hand and delete ${join(jobDir(c, job.id), RECORD)}`);
+      if (states.includes("unknown")) fail("SERVICES_UNKNOWN", `recorded pids of ${job.id} are alive but their start time cannot be read: ${named("unknown")}; check these pids are yours (they may be unrelated processes that reused the pids); if not, delete the record ${join(jobDir(c, job.id), RECORD)}`);
     }
     if (entries.some((e) => e.live) && !liveHeldBy(c, job)) fail("LIVE_LOCK_REQUIRED", `a live service needs a fresh live lock held by ${job.id}; run "sfactory lock acquire live --holder ${job.id} --durable"`);
     const dir = join(jobDir(c, job.id), "verify");
@@ -178,8 +186,10 @@ export function servicesUp(c, job, { log = () => {}, startOf } = {}) {
       }
     } catch (err) {
       const left = [];
-      for (const r of started) if (!(await killAndWait(r.pid))) left.push(r);
-      if (left.length) writeRecord(c, job, left); else removeRecord(c, job);
+      try {
+        for (const r of started) if (!(await killAndWait(r.pid))) left.push(r);
+        if (left.length) writeRecord(c, job, left); else removeRecord(c, job);
+      } catch { /* the original error is the one to report */ }
       throw err;
     }
     return started.map(({ name, pid, log: l }) => ({ name, pid, log: l }));
@@ -190,7 +200,7 @@ export function servicesUp(c, job, { log = () => {}, startOf } = {}) {
  * Kills each recorded service this record can attribute. `skipped` entries carry `alive: true` when a pid is
  * still running (foreign, unknown or a survivor of the kill); a survivor and an unknown pid stay in the record.
  */
-export function servicesDown(c, job, { log = () => {}, startOf } = {}) {
+export function servicesDown(c, job, { log = () => {}, startOf, kill } = {}) {
   return guard(c, job, async () => {
     const rec = readRecord(c, job);
     const killed = [], skipped = [];
@@ -200,7 +210,7 @@ export function servicesDown(c, job, { log = () => {}, startOf } = {}) {
     for (let i = 0; i < rec.services.length; i++) {
       const r = rec.services[i], st = states[i];
       if (st === "ours") {
-        if (await killAndWait(r.pid)) { killed.push(r.name); log(`stopped ${r.name} pid ${r.pid}`); }
+        if (await killAndWait(r.pid, { kill })) { killed.push(r.name); log(`stopped ${r.name} pid ${r.pid}`); }
         else { skipped.push({ name: r.name, pid: r.pid, alive: true, reason: "still running after the kill" }); keep.push(r); }
       } else if (st === "foreign") {
         skipped.push({ name: r.name, pid: r.pid, alive: true, reason: "pid now belongs to another process" }); log(`left pid ${r.pid} alone: not ${r.name}`);

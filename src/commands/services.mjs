@@ -10,11 +10,11 @@ register("services", async ({ positional: [verb, id] }, io) => {
   const job = readJob(c, id);
   const log = (m) => io.stderr(`${m}\n`);
   if (verb === "up") {
-    for (const s of await servicesUp(c, job, { log })) io.stdout(`${s.name} pid=${s.pid} log=${s.log}\n`);
+    for (const s of await servicesUp(c, job, { log, ...io.servicesOpts })) io.stdout(`${s.name} pid=${s.pid} log=${s.log}\n`);
     return 0;
   }
   if (verb === "down") {
-    const r = await servicesDown(c, job, { log });
+    const r = await servicesDown(c, job, { log, ...io.servicesOpts });
     io.stdout(`stopped ${r.killed.length}${r.skipped.length ? `, left ${r.skipped.length}` : ""}\n`);
     for (const s of r.skipped) (s.alive ? io.stderr : io.stdout)(`${s.name} pid=${s.pid}: ${s.reason}\n`);
     return r.skipped.some((s) => s.alive) ? 1 : 0;

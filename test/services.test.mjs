@@ -9,7 +9,7 @@ import { jobDir, writeJob as rawWriteJob, readJob, withJobLock } from "../src/st
 const writeJob = (c, job) => withJobLock(c, job.id, () => rawWriteJob(c, job));
 import { isFree } from "../src/ports.mjs";
 import { acquire } from "../src/lock.mjs";
-import { servicesUp, servicesDown, servicesStatus, pidAlive } from "../src/services.mjs";
+import { servicesUp, servicesDown, servicesStatus, pidAlive, processStarts } from "../src/services.mjs";
 
 const SLEEP = 'node -e "setTimeout(()=>{},120000)"';
 const listenCmd = (p) => `node -e "require('net').createServer().listen(${p});setTimeout(()=>{},120000)"`;
@@ -250,4 +250,59 @@ test("services: down exits 1 with the reason on stderr when it leaves a pid aliv
     assert.equal(d.code, 1);
     assert.match(d.err, /a pid=\d+: pid now belongs to another process/);
   } finally { if (good) { writeFileSync(rec, good); await run("down", "m-1"); } }
+});
+
+test("services: processStarts reads this process's own start time", () => {
+  const began = processStarts([process.pid]).get(process.pid);
+  assert.ok(Number.isFinite(began), "a start time came back");
+  assert.ok(Math.abs((Date.now() - began) / 1000 - process.uptime()) < 5, "and it matches the uptime");
+});
+
+async function cliCard(base) {
+  const repo = tmpRepo();
+  const ports = await freeBlock(base);
+  writeConfig(repo, { project: "p", agents: { mode: "claude" }, stateDir: join(repo, ".sf"), commands: { suite: "node -e 0", services: [{ name: "a", cmd: SLEEP }] } });
+  const c = { stateDir: join(repo, ".sf") };
+  writeJob(c, { id: "m-1", kind: "milestone", title: "t", stage: "verifying", started: "2026-01-01T00:00:00Z", history: [], worktree: repo, ports: { block: ports, api: ports, web: ports + 1 } });
+  const run = async (servicesOpts, ...argv) => { let out = "", err = ""; const code = await main(["services", ...argv], { cwd: repo, servicesOpts, stdout: (s) => { out += s; }, stderr: (s) => { err += s; } }); return { code, out, err }; };
+  return { c, run, rec: join(jobDir(c, "m-1"), "verify", "services.json") };
+}
+
+test("services: down exits 1 with the reason for an unknown pid, which stays in the record", async () => {
+  const { run, rec } = await cliCard(48700);
+  try {
+    assert.equal((await run(undefined, "up", "m-1")).code, 0);
+    const d = await run({ startOf: () => null }, "down", "m-1");
+    assert.equal(d.code, 1);
+    assert.match(d.err, /a pid=\d+: alive but its start time cannot be read/);
+    assert.ok(existsSync(rec));
+    const up = await run({ startOf: () => null }, "up", "m-1");
+    assert.equal(up.code, 2);
+    assert.match(up.err, /SERVICES_UNKNOWN.*check these pids are yours/);
+    assert.doesNotMatch(up.err, /stop them|kill/);
+  } finally { assert.equal((await run(undefined, "down", "m-1")).code, 0); }
+});
+
+test("services: a pid that survives the kill is skipped with a reason, stays in the record, and down exits 1", async () => {
+  const { c, run, rec } = await cliCard(48800);
+  const job = { id: "m-1" };
+  try {
+    assert.equal((await run(undefined, "up", "m-1")).code, 0);
+    const d = await run({ kill: async () => false }, "down", "m-1");
+    assert.equal(d.code, 1);
+    assert.match(d.err, /a pid=\d+: still running after the kill/);
+    assert.equal(JSON.parse(readFileSync(rec, "utf8")).services.length, 1);
+    assert.equal(servicesStatus(c, job)[0].state, "ours");
+  } finally { assert.equal((await run(undefined, "down", "m-1")).code, 0); }
+});
+
+test("services: a dead group leader whose group lives on is still ours, and down ends the group (POSIX)", { skip: process.platform === "win32" && "POSIX process groups" }, async () => {
+  await withPorts(48900, async (ports) => {
+    const { c, job } = setup([{ name: "a", cmd: "sleep 120 & exit 0" }]);
+    job.ports = ports; writeJob(c, job);
+    try {
+      await servicesUp(c, job);
+      assert.ok(await waitFor(() => servicesStatus(c, job)[0].state === "ours"));
+    } finally { const d = await servicesDown(c, job); assert.deepEqual(d.killed, ["a"]); }
+  });
 });
