@@ -54,6 +54,8 @@ export const migrationsDirOf = (c) => (c?.migrations?.dir ? toRel(c, c.migration
  * ordering edge: the later task waits for the earlier one. The edge is left
  * out only when the earlier task already waits, by the edges so far, for the
  * later one (an explicit forward "Depends on"), so it never makes a cycle.
+ * Two tasks that each touch `migrationsDir` are ordered the same way, since
+ * migration folders are numbered in creation order.
  */
 export function taskBatches(plan, max = 4, { allowUndeclared = false, migrationsDir = null } = {}) {
   if (!Number.isInteger(max) || max < 1) fail("BAD_ARGS", "max must be an integer >= 1");
@@ -71,7 +73,7 @@ export function taskBatches(plan, max = 4, { allowUndeclared = false, migrations
     return false;
   };
   plan.tasks.forEach((t, k) => {
-    for (const u of plan.tasks.slice(0, k)) if (shares(u, t) && !reaches(u.n, t.n) && !waits.get(t.n).includes(u.n)) waits.get(t.n).push(u.n);
+    for (const u of plan.tasks.slice(0, k)) if ((shares(u, t) || (migrates(u) && migrates(t))) && !reaches(u.n, t.n) && !waits.get(t.n).includes(u.n)) waits.get(t.n).push(u.n);
   });
   const order = [];
   const done = new Set();

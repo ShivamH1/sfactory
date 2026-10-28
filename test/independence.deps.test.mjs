@@ -89,3 +89,14 @@ test("fix I2: a task never runs before an earlier task it shares a file with", (
   const c = parsePlan("### Task 1: A\n- Modify: `a.ts`\n**Depends on:** Task 2\n### Task 2: B\n- Create: `a.ts`\n");
   assert.deepEqual(taskBatches(c, 4), [[2], [1]]);
 });
+
+test("fix round 1: tasks that each touch the migrations dir keep plan order", () => {
+  // The earlier migration task waits on a dependency; the later one must not overtake it.
+  const p = parsePlan("### Task 1: A\n- Create: `x.ts`\n### Task 2: B\n- Consumes: Task 1\n- Create: `db/migrations/2_b/migration.sql`\n### Task 3: C\n- Create: `db/migrations/3_c/migration.sql`\n");
+  assert.deepEqual(taskBatches(p, 4, { migrationsDir: "db/migrations" }), [[1], [2], [3]]);
+  // Without a migrations dir the two files are unrelated.
+  assert.deepEqual(taskBatches(p, 4), [[1, 3], [2]]);
+  // An explicit forward Depends on still wins, without a cycle.
+  const q = parsePlan("### Task 1: A\n- Create: `db/migrations/1/m.sql`\n**Depends on:** Task 2\n### Task 2: B\n- Create: `db/migrations/2/m.sql`\n");
+  assert.deepEqual(taskBatches(q, 4, { migrationsDir: "db/migrations" }), [[2], [1]]);
+});
