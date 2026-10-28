@@ -1,7 +1,8 @@
 import { existsSync, readdirSync } from "node:fs";
-import { join, isAbsolute } from "node:path";
+import { join, isAbsolute, resolve } from "node:path";
 import { fail } from "./errors.mjs";
 import { acquireSync } from "./lock.mjs";
+import { jobDir } from "./store.mjs";
 
 const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
@@ -60,33 +61,62 @@ function filesUnder(root, pattern, depth = 4) {
 
 const fill = (pattern, v) => pattern.replace(/\{id\}/g, v.id).replace(/\{slug\}/g, v.slug).replace(/\{n\}/g, v.n === null ? "" : String(v.n));
 
+/** Milestone n's one log in the worktree (a fix filed with --log n); LOG_NOT_FOUND for none or several. */
+function milestoneLog(c, worktree, n) {
+  const r = c.record;
+  const re = patternRegex(r.log, { n, id: `m-${n}` });
+  const hits = filesUnder(worktree, r.log).filter((f) => re.test(f)).sort();
+  if (hits.length !== 1) fail("LOG_NOT_FOUND", hits.length ? `--log ${n} matches more than one log (${hits.join(", ")}); refile the fix naming one` : `--log ${n}: no file in the worktree matches ${r.log}`);
+  return hits[0];
+}
+
+const checkInside = (out, keys, what = "record") => {
+  for (const k of keys) if (typeof out[k] === "string" && outside(out[k])) fail("BAD_RECORD_PATH", `${what}.${k} resolves to "${out[k]}", outside the worktree`);
+};
+
 /**
- * The card's record paths, relative to its worktree: { brief, plan, log, stories, n }.
- * {n}: a fix with logOf takes that number and its log is the one existing file matching record.log with it
- * (LOG_NOT_FOUND otherwise); "next-milestone-number" is one more than the highest {n} of a brief in the
- * worktree and of every other unmerged card's record; any other numbering is the number in the card's id.
+ * A fix card's record: its own, never a milestone's numbered brief and plan, and it reserves no {n}. Its brief and
+ * plan are in its job folder (plan/brief.md, plan/plan.md: absolute paths, the factory's files, never committed)
+ * unless record.fix gives patterns ({id} and {slug}, relative to the worktree). Its log: with --log n, milestone
+ * n's one log, where its per-task entries and its close go into one dated section under record.postCloseHeading
+ * (n is then that milestone's number); else record.fix.log; else log.md in its job folder.
+ */
+function fixRecord(c, job, worktree) {
+  const f = c.record.fix ?? {};
+  const v = { id: job.id, slug: job.slug, n: null };
+  const dir = resolve(jobDir(c, job.id));
+  const logOf = Number.isInteger(job.logOf) ? job.logOf : null;
+  const out = {
+    brief: typeof f.brief === "string" ? fill(f.brief, v) : join(dir, "plan", "brief.md"),
+    plan: typeof f.plan === "string" ? fill(f.plan, v) : join(dir, "plan", "plan.md"),
+    log: logOf !== null ? milestoneLog(c, worktree, logOf) : typeof f.log === "string" ? fill(f.log, v) : join(dir, "log.md"),
+    stories: c.record.stories ?? null,
+    n: logOf,
+  };
+  checkInside(out, [...["brief", "plan"].filter((k) => typeof f[k] === "string"), ...(logOf !== null || typeof f.log === "string" ? ["log"] : []), "stories"], "record.fix");
+  return out;
+}
+
+/**
+ * The card's record paths: { brief, plan, log, stories, n }. A milestone's are relative to its worktree; a fix
+ * card's are its own (fixRecord), and any of them in its job folder is absolute.
+ * {n} (milestones): "next-milestone-number" is one more than the highest {n} of a brief in the worktree and of
+ * every other unmerged milestone's record (a fix never counts); any other numbering is the number in the card's id.
  */
 export function resolveRecord(c, job, worktree, others = []) {
+  if (job.kind === "fix") return fixRecord(c, job, worktree);
   const r = c.record;
   const idNo = Number(/\d+$/.exec(job.id)?.[0] ?? NaN);
   let n;
-  if (Number.isInteger(job.logOf)) n = job.logOf;
-  else if (r.numbering === "next-milestone-number") {
+  if (r.numbering === "next-milestone-number") {
     const re = patternRegex(r.brief);
     let max = 0;
     for (const f of filesUnder(worktree, r.brief)) { const m = re.exec(f); if (m?.groups?.n) max = Math.max(max, Number(m.groups.n)); }
-    for (const o of others) if (o.id !== job.id && o.stage !== "merged" && Number.isInteger(o.record?.n) && !Number.isInteger(o.logOf)) max = Math.max(max, o.record.n);
+    for (const o of others) if (o.id !== job.id && o.kind !== "fix" && o.stage !== "merged" && Number.isInteger(o.record?.n) && !Number.isInteger(o.logOf)) max = Math.max(max, o.record.n);
     n = max + 1;
   } else n = Number.isInteger(idNo) ? idNo : null;
   const v = { id: job.id, slug: job.slug, n };
-  let log = fill(r.log, v);
-  if (Number.isInteger(job.logOf)) {
-    const re = patternRegex(r.log, { n: job.logOf, id: `m-${job.logOf}` });
-    const hits = filesUnder(worktree, r.log).filter((f) => re.test(f)).sort();
-    if (hits.length !== 1) fail("LOG_NOT_FOUND", hits.length ? `--log ${job.logOf} matches more than one log (${hits.join(", ")}); refile the fix naming one` : `--log ${job.logOf}: no file in the worktree matches ${r.log}`);
-    log = hits[0];
-  }
-  const out = { brief: fill(r.brief, v), plan: fill(r.plan, v), log, stories: r.stories ?? null, n };
-  for (const k of ["brief", "plan", "log", "stories"]) if (typeof out[k] === "string" && outside(out[k])) fail("BAD_RECORD_PATH", `record.${k} resolves to "${out[k]}", outside the worktree`);
+  const out = { brief: fill(r.brief, v), plan: fill(r.plan, v), log: fill(r.log, v), stories: r.stories ?? null, n };
+  checkInside(out, ["brief", "plan", "log", "stories"]);
   return out;
 }

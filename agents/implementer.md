@@ -44,7 +44,7 @@ Commit through the factory only, naming each path, so the commit lock and the no
 
 `sfactory commit --cwd <WORKTREE> --holder <JOB> --m "<conventional message>" -- <path> [<path>...]`
 
-Never `git commit`. Code and the log entry are separate commits.
+Never `git commit`. Code and the log entry are separate commits. When the LOG is outside WORKTREE (a fix card's own log, kept in its job folder), write the entry there and commit only the code.
 
 ## Rules of the factory
 

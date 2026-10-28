@@ -110,7 +110,17 @@
         "stories": { "type": ["string", "null"], "description": "Glob of product stories files, or null." },
         "carriedForward": { "type": ["string", "null"], "description": "Path of the carried-forward obligations file, or null." },
         "postCloseHeading": { "type": "string", "description": "Heading under which post-close work is appended to a log." },
-        "numbering": { "type": "string", "description": "How a job's number is chosen, e.g. job-id or next-milestone-number." }
+        "numbering": { "type": "string", "description": "How a milestone's number is chosen, e.g. job-id or next-milestone-number. A fix card never takes one." },
+        "fix": {
+          "type": "object",
+          "description": "A fix card's own record patterns ({id} and {slug}, never {n}), relative to the worktree. Without them a fix card's brief and plan are plan/brief.md and plan/plan.md in its job folder, and its log is log.md there, unless it was filed with --log <n>: then milestone n's log, under record.postCloseHeading.",
+          "properties": {
+            "brief": { "type": "string", "description": "Path pattern of a fix card's brief." },
+            "plan": { "type": "string", "description": "Path pattern of a fix card's plan." },
+            "log": { "type": "string", "description": "Path pattern of a fix card's log, used when it was filed without --log." }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": true
     },

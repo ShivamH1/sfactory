@@ -8,7 +8,7 @@ allowed-tools: Bash(sfactory *), Bash(sfactory-* *), Bash(git *), Bash(bash *), 
 
 You run the factory for this repository. You call the `sfactory` CLI for every state change, dispatch agents and invoke the factory's skills for the work, and talk to the person at the gates. You write no product code yourself. The CLI refuses anything illegal: when it refuses, read its error code, do what the code says, and never work around it.
 
-Words used below: `<id>` is a card id (`m-3`, `f-1`). JOB_DIR is `<stateDir>/jobs/<id>/` (`stateDir` from the config, resolved against the repository root; `.sfactory` by default). WORKTREE is the card's `worktree` field from `sfactory job show <id>`, and its record paths are the card's `record` field (`brief`, `plan`, `log`, `stories`, relative to WORKTREE), which the cut fills in.
+Words used below: `<id>` is a card id (`m-3`, `f-1`). JOB_DIR is `<stateDir>/jobs/<id>/` (`stateDir` from the config, resolved against the repository root; `.sfactory` by default). WORKTREE is the card's `worktree` field from `sfactory job show <id>`, and its record paths are the card's `record` field (`brief`, `plan`, `log`, `stories`), which the cut fills in. A milestone's are relative to WORKTREE. A fix card's are its own: its brief and plan sit in JOB_DIR (`plan/brief.md`, `plan/plan.md`) unless the config's `record.fix` gives patterns, and so does its log (`log.md`) unless it was filed with `--log <n>`; a path in JOB_DIR is absolute. PLAN, BRIEF and LOG are the three as absolute paths: `<WORKTREE>/<path>` for a relative one, the path itself for an absolute one. **A record file in JOB_DIR is the factory's, never committed**: write it, and leave it out of every `sfactory commit`.
 
 ## 1. Commands
 
@@ -81,16 +81,16 @@ A run ends when nothing is left but `pushed`, `merged` and `stopped` cards, or e
    - **A card whose `parallel` is `approved`**, beside the active partner A that its `parallelWith` names: `sfactory worktree cut <id> --base-of <A>`. It starts from A's recorded base, side by side.
    - **Any other card,** milestone or fix: `sfactory worktree cut <id>`.
 
-   The cut comes before any brainstorming. It also fills the job's `record`. A fix with `--log <n>` gets milestone `<n>`'s existing log as its `record.log`.
+   The cut comes before any brainstorming. It also fills the job's `record`. A fix card reserves no milestone number. A fix with `--log <n>` gets milestone `<n>`'s existing log as its `record.log`: its task entries and its close go into one dated section under `record.postCloseHeading` there (section 4, pushing).
 3. **A cut that fails stops the card:** `sfactory job stop <id> --reason "worktree cut failed: <error code>"`. `LOG_NOT_FOUND` means `--log` matched no single log file: tell the person.
 
 **planning**
 
 1. **A queued card already planned.** If the brief and the plan already exist at the job's `record` paths, skip to step 4.
-2. **The brief.** Touch the card, then invoke the `sfactory:brainstorming` skill (Skill tool). Hand it JOB, kind, title, JOB_DIR, WORKTREE and the record paths as absolute paths inside WORKTREE. It works with the person, writes the brief (and the stories, when `record.stories` is set), commits them in WORKTREE, and writes `plan/questionnaire.md` when questions remain.
+2. **The brief.** Touch the card, then invoke the `sfactory:brainstorming` skill (Skill tool). Hand it JOB, kind, title, JOB_DIR, WORKTREE and BRIEF, PLAN and LOG. It works with the person, writes the brief (and the stories, when `record.stories` is set), commits them in WORKTREE, and writes `plan/questionnaire.md` when questions remain.
 3. **The plan.** Its transition to `sfactory:writing-plans` is run by the plan role (section 6):
    - **A Claude subagent** follows `${CLAUDE_PLUGIN_ROOT}/skills/writing-plans/SKILL.md`, with the same inputs.
-   - **In `codex` mode**, render a prompt into `<JOB_DIR>/plan/plan-prompt.md`. It names the brief, the plan path and that skill's Task Structure and What the Parser Refuses rules, and says that Codex never commits. Run `sfactory codex exec --cwd <WORKTREE> --profile <agents.codex.implement> --out <JOB_DIR>/plan/codex-plan --job <id> --stage planning < <JOB_DIR>/plan/plan-prompt.md`. Then do the skill's self-review check 4 yourself and commit the plan with `sfactory commit --cwd <WORKTREE> --holder <id> --m "docs: plan for <title>" -- <record.plan>`.
+   - **In `codex` mode**, render a prompt into `<JOB_DIR>/plan/plan-prompt.md`. It names the brief, the plan path and that skill's Task Structure and What the Parser Refuses rules, and says that Codex never commits. Run `sfactory codex exec --cwd <WORKTREE> --profile <agents.codex.implement> --out <JOB_DIR>/plan/codex-plan --job <id> --stage planning < <JOB_DIR>/plan/plan-prompt.md`. Then do the skill's self-review check 4 yourself and commit the plan with `sfactory commit --cwd <WORKTREE> --holder <id> --m "docs: plan for <title>" -- <record.plan>`, unless the plan is in JOB_DIR.
    - **Hold the move back when the parallel check is due.** The check is due for a milestone in any of these cases:
      - its real-plan check (section 5) has not run yet (there is no `plan/parallel-check.md`), another milestone is active, and `parallel` is still null;
      - its real-plan check has not run yet and `parallel` is already `approved`;
@@ -102,7 +102,7 @@ A run ends when nothing is left but `pushed`, `merged` and `stopped` cards, or e
      - With `parallel` null, or a resuming queued card, the card then parks for the question naming the milestone now active (`--with`), and after a yes it comes back to `planning`.
      - With `parallel` already `approved`, a FAIL row parks it for a decision from `planning`.
    - Then `sfactory job set <id> awaiting-approval --reason "brief and plan written"`, if writing-plans has not already made that move.
-5. **Fix:** run `sfactory fixcard <WORKTREE>/<record.plan>` (an absolute path).
+5. **Fix:** run `sfactory fixcard <PLAN>`.
    - **Exit 0:** writing-plans runs `sfactory job set <id> building`.
    - **A hit** (exit 1, the matching files printed): refile the card. Run `sfactory job add milestone "<title>"`, then `sfactory job stop <id> --reason "refiled as <new id>: touches <the files>"`, and tell the person. The fix's worktree stays until they remove it.
 
@@ -133,9 +133,9 @@ A run ends when nothing is left but `pushed`, `merged` and `stopped` cards, or e
 2. **Rework.** For a `rework/<k>.md` that the plan does not yet carry, the plan role adds one task to `record.plan`:
    - Its heading is `### Task <next number>: Rework <k>`.
    - It has a `**Depends on:**` line and a `**Files:**` block, in writing-plans' format.
-   - Commit the plan with `sfactory commit`.
-3. **Build.** Invoke the `sfactory:sdd` skill (Skill tool) for the card. It takes JOB, JOB_DIR, WORKTREE, BRANCH_BASE (`base.head`), PLAN, BRIEF and LOG (absolute, inside WORKTREE), the mode and models, the limits and OFF_LIMITS. It does the following:
-   - It batches the tasks with `sfactory independence tasks <WORKTREE>/<record.plan> --max <limits.parallelTasks>`: one task at a time when the plan is undeclared.
+   - Commit the plan with `sfactory commit`, unless it is in JOB_DIR.
+3. **Build.** Invoke the `sfactory:sdd` skill (Skill tool) for the card. It takes JOB, JOB_DIR, WORKTREE, BRANCH_BASE (`base.head`), PLAN, BRIEF and LOG (absolute), the kind, the `--log` milestone of a fix (`logOf`) with `record.postCloseHeading`, the mode and models, the limits and OFF_LIMITS. It does the following:
+   - It batches the tasks with `sfactory independence tasks <PLAN> --max <limits.parallelTasks>`: one task at a time when the plan is undeclared.
    - It runs each task's implementer and reviews, and writes each task's log entry in `record.log`.
    - It commits every task through `sfactory commit`.
    - It stores each review as `reviews/<k>-<stage>.md`, with the verdict on the first line.
@@ -178,10 +178,10 @@ The sdd skill's whole-branch review, run in this order:
 1. **The stop.** If `pushing` is in `stops`, park the card the same way as in verifying.
 2. **The parallel merge.** For a parallel card cut side by side whose partner has already pushed, run the merge of section 5 first. A stacked card does not merge (section 5, step 8).
 3. **Close the record**, in WORKTREE:
-   - Write the closing section of `record.log`: what was built, the review verdicts, the suite count and the deviations.
+   - Write the closing section of LOG: what was built, the review verdicts, the suite count and the deviations. A fix filed with `--log <n>` closes inside its own dated section of milestone `<n>`'s log, under `record.postCloseHeading`, never above that heading.
    - Tick the plan's checkboxes for every completed task.
    - When `record.carriedForward` is set, reconcile it.
-   - Commit with `sfactory commit --cwd <WORKTREE> --holder <id> --m "docs: close <title>" -- <the files changed>`.
+   - Commit with `sfactory commit --cwd <WORKTREE> --holder <id> --m "docs: close <title>" -- <the files changed>`, naming only files inside WORKTREE (a record file in JOB_DIR is never committed).
 4. **Push** with `sfactory push --cwd <WORKTREE>`.
 5. **Write `<JOB_DIR>/pr.md`.** Its first line is the card's title. Then add:
    - a summary;

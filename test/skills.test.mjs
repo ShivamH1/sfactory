@@ -108,7 +108,7 @@ test("all expected Task 6 files exist", () => {
 test("the Rules of the factory block is identical across agents/ and across prompts/", () => {
   const rules = (text) => /## Rules of the factory[\s\S]*?(?=\n## )/.exec(text)?.[0];
   for (const dir of FOLDERS) {
-    const blocks = files(dir).map(({ f, path }) => [f, rules(readFileSync(path, "utf8"))]);
+    const blocks = files(dir).map(({ f, path }) => [f, rules(readFileSync(path, "utf8").replace(/\r\n/g, "\n"))]); // a CRLF checkout is the same block
     assert.ok(blocks.length > 0);
     for (const [f, b] of blocks) { assert.ok(b, `${dir}/${f} has the block`); assert.equal(b, blocks[0][1], `${dir}/${f} differs from ${blocks[0][0]}`); }
   }
@@ -456,8 +456,8 @@ test("skills/sfactory: the rulings, the stops and the amendment's rules are stat
     "main checkout", "Request changes", "plan/changes-<k>.md", "`sfactory job touch <id> --note \"<start|finish> <role> <alias|profile>\"`",
     "Per-dispatch effort cannot be set", "Codex never commits", "git -C <WORKTREE> status --porcelain", "task wrote outside its declared files",
     "reviews/<k>-<stage>.md", "FIX_ROUNDS_EXHAUSTED", "NOT ADDRESSED", "sfactory lock acquire live --holder <id>", "sfactory services up <id>",
-    "sfactory services down <id>", "sfactory push --cwd <WORKTREE>", "pr.md", "sfactory fixcard <WORKTREE>/<record.plan>",
-    "sfactory independence tasks <WORKTREE>/<record.plan> --max <limits.parallelTasks>", "sfactory cost add", "`stops`",
+    "sfactory services down <id>", "sfactory push --cwd <WORKTREE>", "pr.md", "sfactory fixcard <PLAN>",
+    "sfactory independence tasks <PLAN> --max <limits.parallelTasks>", "postCloseHeading", "never committed", "sfactory cost add", "`stops`",
     "sfactory:sdd", "sfactory:brainstorming", "writing-plans",
     // fix round 1: the four CLI additions, the gates end the turn, the questionnaire waits, the parallel reason
     "sfactory worktree cut <id> --base-of <A>", "sfactory worktree merge <id> --from <the partner>", "sfactory job request-changes <id> --notes-file",

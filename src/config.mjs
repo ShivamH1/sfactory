@@ -87,6 +87,18 @@ export function validateConfig(raw) {
     const v = raw.record?.[k];
     if (typeof v === "string" && outside(v)) errs.push(`record.${k}: "${v}" must be a path inside the worktree (no "..", not absolute)`);
   }
+  // record.fix: a fix card's own record patterns; a fix reserves no milestone number, so {n} is refused.
+  const fx = raw.record?.fix;
+  if (fx != null) {
+    if (typeof fx !== "object" || Array.isArray(fx)) errs.push("record.fix: an object of brief, plan and log patterns");
+    else for (const k of Object.keys(fx)) {
+      const v = fx[k];
+      if (!["brief", "plan", "log"].includes(k)) errs.push(`record.fix.${k}: only brief, plan and log`);
+      else if (typeof v !== "string" || !v) errs.push(`record.fix.${k}: a path pattern string`);
+      else if (outside(v)) errs.push(`record.fix.${k}: "${v}" must be a path inside the worktree (no "..", not absolute)`);
+      else if (v.includes("{n}")) errs.push(`record.fix.${k}: "${v}" uses {n}, but a fix card takes no milestone number (use {id} and {slug})`);
+    }
+  }
   for (const k of ["copyFromBase", "copyForVerify"]) {
     const v = raw.worktrees?.[k];
     if (Array.isArray(v)) for (const p of v) if (typeof p === "string" && outside(p)) errs.push(`worktrees.${k}: "${p}" must be a path inside the repo (no "..", not absolute)`);

@@ -462,3 +462,36 @@ test("worktree cli: remove clears the record with the other cut fields", async (
   assert.equal("record" in after, false);
   assert.equal(after.worktree, null);
 });
+
+test("I2: a fix card gets its own record - brief and plan in its job folder, no {n} reserved, its own log unless --log", async () => {
+  const { c } = specTree();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { readJob, jobDir } = await import("../src/store.mjs");
+  const { actions } = await import("../src/job-actions.mjs");
+  const { resolve: res } = await import("node:path");
+  actions.add(c, { kind: "fix", title: "Small thing" });            // f-1, no --log
+  actions.add(c, { kind: "milestone", title: "Rewards" });           // m-1
+  const f = cutJob(c, "f-1", { fetch: false });
+  const dir = res(jobDir(c, "f-1"));
+  assert.deepEqual(f.record, { brief: join(dir, "plan", "brief.md"), plan: join(dir, "plan", "plan.md"), log: join(dir, "log.md"), stories: "spec/product/STORIES_*.md", n: null });
+  const m = cutJob(c, "m-1", { fetch: false });
+  assert.equal(m.record.n, 8, "the fix reserved no number: the milestone takes the next after the briefs");
+  // record.fix patterns: relative to the worktree, {id} and {slug}.
+  c.record.fix = { brief: "docs/fixes/{id}-{slug}.md", plan: "docs/fixes/{id}-{slug}.plan.md" };
+  actions.add(c, { kind: "fix", title: "Patterned" });
+  const p = cutJob(c, "f-2", { fetch: false });
+  assert.equal(p.record.brief, "docs/fixes/f-2-patterned.md");
+  assert.equal(p.record.plan, "docs/fixes/f-2-patterned.plan.md");
+  assert.equal(p.record.log, join(res(jobDir(c, "f-2")), "log.md"));
+  for (const id of ["f-1", "m-1", "f-2"]) remove(c, readJob(c, id), { force: true });
+});
+
+test("I2: record.fix is validated - an object of brief, plan and log patterns inside the worktree, never {n}", async () => {
+  const { validateConfig } = await import("../src/config.mjs");
+  const base = { project: "p", agents: { mode: "claude" }, commands: { suite: "x" } };
+  assert.deepEqual(validateConfig({ ...base, record: { fix: { brief: "docs/fixes/{id}.md" } } }), []);
+  assert.ok(validateConfig({ ...base, record: { fix: { brief: "spec/{n}-{slug}.md" } } }).some((e) => /record\.fix\.brief.*\{n\}/.test(e)));
+  assert.ok(validateConfig({ ...base, record: { fix: { plan: "../x.md" } } }).some((e) => /record\.fix\.plan.*inside the worktree/.test(e)));
+  assert.ok(validateConfig({ ...base, record: { fix: { stories: "x" } } }).some((e) => /record\.fix\.stories: only brief, plan and log/.test(e)));
+  assert.ok(validateConfig({ ...base, record: { fix: ["x"] } }).some((e) => /record\.fix: an object/.test(e)));
+});
