@@ -45,7 +45,7 @@ export function jobs() {
   let m3 = start("m-3", "milestone", "Rework the settings page", T(8, 20));
   m3 = walk(m3, [["planning", T(8, 25)], ["awaiting-approval", T(8, 50)], ["building", T(9, 20)]]);
   out.push({
-    job: finish(m3, { branch: "feature/settings-rework", base: "main", worktree: "../wt/settings-rework", tasks: { total: 5, done: 2, parallel: [] }, updated: T(10) }),
+    job: finish(m3, { branch: "feature/settings-rework", base: "main", worktree: "../wt/settings-rework", tasks: { total: 5, done: 2, parallel: [] }, updated: T(14) }),
     files: {
       "cost.json": costFile([[T(8, 25), "planning", "claude", 42000, 6000, 12000], [T(9, 30), "building", "codex", 88000, 21000, 30000], [T(10), "building", "claude", 64000, 15000, 20000]]),
       "reviews/task-1.md": "✅ Approved\n\nThe sections are split cleanly.\n",

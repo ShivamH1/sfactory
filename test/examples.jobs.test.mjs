@@ -41,7 +41,9 @@ test("the snapshot over the demo jobs lists six jobs in the expected columns", (
   assert.equal(s.jobs.find((j) => j.id === "m-4").needsYou.action, "approve");
   assert.equal(s.jobs.find((j) => j.id === "f-1").needsYou.action, "answer");
   assert.deepEqual(s.jobs.find((j) => j.id === "m-3").reviews.map((r) => r.verdict), ["good", "bad"]);
-  assert.equal("active" in s.jobs.find((j) => j.id === "m-3"), false);
+  assert.equal("active" in s.jobs.find((j) => j.id === "m-3"), false, "an explicit later clock leaves it idle");
+  const demo = buildSnapshot({ stateDir: examples, board: { pollMs: 2000 } }, { demo: true });
+  assert.deepEqual(demo.jobs.filter((j) => j.active).map((j) => j.id), ["m-3"], "the demo clock is its latest stamp, so m-3 pulses");
 });
 
 test("m-3's cost entries are not later than its updated stamp", () => {

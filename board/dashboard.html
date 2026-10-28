@@ -228,7 +228,10 @@
       var ap = actionButton(card, job, "Approve", "go", "approve");
       ap.setAttribute("data-approve", "1");
       btns.appendChild(ap);
-      g.appendChild(h("div", "hint"));
+      var hint = h("div", "hint");
+      hint.id = "hint-" + job.id;
+      ap.setAttribute("aria-describedby", hint.id);
+      g.appendChild(hint);
       btns.appendChild(actionButton(card, job, "Request changes", "", "request-changes", function (c) { return { notes: required(c, "notes", "Request changes") }; }));
     } else if (n && n.action === "answer") {
       g.appendChild(h("div", "q", n.question || ""));
@@ -282,9 +285,9 @@
     var hint = c.el.querySelector(".hint");
     if (hint) hint.textContent = gated ? "Open the plan files first" : "";
   }
-  function noteViewed(id, rel) {
+  function noteViewed(id, rel, updated) {
     var job = snap && snap.jobs.filter(function (j) { return j.id === id; })[0];
-    if (!job || !/^plan\/[^/]+\.md$/.test(rel)) return;
+    if (!job || job.updated !== updated || !/^plan\/[^/]+\.md$/.test(rel)) return;
     var v = viewed[id];
     if (!v || v.updated !== job.updated) v = viewed[id] = { updated: job.updated, files: {} };
     v.files[rel] = true;
@@ -454,6 +457,8 @@
   function loadFile(rel) {
     drawerFile = rel;
     var id = drawerJob;
+    var started = snap && snap.jobs.filter(function (j) { return j.id === id; })[0];
+    var updatedAtStart = started ? started.updated : null;
     document.querySelectorAll("#files .btn").forEach(function (b) { b.classList.toggle("on", b.textContent === rel); });
     fetch("/jobs/" + encodeURIComponent(id) + "/file?path=" + encodeURIComponent(rel))
       .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, t: t }; }); })
@@ -462,7 +467,7 @@
         var v = $("verdict");
         if (!res.ok) { $("content").textContent = "Could not read this file."; v.className = "tag"; return; }
         $("content").textContent = res.t;
-        noteViewed(id, rel);
+        noteViewed(id, rel, updatedAtStart);
         var first = (res.t.split("\n")[0] || "").trim();
         var vm = VERDICT.exec(first);
         if (vm) {

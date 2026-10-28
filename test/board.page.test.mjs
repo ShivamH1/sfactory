@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { VERDICT, BAD } from "../src/board/snapshot.mjs";
 
 const html = readFileSync(new URL("../board/dashboard.html", import.meta.url), "utf8");
 
@@ -62,8 +63,21 @@ test("page: Approve is gated until every plan file has been displayed", () => {
   assert.match(html, /setAttribute\("aria-disabled", "true"\)/);
   assert.match(html, /if \(b\.getAttribute\("aria-disabled"\) === "true"\) return;/);
   assert.match(html, /v\.updated !== job\.updated/);
-  assert.match(html, /noteViewed\(id, rel\);/);
+  assert.match(html, /noteViewed\(id, rel, updatedAtStart\);/);
   assert.equal(/viewed\s*=.*(?:localStorage|sessionStorage)/.test(html), false);
+});
+
+test("page: the verdict and bad-colour rules are the server's, source and flags", () => {
+  const v = /var VERDICT = \/(.*)\/(\w*);/.exec(html);
+  const b = /\? "bad" : "ok"/.test(html) && /(\/\^\(\?:❌[^/]*\$\/)(\w*)\.test\(vm\[0\]\)/.exec(html);
+  assert.ok(v && b, "both patterns found in the page");
+  assert.equal(new RegExp(v[1], v[2]).source, VERDICT.source);
+  assert.equal(v[2], VERDICT.flags);
+  const pageBad = new RegExp(b[1].slice(1, -1), b[2]);
+  assert.equal(pageBad.source, BAD.source);
+  assert.equal(pageBad.flags, BAD.flags);
+  assert.match(html, /aria-describedby/);
+  assert.match(html, /job\.updated !== updated/);
 });
 
 test("page: the verdict regex matches whole words and colours them", () => {

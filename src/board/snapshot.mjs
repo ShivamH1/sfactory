@@ -46,8 +46,8 @@ function lockView(c, name) {
 }
 
 const WORKING = ["planning", "building", "reviewing", "fixing", "verifying", "pushing"];
-const VERDICT = /✅|❌|\b(?:Approved|Needs fixes|ok|red)\b/i; // the drawer's badge uses the same rule
-const BAD = /^(?:❌|needs fixes|red)$/i;
+export const VERDICT = /✅|❌|\b(?:Approved|Needs fixes|ok|red)\b/i; // the drawer's badge uses the same rule
+export const BAD = /^(?:❌|needs fixes|red)$/i;
 
 /** First line of a job file, at most 256 bytes read; null when unreadable. */
 function firstLine(c, id, rel) {
@@ -62,7 +62,7 @@ function firstLine(c, id, rel) {
 
 /** The latest three review files (by name) with a verdict; one whose first line says neither is left out. */
 function reviewChips(c, id, files) {
-  const names = files.filter((f) => /^reviews\/[^/]+\.md$/.test(f)).slice(-3);
+  const names = files.filter((f) => /^reviews\/[^/]+\.md$/.test(f)).sort((a, b) => a.localeCompare(b, "en", { numeric: true })).slice(-3);
   const out = [];
   for (const file of names) {
     const m = VERDICT.exec(firstLine(c, id, file) ?? "");

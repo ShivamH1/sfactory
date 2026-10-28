@@ -6,7 +6,7 @@ import { tmpDir } from "./helpers.mjs";
 import { addJob, withJobLock, writeJob, writeJobFile, jobDir } from "../src/store.mjs";
 import { park, transition } from "../src/job.mjs";
 import { addCost } from "../src/cost.mjs";
-import { buildSnapshot } from "../src/board/snapshot.mjs";
+import { buildSnapshot, VERDICT, BAD } from "../src/board/snapshot.mjs";
 import { acquireSync } from "../src/lock.mjs";
 
 const COLS = ["Backlog", "Plan", "Needs you", "In process", "Review", "Fixed", "Pushed / PR", "Done", "Stopped"];
@@ -87,7 +87,7 @@ test("snapshot: parallel proposal, stopped column, ports of live jobs", () => {
 });
 
 test("snapshot: active is set for a working stage updated inside board.activeMs, absent otherwise", () => {
-  const { c, set } = setup();
+  const { c } = setup();
   const a = addJob(c, "fix", "Fresh", { now: T0 });
   const b = addJob(c, "fix", "Stale", { now: T0 });
   const d = addJob(c, "fix", "Waiting", { now: T0 });
@@ -116,7 +116,7 @@ test("snapshot: reviews are the latest three verdict files, first line only, abs
   writeJobFile(c, a.id, "reviews/b-1.md", "# Review\n❌ Needs fixes");
   writeJobFile(c, a.id, "reviews/c-2.md", "❌ Needs fixes\nbody ✅");
   writeJobFile(c, a.id, "reviews/d-3.md", "Status: ok\n");
-  writeJobFile(c, a.id, "reviews/e-4.md", "just notes");
+  writeJobFile(c, a.id, "reviews/e-4.md", "just notes\n✅ Approved");
   writeJobFile(c, a.id, "reviews/sub/x.md", "✅");
   writeJobFile(c, b.id, "reviews/only.md", "just notes");
   const s = buildSnapshot(c, { now: NOW });
@@ -125,6 +125,15 @@ test("snapshot: reviews are the latest three verdict files, first line only, abs
   assert.deepEqual(byId[a.id].reviews, [{ file: "reviews/c-2.md", verdict: "bad" }, { file: "reviews/d-3.md", verdict: "good" }]);
   assert.equal("reviews" in byId[b.id], false);
   assert.equal("active" in byId[a.id], false);
+});
+
+test("snapshot: review chips sort numerically, so task-10 comes after task-2", () => {
+  const { c } = setup();
+  const a = addJob(c, "fix", "Numbered", { now: T0 });
+  for (const n of [1, 2, 10, 11]) writeJobFile(c, a.id, `reviews/task-${n}.md`, "✅ Approved");
+  const s = buildSnapshot(c, { now: NOW });
+  assert.deepEqual(s.jobs[0].reviews.map((r) => r.file), ["reviews/task-2.md", "reviews/task-10.md", "reviews/task-11.md"]);
+  assert.ok(VERDICT.test("✅") && BAD.test("red"));
 });
 
 test("snapshot: demo is present only when asked for", () => {
