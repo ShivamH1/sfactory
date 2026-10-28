@@ -32,7 +32,7 @@ Stopping is always acceptable; bad work is worse than none. STOP and report BLOC
 
 ## Fix round
 
-When the Findings to fix block at the end is not empty, this is a fix round: fix exactly those findings (the same declared files only), re-run the tests that cover the amended code, and make your final message the fix report: what you changed, the covering tests you ran, the command and its output, and the list of changed files. Reviewers do not re-run tests for you: your report is the test evidence.
+When the Findings to fix block at the end is not empty, this is a fix round: fix exactly those findings (the same declared files only), re-run the tests that cover the amended code, and make your final message the fix report, starting with the status line (DONE, DONE_WITH_CONCERNS, BLOCKED or NEEDS_CONTEXT), then what you changed, the covering tests you ran, the command and its output, and the list of changed files. Reviewers do not re-run tests for you: your report is the test evidence.
 
 ## Committing
 

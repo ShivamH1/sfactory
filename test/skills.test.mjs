@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KNOWN_PLACEHOLDERS } from "../src/placeholders.mjs";
-import { READ_ONLY_TOOLS, checkCommon } from "./skills.helpers.mjs";
+import { READ_ONLY_TOOLS, checkCommon, selfTest } from "./skills.helpers.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -26,7 +27,7 @@ function split(text) {
 
 for (const dir of FOLDERS) {
   for (const { f, path } of files(dir)) {
-    const text = readFileSync(path, "utf8");
+    const text = readFileSync(path, "utf8").replace(/\r\n/g, "\n");
     const { fm } = split(text);
     const label = `${dir}/${f}`;
     checkCommon(label, text);
@@ -90,7 +91,7 @@ test("secrets: example configs' neverHandToAgents entries are not named in any f
   }
   assert.ok(entries.length > 0);
   for (const d of FOLDERS) for (const { f, path } of files(d)) {
-    const text = readFileSync(path, "utf8");
+    const text = readFileSync(path, "utf8").replace(/\r\n/g, "\n");
     for (const e of entries) assert.ok(!text.includes(e), `${d}/${f} names ${e}`);
   }
 });
@@ -107,4 +108,18 @@ test("the Rules of the factory block is identical across agents/ and across prom
     assert.ok(blocks.length > 0);
     for (const [f, b] of blocks) { assert.ok(b, `${dir}/${f} has the block`); assert.equal(b, blocks[0][1], `${dir}/${f} differs from ${blocks[0][0]}`); }
   }
+});
+
+selfTest();
+
+test("no tracked text file contains control bytes (a raw backspace once replaced every \b)", () => {
+  const out = execFileSync("git", ["ls-files", "-z", "--", "src", "test", "board", "agents", "prompts", "skills", "examples", "bin"], { cwd: root, encoding: "utf8" });
+  const bad = [];
+  for (const f of out.split("\0").filter(Boolean)) {
+    if (/\.(png|jpg|jpeg|gif|ico|woff2?|zip)$/i.test(f)) continue;
+    const p = join(root, f);
+    if (!existsSync(p)) continue;
+    if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(readFileSync(p, "latin1"))) bad.push(f);
+  }
+  assert.deepEqual(bad, []);
 });

@@ -41,16 +41,21 @@ export function assertNamedPaths(paths, { cwd } = {}) {
   }
 }
 
-/** A path named in secrets.neverHandToAgents is never committed: matched as the same repo-relative path (a worktree has another root) or the same absolute file. */
+/** A path named in secrets.neverHandToAgents is never committed. Refused when a pathspec equals, lies inside, or is an ancestor of an entry, matched as the same repo-relative path (a worktree has another root) or the same absolute location; slashes normalised, case-insensitive on Windows. */
 export function assertNotSecret(c, paths, { cwd } = {}) {
   const secrets = c.secrets?.neverHandToAgents ?? [];
   if (!secrets.length) return;
-  const key = (p) => (process.platform === "win32" ? p.toLowerCase() : p);
-  const rel = new Set(secrets.map((s) => key(posix.normalize((c.repoRoot ? relative(c.repoRoot, s) : s).split("\\").join("/")))));
-  const abs = new Set(secrets.map((s) => key(resolve(s))));
+  const norm = (p) => {
+    const n = posix.normalize(String(p).split("\\").join("/")).replace(/\/+$/, "") || ".";
+    return process.platform === "win32" ? n.toLowerCase() : n;
+  };
+  const related = (a, b) => a === b || a === "." || b === "." || a.startsWith(b + "/") || b.startsWith(a + "/");
+  const rel = secrets.map((s) => norm(c.repoRoot ? relative(c.repoRoot, s) : s));
+  const abs = secrets.map((s) => norm(resolve(s)));
   for (const p of paths) {
-    const norm = key(posix.normalize(String(p).split("\\").join("/")));
-    if (rel.has(norm) || (cwd && abs.has(key(resolve(cwd, p))))) fail("SECRET_PATH", `"${p}" is listed in secrets.neverHandToAgents; it is never committed`);
+    const np = norm(p);
+    const ap = cwd ? norm(resolve(cwd, p)) : null;
+    if (rel.some((r) => related(np, r)) || (ap && abs.some((a) => related(ap, a)))) fail("SECRET_PATH", `"${p}" is, contains or lies inside a path listed in secrets.neverHandToAgents; it is never committed`);
   }
 }
 

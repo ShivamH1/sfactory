@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpRepo, tmpDir } from "./helpers.mjs";
-import { hasTrailers, assertNamedPaths, commit } from "../src/commit.mjs";
+import { hasTrailers, assertNamedPaths, assertNotSecret, commit } from "../src/commit.mjs";
 import { git, isClean } from "../src/git.mjs";
 
 const cfg = (trailers = false) => ({ stateDir: tmpDir("sf-c-"), git: { trailers, namedPathsOnly: true }, limits: { lockStaleMs: 1000 } });
@@ -83,4 +83,18 @@ test("commit: refuses a path listed in secrets.neverHandToAgents (SECRET_PATH), 
   mkdirSync(join(wt, "apps/api"), { recursive: true });
   await assert.rejects(() => commit(c, { cwd: wt, paths: ["apps/api/.env"], message: "feat: x" }), (e) => e.code === "SECRET_PATH");
   assert.ok(await commit(c, { cwd: r, paths: ["ok.txt"], message: "feat: ok" }));
+});
+
+test("commit: SECRET_PATH covers ancestors, children, case and backslashes", async () => {
+  const r = tmpRepo();
+  const c = { ...cfg(), repoRoot: r, secrets: { neverHandToAgents: [join(r, "apps", "api", ".env")] } };
+  const refused = (p) => assert.throws(() => assertNotSecret(c, [p], { cwd: r }), (e) => e.code === "SECRET_PATH", p);
+  refused("apps/api/.env");            // equal
+  refused(["apps", "api", ".env"].join(String.fromCharCode(92)));  // backslashes
+  refused("apps/api");                 // ancestor
+  refused("apps");                     // ancestor
+  refused("apps/api/.env/x");          // inside
+  refused("./apps/api/./.env");        // normalised
+  if (process.platform === "win32") refused("APPS/API/.ENV"); // case-insensitive on win32
+  assertNotSecret(c, ["apps/api/index.mjs", "apps/apix", "other/.env"], { cwd: r });
 });
