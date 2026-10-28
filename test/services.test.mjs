@@ -1,18 +1,47 @@
-import { test } from "node:test";
+import { test as nodeTest, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir, tmpRepo, writeConfig } from "./helpers.mjs";
-import { execFile } from "node:child_process";
-import { main } from "../src/cli.mjs";
+import { execFile, spawnSync } from "node:child_process";
+import { main as rawMain } from "../src/cli.mjs";
+import { fail } from "../src/errors.mjs";
 import { jobDir, writeJob as rawWriteJob, readJob, withJobLock } from "../src/store.mjs";
 const writeJob = (c, job) => withJobLock(c, job.id, () => rawWriteJob(c, job));
 import { isFree } from "../src/ports.mjs";
 import { acquire } from "../src/lock.mjs";
-import { servicesUp, servicesDown, servicesStatus, pidAlive, processStarts } from "../src/services.mjs";
+import { servicesUp as rawUp, servicesDown as rawDown, servicesStatus, pidAlive, processStarts } from "../src/services.mjs";
 
-const SLEEP = 'node -e "setTimeout(()=>{},120000)"';
-const listenCmd = (p) => `node -e "require('net').createServer().listen(${p});setTimeout(()=>{},120000)"`;
+// Every test process ends itself, so one the cleanup could not attribute still cannot outlive the run.
+const SLEEP = 'node -e "setTimeout(()=>process.exit(0),120000)"';
+const listenCmd = (p) => `node -e "require('net').createServer().listen(${p});setTimeout(()=>process.exit(0),120000)"`;
+
+// The reaper: attribution-independent. Every pid a test starts is remembered and killed directly, whatever servicesDown
+// decided about it. It runs after each test, after the file, and (synchronously) when the process exits.
+const started = new Set();
+const track = (...pids) => { for (const p of pids) if (Number.isInteger(p) && p > 0) started.add(p); };
+function reapSync() {
+  for (const p of started) {
+    try {
+      if (process.platform === "win32") { if (pidAlive(p)) spawnSync("taskkill", ["/PID", String(p), "/T", "/F"], { stdio: "ignore", windowsHide: true, timeout: 10_000 }); }
+      else { try { process.kill(-p, "SIGKILL"); } catch { /* not found */ } try { process.kill(p, "SIGKILL"); } catch { /* not found */ } }
+    } catch { /* not found */ }
+  }
+  started.clear();
+}
+process.on("exit", reapSync);
+after(reapSync);
+const test = (name, opts, fn) => {
+  const body = fn ?? opts;
+  const run = (t) => { t.after(reapSync); return body(t); };
+  return fn ? nodeTest(name, opts, run) : nodeTest(name, run);
+};
+const harvest = (c, job) => {
+  try { track(...JSON.parse(readFileSync(join(jobDir(c, job.id), "verify", "services.json"), "utf8")).services.map((x) => x.pid)); } catch { /* no record */ }
+};
+const servicesUp = async (c, job, o) => { try { const r = await rawUp(c, job, o); track(...r.map((x) => x.pid)); return r; } finally { harvest(c, job); } };
+const servicesDown = async (c, job, o) => { harvest(c, job); return rawDown(c, job, o); };
+const main = (argv, io) => rawMain(argv, { ...io, stdout: (s) => { for (const m of String(s).matchAll(/pid=([0-9]+)/g)) track(Number(m[1])); io.stdout(s); } });
 
 async function freeBlock(from) {
   for (let p = from; p < from + 800; p += 4) if ((await isFree(p)) && (await isFree(p + 1))) return p;
@@ -227,6 +256,7 @@ test("services: two concurrent ups from two processes start one set", async () =
   const up = () => new Promise((res) => execFile(process.execPath, [bin, "up", "m-1"], { cwd: repo, windowsHide: true }, (err, stdout, stderr) => res({ code: err ? err.code : 0, stderr })));
   try {
     const r = await Promise.all([up(), up()]);
+    harvest(c, { id: "m-1" });
     assert.deepEqual(r.map((x) => x.code).sort(), [0, 2]);
     assert.match(r.find((x) => x.code === 2).stderr, /SERVICES_RUNNING/);
     assert.equal(JSON.parse(readFileSync(join(jobDir(c, "m-1"), "verify", "services.json"), "utf8")).services.length, 1);
@@ -268,6 +298,23 @@ async function cliCard(base) {
   return { c, run, rec: join(jobDir(c, "m-1"), "verify", "services.json") };
 }
 
+test("services: a failed start-time query is a retryable refusal, not unknown: up and down refuse, nothing is killed or dropped", async () => {
+  await withPorts(48350, async (ports) => {
+    const { c, job } = setup([{ name: "a", cmd: SLEEP }]);
+    job.ports = ports; writeJob(c, job);
+    const rec = join(jobDir(c, job.id), "verify", "services.json");
+    const broken = { startsFn: () => fail("START_TIMES_UNREADABLE", "start times could not be read (x); retry") };
+    let pid;
+    try {
+      [{ pid }] = await servicesUp(c, job);
+      await assert.rejects(servicesUp(c, job, broken), (e) => e.code === "START_TIMES_UNREADABLE" && /retry/.test(e.message));
+      await assert.rejects(servicesDown(c, job, broken), (e) => e.code === "START_TIMES_UNREADABLE");
+      assert.ok(pidAlive(pid) && existsSync(rec), "nothing was killed and the record stays");
+      assert.equal(servicesStatus(c, job)[0].state, "ours", "and a later, working query still attributes it");
+    } finally { await servicesDown(c, job); }
+  });
+});
+
 test("services: down exits 1 with the reason for an unknown pid, which stays in the record", async () => {
   const { run, rec } = await cliCard(48700);
   try {
@@ -278,7 +325,7 @@ test("services: down exits 1 with the reason for an unknown pid, which stays in 
     assert.ok(existsSync(rec));
     const up = await run({ startOf: () => null }, "up", "m-1");
     assert.equal(up.code, 2);
-    assert.match(up.err, /SERVICES_UNKNOWN.*check these pids are yours/);
+    assert.match(up.err, /SERVICES_UNKNOWN.*check these pids are yours.*if they are yours, retry "sfactory services down m-1"/);
     assert.doesNotMatch(up.err, /stop them|kill/);
   } finally { assert.equal((await run(undefined, "down", "m-1")).code, 0); }
 });
@@ -301,7 +348,8 @@ test("services: a dead group leader whose group lives on is still ours, and down
     const { c, job } = setup([{ name: "a", cmd: "sleep 120 & exit 0" }]);
     job.ports = ports; writeJob(c, job);
     try {
-      await servicesUp(c, job);
+      const [{ pid }] = await servicesUp(c, job);
+      assert.ok(await waitFor(() => !pidAlive(pid)), "the leader has exited");
       assert.ok(await waitFor(() => servicesStatus(c, job)[0].state === "ours"));
     } finally { const d = await servicesDown(c, job); assert.deepEqual(d.killed, ["a"]); }
   });
