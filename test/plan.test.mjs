@@ -64,7 +64,13 @@ test("plan: mixed Files lines refuse unquoted text", () => {
 
 test("plan: fence openers - inline triple-backtick runs and tab indents are not fences", () => {
   assert.deepEqual(names("### Task 1: A\n- Create: `a.ts`\n```x```\n" + tail), [1, 2]);
-  assert.deepEqual(names("### Task 1: A\n- Create: `a.ts`\n\t```\n" + tail), [1, 2]);
+  // Fix round 5 (N1) superseded this case: under the "- Create:" item a tab-indented
+  // fence is the item's own fence (R4-3), and "### Task 2" ends it by its container,
+  // not by a closer - now refused, since such a fence can re-pair with a later closer
+  // and swallow Files lines. The original intent, a tab-indented run outside any
+  // item being indented code and not a fence, holds directly under the heading.
+  assert.equal(code("### Task 1: A\n- Create: `a.ts`\n\t```\n" + tail), "PLAN_UNCLOSED_FENCE");
+  assert.deepEqual(names("### Task 1: A\n\t```\n- Create: `a.ts`\n" + tail), [1, 2]);
 });
 
 const files = (md) => parsePlan(md).tasks[0].files;

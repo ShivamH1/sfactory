@@ -421,7 +421,10 @@ test("fix R4-3: fenced and 4-space indented code is skipped; nested lists are no
   // A fence inside a list item, indented four spaces, is still a fence.
   assert.equal(info(each("- Note:\n\n    ```md\n    **Depends on:** none\n    ```")), "none");
   // A list item's fence ends with the item: the next item is read, not hidden.
-  assert.deepEqual(files(one("- Create: `a.ts`\n- Step:\n  ```\n  x\n- Modify: `secret.ts`\n```\ny\n```")), ["create a.ts", "modify secret.ts"]);
+  // Fix round 5 (N1) superseded this: a fence ended by its item rather than by a
+  // closer is now refused outright, since the stray closer after it can re-pair with
+  // a later fence and swallow Files lines. Nothing is hidden either way.
+  assert.equal(code(one("- Create: `a.ts`\n- Step:\n  ```\n  x\n- Modify: `secret.ts`\n```\ny\n```")), "PLAN_UNCLOSED_FENCE");
   assert.equal(code(one("- Create: `a.ts`\n- Step:\n  ```\n- Modify: `secret.ts`\n```")), "PLAN_UNCLOSED_FENCE");
   // Lines indented under a list item are its content, not code.
   assert.deepEqual(files(one("- Modify:\n  - `b.ts`\n\n    - `secret.ts`")), ["modify b.ts", "modify secret.ts"]);
@@ -436,7 +439,9 @@ test("fix R4-3: blockquote prefixes are stripped and the line read", () => {
   assert.equal(info(t2("> **Depends on:** Task 1\n")), "declared");
   // A fence inside a quote is skipped; one that loses its quote ends there.
   assert.equal(info(t2("**Depends on:** Task 1\n").replace("**Depends on:** none", "> ```\n> **Depends on:** none\n> ```")), "none");
-  assert.deepEqual(files(one("- Create: `a.ts`\n> ```\n- Modify: `secret.ts`\n```\n```")), ["create a.ts", "modify secret.ts"]);
+  // Fix round 5 (N1) superseded this: a quoted fence ended by an unquoted line, not
+  // by a closer, is now refused rather than read past.
+  assert.equal(code(one("- Create: `a.ts`\n> ```\n- Modify: `secret.ts`\n```\n```")), "PLAN_UNCLOSED_FENCE");
   assert.equal(code("> - Modify: `x.ts`\n### Task 1: A\n- Create: `a.ts`\n"), "PLAN_FILES_OUTSIDE_TASK");
 });
 
@@ -455,8 +460,11 @@ test("fix R4-4: an unindented line directly after a Files line continues it", ()
 test("fix R4-4: an unindented sibling bullet under a bare op line is that op's item", () => {
   assert.deepEqual(files(one("- Create: `a.ts`\n- Modify:\n- `secret.ts`")), ["create a.ts", "modify secret.ts"]);
   assert.deepEqual(files(one("- Create: `a.ts`\n- Modify:\n- `b.ts`\n- `secret.ts`")), ["create a.ts", "modify b.ts", "modify secret.ts"]);
-  // A checkbox step is never an item.
-  assert.deepEqual(files(one("- Create: `a.ts`\n- Modify:\n- [ ] edit `x.ts`")), ["create a.ts"]);
+  // A checkbox step is never an item. Fix round 5 (N2) superseded the expectation
+  // ["create a.ts"]: the bare "- Modify:" then has nothing read under it, which is now
+  // refused, since its files may sit where the parser does not read them.
+  assert.equal(code(one("- Create: `a.ts`\n- Modify:\n- [ ] edit `x.ts`")), "PLAN_BAD_FILE_LINE");
+  assert.deepEqual(files(one("- Create: `a.ts`\n- Modify:\n- `b.ts`\n- [ ] edit `x.ts`")), ["create a.ts", "modify b.ts"]);
 });
 
 test("fix R4-5: __Depends on:__ and Depends-on are labels", () => {
@@ -475,4 +483,64 @@ test("probe pass: an empty Files label with nothing under it is refused", () => 
   // Anything read under it - an item, an op line, a lazy line - satisfies it.
   assert.deepEqual(files(md("- Create: `a.ts`")), ["create a.ts"]);
   assert.deepEqual(files(md("None: this task only runs the suite.")), []);
+});
+
+test("fix round 5 N1: a fence ended by its container rather than a closer is refused", () => {
+  // A closer at column 0 under a fence opened inside a list item ends the item,
+  // not the fence; the next fence would then pair with the wrong closer and
+  // swallow the Files lines between (the round-4 re-review's probe).
+  const step = (body) => "### Task 1: A\n- [ ] Step 1:\n  ```ts\n  x\n" + body + "\n### Task 2: B\n- Create: `db/migrations/002/m.sql`\n- Modify: `shared.ts`\n**Depends on:** none\n";
+  assert.equal(code(step("```\n- Create: `db/migrations/001/m.sql`\n- Modify: `shared.ts`\n**Depends on:** none\n- [ ] Step 2:\n  ```ts\n  y\n```")), "PLAN_UNCLOSED_FENCE");
+  // A heredoc's EOF at column 0 inside an item's indented fence.
+  assert.equal(code(step("  cat <<EOF\nEOF\n  ```\n- Create: `db/migrations/001/m.sql`\n**Depends on:** none\n- [ ] Step 2:\n  ```bash\n  y\n  ```")), "PLAN_UNCLOSED_FENCE");
+  // A quoted fence ended by an unquoted line, or by a blank line, is refused too.
+  assert.equal(code(one("- Create: `a.ts`\n> ```\n> x\n- Modify: `secret.ts`")), "PLAN_UNCLOSED_FENCE");
+  assert.equal(code(one("- Create: `a.ts`\n> ```\n> x\n\n- Modify: `secret.ts`")), "PLAN_UNCLOSED_FENCE");
+  // The refusal names where the fence opened.
+  assert.match((() => { try { parsePlan(one("- Step:\n  ```\n  x\nEOF\n- Create: `a.ts`")); } catch (e) { return e.message; } return ""; })(), /line 3/);
+  // A fence closed inside its item, or inside its quote, is fine.
+  assert.deepEqual(files(one("- Create: `a.ts`\n- Step:\n  ```\n  x\n  ```\n- Modify: `b.ts`")), ["create a.ts", "modify b.ts"]);
+  assert.deepEqual(files(one("- Create: `a.ts`\n> ```\n> x\n> ```\n- Modify: `b.ts`")), ["create a.ts", "modify b.ts"]);
+  // A blank line inside an item's fence does not end it.
+  assert.deepEqual(files(one("- Create: `a.ts`\n- Step:\n  ```\n  x\n\n  y\n  ```\n- Modify: `b.ts`")), ["create a.ts", "modify b.ts"]);
+});
+
+test("fix round 5 N2: a bare op line with nothing read under it is refused", () => {
+  // Its items in an indented fence, or eight columns deep after a blank line, are code: the files would be hidden.
+  assert.equal(code(one("- Create: `a.ts`\n- Modify:\n    ```\n    - `secret.ts`\n    ```") + tail), "PLAN_BAD_FILE_LINE");
+  assert.equal(code(one("- Create: `a.ts`\n- Modify:\n\n        - `secret.ts`") + tail), "PLAN_BAD_FILE_LINE");
+  assert.equal(code(one("- Create: `a.ts`\n- Delete:") + tail), "PLAN_BAD_FILE_LINE");
+  assert.equal(code(one("- Create: `a.ts`\n- Modify:\n\nSome prose.") + tail), "PLAN_BAD_FILE_LINE");
+  // Items under it, indented, lazy or after a blank line, satisfy it.
+  assert.deepEqual(files(one("- Modify:\n  - `b.ts`")), ["modify b.ts"]);
+  assert.deepEqual(files(one("- Modify:\n- `b.ts`")), ["modify b.ts"]);
+  assert.deepEqual(files(one("- Modify:\n\n  - `b.ts`")), ["modify b.ts"]);
+  assert.deepEqual(files(one("**Files:**\n- Modify:\n  - `b.ts`")), ["modify b.ts"]);
+  // "- add:" with nothing after it introduces a step's code block, as before.
+  assert.deepEqual(files(one("- Create: `a.ts`\n- add:\n\n```ts\nz\n```")), ["create a.ts"]);
+});
+
+test("fix round 5 N3: a loose 'depends on' line inside an open Files list is also its continuation", () => {
+  assert.deepEqual(files(one("- Modify: `a.ts` (the parser that\n  depends on `secret.ts`)")), ["modify a.ts", "modify secret.ts"]);
+  assert.deepEqual(files(one("**Files:**\n- Modify: `a.ts`\n- Depends on the `secret.ts` schema")), ["modify a.ts", "touch secret.ts"]);
+  // It still orders.
+  const p = "### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Modify: `b.ts`,\n  depends on Task 1 for `secret.ts`\n";
+  assert.deepEqual([deps(p, 1), files(p, 1), parsePlan(p).dependencyInfo], [[1], ["modify b.ts", "modify secret.ts"], "none"]);
+  // With no Files list open it is ordering only, as in round 4.
+  assert.deepEqual(files("### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Create: `b.ts`\n\nDepends on Task 1\n", 1), ["create b.ts"]);
+});
+
+test("fix round 5 N4: a '**Files:** none' inside a comment spanning lines exempts nothing", () => {
+  assert.equal(code(one("Edit `src/x.ts`. <!-- was:\n**Files:** none\n-->") + tail), "PLAN_TASK_NO_FILES");
+  // Outside a comment it still exempts.
+  assert.deepEqual(files(one("Edit `src/x.ts`.\n\n**Files:** none") + tail), []);
+});
+
+test("fix round 5 O1: lines skipped as code still count as path mentions", () => {
+  // A task whose only Files line is indented four spaces under its heading is code, and parses file-less no more.
+  assert.equal(code(one("    - Modify: `secret.ts`") + tail), "PLAN_TASK_NO_FILES");
+  // Beside a real Files line, code is still not read for files.
+  assert.deepEqual(files(one("- Create: `a.ts`\n\nExample:\n\n    - Modify: `x.ts`")), ["create a.ts"]);
+  // Fenced code counts the same way.
+  assert.equal(code(one("```\n- Modify: `secret.ts`\n```") + tail), "PLAN_TASK_NO_FILES");
 });

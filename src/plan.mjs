@@ -219,8 +219,9 @@ function uncomment(s) {
  * by their content column, so a line indented under an item is that item's
  * content (a nested list, a wrapped line), and only a line four columns past
  * its container, after something that is not a paragraph, is indented code. A
- * fence belongs to the item or quote it opens in and ends with it, so a fence
- * left open inside an item cannot swallow the next item.
+ * fence belongs to the item or quote it opens in; one that its item or quote
+ * ends before a closing fence does is refused (round 5, N1), since the stray
+ * closer would re-pair with a later fence and swallow what lies between.
  *
  * A comment opening a line is an HTML block and runs to the first "-->",
  * blank lines included; one never closed is refused. A comment opening
@@ -229,12 +230,15 @@ function uncomment(s) {
  * to declare the plan - because a code span across lines cannot be told apart
  * from one here.
  *
- * Returns [{ text, no, suspect }]; a line that held only a comment is left out.
+ * Returns [{ text, no, suspect, code? }]; a line that held only a comment is
+ * left out, and a line skipped as code carries its raw text as `code`, read
+ * for path mentions only (round 5, O1).
  */
 function scan(md) {
   const raw = String(md).split(/\r?\n/);
   const out = [];
-  const keep = (text, no, suspect) => out.push({ text, no, suspect });
+  // `code` is the raw text of a line skipped as code: read for path mentions only (round 5, O1).
+  const keep = (text, no, suspect, code) => out.push(code === undefined ? { text, no, suspect } : { text, no, suspect, code });
   let fence = null;     // { ch, len, col, q, no } while inside a fenced block
   let comment = 0;      // the line a block-level comment opened on, while it is open
   let stack = [];       // content columns of the open list items, innermost last
@@ -257,14 +261,16 @@ function scan(md) {
       const u = unquote(raw[i], fence.q);
       const ind = indentOf(u.s);
       // A fence ends with its quote (a line without the marker) or its list item (a line indented less).
-      const ended = u.q < fence.q || (!!u.s.trim() && ind < fence.col);
-      if (!ended) {
-        const c = u.s.trim().match(/^(`{3,}|~{3,})$/);
-        if (c && ind - fence.col <= 3 && c[1][0] === fence.ch && c[1].length >= fence.len) { fence = null; prev = "other"; }
-        keep("", no, suspect);
-        continue;
+      // Ended so, not by a closer, it is refused (round 5, N1): a closer at the wrong
+      // indent, or a heredoc's EOF, would otherwise re-pair the fences after it and
+      // swallow the Files lines between.
+      if (u.q < fence.q || (!!u.s.trim() && ind < fence.col)) {
+        fail("PLAN_UNCLOSED_FENCE", `a fenced code block opened on line ${fence.no} is ended on line ${no} by its ${u.q < fence.q ? "blockquote" : "list item"}, not by a closing fence; close it inside its container`);
       }
-      fence = null; prev = "other";
+      const c = u.s.trim().match(/^(`{3,}|~{3,})$/);
+      if (c && ind - fence.col <= 3 && c[1][0] === fence.ch && c[1].length >= fence.len) { fence = null; prev = "other"; }
+      keep("", no, suspect, raw[i]);
+      continue;
     }
     const { q, s } = unquote(raw[i]);
     if (!s.trim()) { keep("", no, suspect); prev = "blank"; if (q !== prevQ) { stack = []; prevQ = q; } continue; }
@@ -275,9 +281,9 @@ function scan(md) {
     if (prev === "para" && !opener) { const lt = lineText(s, i, false); if (lt !== null) keep(lt, no, suspect || i <= suspectTo); continue; }   // a paragraph's continuation
     while (stack.length && ind < stack[stack.length - 1]) stack.pop();
     const col = stack.length ? stack[stack.length - 1] : 0;
-    if (ind - col >= 4) { keep("", no, suspect); prev = "code"; continue; }   // indented code
+    if (ind - col >= 4) { keep("", no, suspect, raw[i]); prev = "code"; continue; }   // indented code
     const f = t.match(/^(`{3,}|~{3,})(.*)$/);
-    if (f && !(f[1][0] === "`" && f[2].includes("`"))) { fence = { ch: f[1][0], len: f[1].length, col, q, no }; keep("", no, suspect); prev = "other"; continue; }
+    if (f && !(f[1][0] === "`" && f[2].includes("`"))) { fence = { ch: f[1][0], len: f[1].length, col, q, no }; keep("", no, suspect, raw[i]); prev = "other"; continue; }
     const li = t.match(LIST_ITEM);
     if (THEMATIC.test(s)) prev = "other";
     else if (li) {
@@ -337,8 +343,12 @@ function scan(md) {
  * parallel.
  *
  * A Files list survives blank lines while the next non-blank line is a list
- * item (not a "[ ]" step) or an indented line (S4). An empty Files label must
- * have something under it.
+ * item (not a "[ ]" step) or an indented line (S4). An empty Files label, and
+ * a bare op line other than "add", must have something read under it (round 5,
+ * N2). A loose "depends on" line met while a Files list is open is read both
+ * as ordering and as the list's continuation (N3). A "**Files:** none" inside a
+ * comment spanning lines exempts nothing (N4), and a line skipped as code still
+ * counts as a path mention (O1).
  */
 export function parsePlan(md) {
   const lines = scan(md);
@@ -405,26 +415,36 @@ export function parsePlan(md) {
     for (const p of r.paths) if (!cur.files.some((x) => x.op === o && x.path === p)) cur.files.push({ op: o, path: p });
     return o;
   };
-  const add = (op, rest, where, { plain = true, isLabel = false } = {}) => {
+  const add = (op, rest, where, { plain = true, isLabel = false, suspect = false } = {}) => {
     // "- add:" with nothing after it introduces a step's code block; it is a
     // Files line only if indented items follow it (a nested list).
     // A label's list stays a label's list across its op lines.
     const inLabel = isLabel || !!cont?.label;
-    if (isLabel && !rest) { if (emptyLabel) failEmptyLabel(); emptyLabel = { at: where }; }
+    // Any other bare op line must have something read under it, as an empty label must
+    // (round 5, N2). An op line satisfies an empty label above it; only its own items
+    // satisfy an empty op line.
+    if (!rest && (isLabel || op !== "add")) { if (emptyLabel && (isLabel || emptyLabel.op)) failEmptyLabel(); emptyLabel = { at: where, op: isLabel ? null : op }; }
+    else if (emptyLabel?.op) failEmptyLabel();
     else emptyLabel = null;
     if (!rest) { cont = { op, comma: false, list: true, label: inLabel }; return; }
     const r = pathsOf(rest, where);
-    // Only the "**Files:** none" label declares a file-less task (N5).
-    if (isLabel && /^none\b/i.test(rest)) declared.add(cur);
+    // Only the "**Files:** none" label declares a file-less task (N5), and never
+    // from inside a comment spanning lines (round 5, N4).
+    if (isLabel && !suspect && /^none\b/i.test(rest)) declared.add(cur);
     // A read in the colon-less or qualified form may hide a write (N2).
     const o = record(op === "read" && !plain ? "touch" : op, r, rest);
     cont = { op: o, comma: /,\s*$/.test(rest), label: inLabel };
   };
   // An empty Files label with nothing under it (its list in a code block, say) would hide its files.
-  const failEmptyLabel = () => fail("PLAN_BAD_FILE_LINE", `${emptyLabel.at}: a Files label with nothing under it - list the files under it, or write "**Files:** none"`);
+  const failEmptyLabel = () => fail("PLAN_BAD_FILE_LINE", emptyLabel.op
+    ? `${emptyLabel.at}: a bare "- ${emptyLabel.op}:" line with nothing under it - list its files under it`
+    : `${emptyLabel.at}: a Files label with nothing under it - list the files under it, or write "**Files:** none"`);
 
   const step = (k) => {
-    const { text: raw, no, suspect } = lines[k];
+    const { text: raw, no, suspect, code: skipped } = lines[k];
+    // A line skipped as code still counts as a path mention, so a task whose only
+    // Files lines are code is not accepted file-less (round 5, O1).
+    if (skipped !== undefined) note(skipped);
     const where = () => `Task ${cur.n} (line ${no})`;
     const h = raw.match(heading);
     if (h) {
@@ -476,22 +496,27 @@ export function parsePlan(md) {
       else if (!text.replace(/[\s*_]/g, "") && tail === null) depList = { indent: indentOf(raw), bulleted: BULLET_RE.test(raw), items: 0, no, task: cur };
       else badDep(where(), text);
       depend(ns); note(raw); consumes = false;
-      if (tail !== null) add("touch", tail, where(), { isLabel: true });
+      if (tail !== null) add("touch", tail, where(), { isLabel: true, suspect });
       return;
     }
-    const c = raw.match(consumesLine) ?? (raw.match(loose) && [null, "", raw.match(loose)[1]]);
+    const lo = !consumesLine.test(raw) && raw.match(loose);
+    const c = raw.match(consumesLine) ?? (lo && [null, "", lo[1]]);
+    // A loose line met while a Files list is open is read both ways, ordering and
+    // continuation, as a wrapped Consumes line is (round 5, N3).
+    let looseBoth = false;
     if (c) {
       const [text, tail] = splitLabel(c[1] + " " + c[2]);
       consume(text); note(raw); consumes = tail === null;
-      if (tail !== null) add("touch", tail, where(), { isLabel: true });
-      return;
+      if (tail !== null) add("touch", tail, where(), { isLabel: true, suspect });
+      if (!(lo && cont && tail === null)) return;
+      looseBoth = true;
     }
-    const f = fileLine(raw);
+    const f = looseBoth ? null : fileLine(raw);
     if (f) { consumes = false; add(f.op, f.rest, where(), { plain: f.plain }); return; }
     // A Files label ends a Consumes line; it is never its continuation (C1).
     // Inside an open Files list a wrapped Consumes line is read both ways.
-    let both = false;
-    if (consumes && /^\s+\S/.test(raw) && !label.test(raw)) { consume(raw); note(raw); if (!cont) return; both = true; }
+    let both = looseBoth;
+    if (!both && consumes && /^\s+\S/.test(raw) && !label.test(raw)) { consume(raw); note(raw); if (!cont) return; both = true; }
     if (!both) consumes = false;
     if (!raw.trim()) {
       if (cont && listGoesOn(k)) { cont.afterBlank = true; return; }
@@ -515,14 +540,16 @@ export function parsePlan(md) {
       cont.comma = /,\s*$/.test(text);
       return;
     }
+    // A loose line that is not the list's continuation leaves the list as it was (R4-2).
+    if (looseBoth) return;
     cont = null;
     const l = raw.match(label);
-    if (l) { add("touch", l[1], where(), { isLabel: true }); return; }
+    if (l) { add("touch", l[1], where(), { isLabel: true, suspect }); return; }
     note(raw);
   };
   for (let k = 0; k < lines.length; k++) {
     step(k);
-    if (emptyLabel && !cont?.label) failEmptyLabel();
+    if (emptyLabel && !cont?.list) failEmptyLabel();
   }
   endDepList();
   if (emptyLabel) failEmptyLabel();
