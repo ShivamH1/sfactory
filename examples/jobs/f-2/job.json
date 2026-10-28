@@ -1,0 +1,57 @@
+{
+  "id": "f-2",
+  "kind": "fix",
+  "title": "Stop the retry loop on a 404",
+  "stage": "stopped",
+  "returnStage": null,
+  "previousStage": "building",
+  "pending": null,
+  "branch": "fix/retry-404",
+  "base": "main",
+  "worktree": null,
+  "ports": null,
+  "record": null,
+  "tasks": {
+    "total": 2,
+    "done": 1,
+    "parallel": []
+  },
+  "round": 0,
+  "rework": 0,
+  "parallel": null,
+  "agents": null,
+  "cost": 0,
+  "started": "2026-01-05T08:50:00.000Z",
+  "updated": "2026-01-05T10:10:00.000Z",
+  "ended": null,
+  "history": [
+    {
+      "at": "2026-01-05T08:50:00.000Z",
+      "from": null,
+      "to": "backlog",
+      "by": "session",
+      "reason": "created"
+    },
+    {
+      "at": "2026-01-05T08:55:00.000Z",
+      "from": "backlog",
+      "to": "planning",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T09:10:00.000Z",
+      "from": "planning",
+      "to": "building",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T10:10:00.000Z",
+      "from": "building",
+      "to": "stopped",
+      "by": "user",
+      "reason": "superseded by a larger change"
+    }
+  ]
+}

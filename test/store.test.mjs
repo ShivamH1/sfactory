@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers.mjs";
-import { slugify, jobDir, listJobs, readJob, writeJob, nextId, writeJobFile, readJobFile, jobFileExists } from "../src/store.mjs";
+import { slugify, jobDir, listJobs, readJob, writeJob as rawWriteJob, withJobLock, nextId, writeJobFile, readJobFile, jobFileExists } from "../src/store.mjs";
 
 const cfg = () => ({ stateDir: tmpDir("sf-state-") });
+const writeJob = (c, job) => withJobLock(c, job.id, () => rawWriteJob(c, job));
+
 
 test("store: slugify", () => {
   assert.equal(slugify("M56 Feed moderation queue!"), "m56-feed-moderation-queue");

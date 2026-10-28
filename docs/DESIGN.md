@@ -158,7 +158,7 @@ Committed in the adopting repo's root. Every path is relative to the repo unless
   "limits": { "parallelMilestones": 2, "parallelTasks": 4, "fixRounds": 3, "taskRounds": 3 },
   "git": { "trailers": false, "namedPathsOnly": true, "push": true, "merge": false },
   "secrets": { "neverHandToAgents": ["apps/api/.env"] },
-  "board": { "port": 5900, "pollMs": 2000 }
+  "board": { "port": 4317, "pollMs": 2000 }
 }
 ```
 

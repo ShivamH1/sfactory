@@ -146,16 +146,17 @@ test("fixcard: checkFixCard names each hit, and the CLI exits 1 on one", async (
 // ---- fix round 1 ----
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { readJob, writeJob } from "../src/store.mjs";
+import { readJob, writeJob as rawWriteJob, withJobLock } from "../src/store.mjs";
+const writeJob = (c, job) => withJobLock(c, job.id, () => rawWriteJob(c, job));
 import { integration } from "../src/worktree.mjs";
 
 test("ports: two concurrent allocations in separate processes get distinct blocks, persisted under the lock", async () => {
   const c = { stateDir: tmpDir("sf-race-"), ports: { base: 47600, step: 10, names: ["api", "web"] } };
   for (const id of ["m-1", "m-2"]) writeJob(c, { id, kind: "milestone", title: id, stage: "building", started: `2026-01-01T00:00:0${id.slice(-1)}Z`, history: [] });
   const src = pathToFileURL(join(process.cwd(), "src")).href;
-  const code = `const {allocate}=await import(${JSON.stringify(src + "/ports.mjs")});const {readJob,writeJob}=await import(${JSON.stringify(src + "/store.mjs")});
+  const code = `const {allocate}=await import(${JSON.stringify(src + "/ports.mjs")});const {readJob,writeJob,withJobLock}=await import(${JSON.stringify(src + "/store.mjs")});
 const c=JSON.parse(process.argv[1]),id=process.argv[2];
-const p=await allocate(c,id,async(ports)=>{await new Promise(r=>setTimeout(r,500));writeJob(c,{...readJob(c,id),ports});});
+const p=await allocate(c,id,async(ports)=>{await new Promise(r=>setTimeout(r,500));withJobLock(c,id,()=>writeJob(c,{...readJob(c,id),ports}));});
 console.log(p.block);`;
   const run = (id) => new Promise((res, rej) => {
     const ch = spawn(process.execPath, ["--input-type=module", "-e", code, JSON.stringify(c), id]);

@@ -94,7 +94,8 @@ test("worktree: --slug is sanitised and an empty one refused", () => {
 test("worktree cli: a second cut of one job is WORKTREE_EXISTS; the printed line names the lock token", async () => {
   const { root, c } = setup();
   const { main } = await import("../src/cli.mjs");
-  const { writeJob, readJob } = await import("../src/store.mjs");
+  const { writeJob: raw, readJob, withJobLock } = await import("../src/store.mjs");
+  const writeJob = (c, job) => withJobLock(c, job.id, () => raw(c, job));
   writeJob(c, newJob({ id: "m-1", kind: "milestone", title: "Twice" }));
   const out = [], err = [];
   const io = { cwd: root, stdout: (s) => out.push(s), stderr: (s) => err.push(s) };
@@ -114,7 +115,8 @@ test("worktree cli: a second cut of one job is WORKTREE_EXISTS; the printed line
 test("worktree cli: a stage change made during the cut survives the write", async () => {
   const { c } = setup();
   const { cutJob } = await import("../src/commands/worktree.mjs");
-  const { writeJob, readJob } = await import("../src/store.mjs");
+  const { writeJob: raw, readJob, withJobLock } = await import("../src/store.mjs");
+  const writeJob = (c, job) => withJobLock(c, job.id, () => raw(c, job));
   const { transition } = await import("../src/job.mjs");
   writeJob(c, newJob({ id: "m-1", kind: "milestone", title: "Racing" }));
   const afterAdd = () => writeJob(c, transition(readJob(c, "m-1"), "planning", { by: "other-session" }));
@@ -132,7 +134,8 @@ test("worktree cli: a stage change made during the cut survives the write", asyn
 test("worktree cli: a cut that finds another cut recorded meanwhile undoes itself", async () => {
   const { root, c } = setup();
   const { cutJob } = await import("../src/commands/worktree.mjs");
-  const { writeJob, readJob } = await import("../src/store.mjs");
+  const { writeJob: raw, readJob, withJobLock } = await import("../src/store.mjs");
+  const writeJob = (c, job) => withJobLock(c, job.id, () => raw(c, job));
   writeJob(c, newJob({ id: "m-1", kind: "milestone", title: "Late" }));
   const afterAdd = () => writeJob(c, { ...readJob(c, "m-1"), worktree: "elsewhere" });
   assert.throws(() => cutJob(c, "m-1", { afterAdd }), (e) => e.code === "WORKTREE_EXISTS");

@@ -1,0 +1,41 @@
+{
+  "entries": [
+    {
+      "at": "2026-01-05T08:25:00.000Z",
+      "stage": "planning",
+      "agent": "claude",
+      "model": "demo-model",
+      "inputTokens": 42000,
+      "outputTokens": 6000,
+      "cacheReadTokens": 12000,
+      "usd": 0.2196,
+      "priced": true
+    },
+    {
+      "at": "2026-01-05T09:30:00.000Z",
+      "stage": "building",
+      "agent": "codex",
+      "model": "demo-model",
+      "inputTokens": 88000,
+      "outputTokens": 21000,
+      "cacheReadTokens": 30000,
+      "usd": 0.588,
+      "priced": true
+    },
+    {
+      "at": "2026-01-05T10:00:00.000Z",
+      "stage": "building",
+      "agent": "claude",
+      "model": "demo-model",
+      "inputTokens": 64000,
+      "outputTokens": 15000,
+      "cacheReadTokens": 20000,
+      "usd": 0.423,
+      "priced": true
+    }
+  ],
+  "total": {
+    "usd": 1.2306,
+    "unpriced": 0
+  }
+}

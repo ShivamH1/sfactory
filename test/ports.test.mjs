@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { createServer } from "node:net";
 import { tmpDir } from "./helpers.mjs";
 import { allocate, isFree, substitute } from "../src/ports.mjs";
-import { writeJob } from "../src/store.mjs";
+import { writeJob as rawWriteJob, withJobLock } from "../src/store.mjs";
+const writeJob = (c, job) => withJobLock(c, job.id, () => rawWriteJob(c, job));
 
 const cfg = (base) => ({ stateDir: tmpDir("sf-ports-"), ports: { base, step: 10, names: ["api", "web"] } });
 

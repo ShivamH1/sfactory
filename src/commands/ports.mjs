@@ -3,7 +3,7 @@ import { findRepoRoot, loadConfig } from "../config.mjs";
 // writeJob is called here with the job's ports set, not by job.mjs. This is the one sanctioned
 // exception to "only job.mjs writes": allocating ports changes no stage and appends no history,
 // and the ports field belongs to this command.
-import { readJob, writeJob } from "../store.mjs";
+import { readJob, writeJob, withJobLock } from "../store.mjs";
 import { allocate, isFree } from "../ports.mjs";
 import { fail } from "../errors.mjs";
 
@@ -12,8 +12,12 @@ register("ports", async ({ positional: [verb, arg] }, io) => {
   if (verb === "allocate") {
     if (!arg) fail("BAD_ARGS", "usage: sfactory ports allocate <id> | sfactory ports free <port>");
     readJob(c, arg); // fail early on an unknown id, before any bind
-    // persisted inside the ports lock; re-read after the binds so a stage change made meanwhile is not overwritten
-    const ports = await allocate(c, arg, (p) => writeJob(c, { ...readJob(c, arg), ports: p }));
+    // Persisted inside the ports lock, so the block is recorded before the next allocator reads the held set,
+    // and inside the job lock, re-read after the binds, so a stage change made meanwhile is not overwritten.
+    // Lock order: "ports" (outer) then "job:<id>" (inner). Nothing takes them the other way round:
+    // withJobLock runs a synchronous callback only (an async one is LOCK_ASYNC), and allocate is async,
+    // so the ports lock can never be taken while a job lock is held.
+    const ports = await allocate(c, arg, (p) => withJobLock(c, arg, () => writeJob(c, { ...readJob(c, arg), ports: p })));
     io.stdout(`${c.ports.names.map((n) => `${n}=${ports[n]}`).join(" ")}\n`);
     return 0;
   }
