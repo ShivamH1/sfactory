@@ -29,6 +29,9 @@ Node >= 20, git, and Claude Code and/or Codex CLI depending on `agents.mode`.
 - `sfactory-codex` — run Codex exec and review with usage capture
 - `sfactory-fixcard` — check a fix card's plan against `fixCardRefusals`
 - `sfactory-board` — open the kanban board (see below)
+- `sfactory-init` — guess a `sfactory.config.json` for this repo (`--force` replaces one)
+- `sfactory-install` — copy the plugin's skills, agents and prompts into `.claude/` (`--codex`: skills into `~/.codex/skills/`; `--dest <dir>`; `--force`)
+- `sfactory-sync-rules` — make every file in the config's `rules` match the first (`--check` only reports)
 
 ## The board
 

@@ -73,6 +73,7 @@ await Promise.all([
   import("./commands/ports.mjs"),
   import("./commands/push.mjs"),
   import("./commands/services.mjs"),
+  import("./commands/sync-rules.mjs"),
   import("./commands/suite.mjs"),
   import("./commands/worktree.mjs"),
 ]);
