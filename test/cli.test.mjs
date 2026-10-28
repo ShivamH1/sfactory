@@ -98,3 +98,12 @@ test("cli: a handler returning undefined exits 0", async () => {
   register("quiet", () => {});
   assert.equal(await main(["quiet"]), 0);
 });
+
+test("cli: bin/sfactory dispatches the command named first, as the skills call it", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const { fileURLToPath } = await import("node:url");
+  const shim = fileURLToPath(new URL("../bin/sfactory", import.meta.url));
+  const r = spawnSync(process.execPath, [shim, "version"], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^sfactory \d+\.\d+\.\d+/);
+});
