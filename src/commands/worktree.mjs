@@ -14,9 +14,26 @@ import { existsSync } from "node:fs";
 
 const CUT_FIELDS = ["branch", "base", "worktree", "slug", "lockToken", "record"];
 
+/** A partner is active while it has a worktree and is not pushed, merged or stopped. */
+const ACTIVE_EXCLUDED = ["pushed", "merged", "stopped"];
+
+/**
+ * The base a parallel card is cut from: its partner's recorded base (same branch, same head), so the two cards
+ * start side by side. Only for a card whose parallel proposal was approved, with a partner that is still active.
+ */
+export function partnerBase(c, id, partnerId) {
+  if (typeof partnerId !== "string" || !partnerId || partnerId === id) fail("BAD_ARGS", "--base-of needs another card's id");
+  const job = readJob(c, id);
+  if (job.parallel !== "approved") fail("NOT_PARALLEL", `${id} is not an approved parallel card (parallel: ${job.parallel ?? "none"}); answer its proposal first`);
+  const p = readJob(c, partnerId);
+  if (!p.worktree || !p.base?.head || ACTIVE_EXCLUDED.includes(p.stage)) fail("PARTNER_NOT_ACTIVE", `${partnerId} is ${p.stage}${p.worktree ? "" : " with no worktree"}; a parallel card is cut beside an active partner only`);
+  return { branch: p.base.branch, ref: p.base.head, head: p.base.head };
+}
+
 /** Cut a job's worktree and record it. `afterAdd` is the TEST-ONLY hook passed through to cut(). */
-export function cutJob(c, id, { slug, afterAdd, fetch = true, warn = (m) => process.stderr.write(m) } = {}) {
-  const made = cut(c, readJob(c, id), { slug, afterAdd, fetch });
+export function cutJob(c, id, { slug, afterAdd, fetch = true, baseOf, warn = (m) => process.stderr.write(m) } = {}) {
+  const base = baseOf === undefined ? null : partnerBase(c, id, baseOf);
+  const made = cut(c, readJob(c, id), { slug, afterAdd, fetch, base });
   // Only the re-read, patch and write hold the job lock; the cut above (its fetch included) can take minutes.
   // Any failure after the cut undoes it (worktree, branch, durable lock) and rethrows, so nothing is orphaned.
   // Order: worktree, then branch, then the durable lock last, so a crash midway leaves the lock held (the
@@ -55,14 +72,14 @@ export function removeJob(c, id, { force = false } = {}) {
 }
 
 /** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
-export const ACCEPTS = { verbs: ["cut", "remove", "base"], flags: ["slug", "force", "no-fetch"] };
+export const ACCEPTS = { verbs: ["cut", "remove", "base"], flags: ["slug", "force", "no-fetch", "base-of"] };
 
 register("worktree", async ({ positional: [verb, id], flags }, io) => {
   const c = loadConfig(findRepoRoot(io.cwd));
   if (verb === "base") { const b = resolveBase(c, { fetch: flags["no-fetch"] !== true }); io.stdout(`${b.branch} ${b.head}\n`); return 0; }
-  if (!id) fail("BAD_ARGS", "usage: sfactory worktree <cut|remove> <id> [--slug s] [--force] | sfactory worktree base");
+  if (!id) fail("BAD_ARGS", "usage: sfactory worktree cut <id> [--slug s] [--base-of <partner id>] | sfactory worktree remove <id> [--force] | sfactory worktree base");
   if (verb === "cut") {
-    const j = cutJob(c, id, { slug: flags.slug, fetch: flags["no-fetch"] !== true, warn: io.stderr });
+    const j = cutJob(c, id, { slug: flags.slug, fetch: flags["no-fetch"] !== true, warn: io.stderr, ...(flags["base-of"] !== undefined ? { baseOf: flags["base-of"] } : {}) });
     io.stdout(`${j.id} ${j.branch} ${j.worktree} (base ${j.base.branch} ${j.base.head.slice(0, 7)}) lock token ${j.lockToken}\n`);
     return 0;
   }

@@ -75,7 +75,7 @@ export function integration(c) {
  * `afterAdd` is a TEST-ONLY callback invoked between the worktree add and the base re-read; `gitRun` is a TEST-ONLY
  * stand-in for git() in the add and the rollback.
  */
-export function cut(c, job, { slug, afterAdd, fetch = true, gitRun = git } = {}) {
+export function cut(c, job, { slug, afterAdd, fetch = true, gitRun = git, base: pinned = null } = {}) {
   if (job.worktree) fail("WORKTREE_EXISTS", `${job.id} already has a worktree (${job.worktree}); remove it first`);
   const s = slugify(slug ?? job.title.replace(/^M\d+\s+/i, ""));
   const dir = resolve(c.worktrees.dir, s || "x");
@@ -83,7 +83,8 @@ export function cut(c, job, { slug, afterAdd, fetch = true, gitRun = git } = {})
   if (!s) fail("BAD_ARGS", "cannot derive a slug from the title; pass --slug");
   const branch = `${c.worktrees.branchPrefix}${s}`;
   if (branchExists(c.repoRoot, branch)) fail("BRANCH_EXISTS", `${branch} already exists`);
-  const base = resolveBase(c, { fetch });
+  // A pinned base (a parallel partner's recorded base) is a fixed commit: there is no read to race with the add.
+  const base = pinned ?? resolveBase(c, { fetch });
   const lockName = `worktree:${s}`;
   let lock;
   try { lock = acquireSync(c, lockName, { holder: job.id, durable: true }); }
@@ -95,7 +96,7 @@ export function cut(c, job, { slug, afterAdd, fetch = true, gitRun = git } = {})
     gitRun(["worktree", "add", "-b", branch, dir, base.head], { cwd: c.repoRoot });
     worktreeAdded = true;
     if (afterAdd) afterAdd();
-    const after = headOf(c.repoRoot, base.ref);
+    const after = pinned ? base.head : headOf(c.repoRoot, base.ref);
     if (after !== base.head) fail("BASE_MOVED", `${base.ref} moved from ${base.head} to ${after} during the cut; re-run`);
     const baseDir = worktreeOfBranch(c.repoRoot, base.branch);
     for (const rel of c.worktrees.copyFromBase) {

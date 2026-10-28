@@ -304,3 +304,38 @@ test("worktree cli: a fix with --log finds its one log file; none or two is LOG_
   }
   remove(c, readJob(c, "f-1"), { force: true });
 });
+
+test("worktree cli: cut --base-of cuts from the partner's recorded base, only for an approved parallel card with an active partner", async () => {
+  const { root, c } = setup();
+  const { main } = await import("../src/cli.mjs");
+  const { addJob, readJob, writeJob, withJobLock } = await import("../src/store.mjs");
+  const patch = (id, f) => withJobLock(c, id, () => writeJob(c, { ...readJob(c, id), ...f }));
+  const io = () => { const out = [], err = []; return { o: { cwd: root, stdout: (s) => out.push(s), stderr: (s) => err.push(s) }, out, err }; };
+  addJob(c, "milestone", "Alpha"); addJob(c, "milestone", "Beta"); addJob(c, "milestone", "Gamma");
+  let r = io();
+  assert.equal(await main(["worktree", "cut", "m-1", "--no-fetch"], r.o), 0, r.err.join(""));
+  const a = readJob(c, "m-1");
+  writeFileSync(join(root, "later.txt"), "x\n"); sh("git", ["add", "later.txt"], root); sh("git", ["commit", "-q", "-m", "later"], root);
+  assert.notEqual(sh("git", ["rev-parse", "main"], root), a.base.head, "main moved after the partner's cut");
+  // m-2 is not parallel-approved yet.
+  r = io();
+  assert.equal(await main(["worktree", "cut", "m-2", "--base-of", "m-1", "--no-fetch"], r.o), 2);
+  assert.match(r.err.join(""), /NOT_PARALLEL/);
+  patch("m-2", { parallel: "approved", stage: "planning" });
+  r = io();
+  assert.equal(await main(["worktree", "cut", "m-2", "--base-of", "m-1", "--no-fetch"], r.o), 0, r.err.join(""));
+  const b = readJob(c, "m-2");
+  assert.deepEqual({ branch: b.base.branch, head: b.base.head }, { branch: a.base.branch, head: a.base.head });
+  assert.equal(sh("git", ["rev-parse", "HEAD"], b.worktree), a.base.head);
+  // A stopped partner, or one with no worktree, is not active.
+  patch("m-3", { parallel: "approved" });
+  patch("m-1", { stage: "stopped" });
+  r = io();
+  assert.equal(await main(["worktree", "cut", "m-3", "--base-of", "m-1", "--no-fetch"], r.o), 2);
+  assert.match(r.err.join(""), /PARTNER_NOT_ACTIVE/);
+  r = io();
+  assert.equal(await main(["worktree", "cut", "m-3", "--base-of", "m-3", "--no-fetch"], r.o), 2);
+  assert.match(r.err.join(""), /BAD_ARGS/);
+  assert.equal(readJob(c, "m-3").worktree, null);
+  for (const id of ["m-1", "m-2"]) remove(c, readJob(c, id), { force: true });
+});
