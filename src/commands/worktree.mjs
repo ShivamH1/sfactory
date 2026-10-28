@@ -12,6 +12,7 @@ import { git, branchExists, isClean } from "../git.mjs";
 import { release, assertHolder, status, withLock } from "../lock.mjs";
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { assertFactoryBranch } from "../push.mjs";
 
 const CUT_FIELDS = ["branch", "base", "worktree", "slug", "lockToken", "record"];
 
@@ -26,6 +27,7 @@ export function partnerBase(c, id, partnerId) {
   if (typeof partnerId !== "string" || !partnerId || partnerId === id) fail("BAD_ARGS", "--base-of needs another card's id");
   const job = readJob(c, id);
   if (job.parallel !== "approved") fail("NOT_PARALLEL", `${id} is not an approved parallel card (parallel: ${job.parallel ?? "none"}); answer its proposal first`);
+  if (job.parallelWith !== partnerId) fail("NOT_PARTNER", `${id} was approved beside ${job.parallelWith ?? "no card"}, not ${partnerId}`);
   const p = readJob(c, partnerId);
   if (!p.worktree || !p.base?.head || ACTIVE_EXCLUDED.includes(p.stage)) fail("PARTNER_NOT_ACTIVE", `${partnerId} is ${p.stage}${p.worktree ? "" : " with no worktree"}; a parallel card is cut beside an active partner only`);
   return { branch: p.base.branch, ref: p.base.head, head: p.base.head };
@@ -76,13 +78,19 @@ export function removeJob(c, id, { force = false } = {}) {
 
 /**
  * The one merge the factory makes: a pushed parallel partner's branch into this card's branch, before this card
- * pushes (design §6: cards cut from the same head merge the earlier one; never a rebase). A merge commit always
- * (--no-ff), a fixed message, no trailer, under the commit lock. A conflict is aborted and named, never resolved.
+ * pushes (design §6: cards cut from the same head merge the earlier one; never a rebase). Only for the recorded
+ * pair (one card's approved parallelWith names the other) cut side by side (the same base.head): a stacked pair
+ * never merges, its pull requests chain instead. A merge commit always (--no-ff), a fixed message, no trailer,
+ * under the commit lock, onto a target branch the factory may write (push's refusals). A conflict is aborted and
+ * named, never resolved; an abort that fails is reported as such.
  */
 export async function mergePartner(c, id, partnerId) {
   if (typeof partnerId !== "string" || !partnerId || partnerId === id) fail("BAD_ARGS", "merge needs --from <the partner card's id>");
   const job = readJob(c, id), p = readJob(c, partnerId);
-  if (job.parallel !== "approved" && p.parallel !== "approved") fail("NOT_PARALLEL", `${id} and ${partnerId} are not an approved parallel pair`);
+  const paired = (a, b) => a.parallel === "approved" && a.parallelWith === b.id;
+  if (!paired(job, p) && !paired(p, job)) fail("NOT_PARTNER", `${id} and ${partnerId} are not an approved parallel pair (neither was approved beside the other)`);
+  if (p.branch && (p.branch === job.base?.branch || job.branch === p.base?.branch)) fail("STACKED_PAIR", `${id} and ${partnerId} are stacked (one was cut from the other's branch); a stacked pair never merges: its pull requests chain`);
+  if (!job.base?.head || job.base.head !== p.base?.head) fail("NOT_SIDE_BY_SIDE", `${id} (base ${job.base?.head?.slice(0, 7) ?? "none"}) and ${partnerId} (base ${p.base?.head?.slice(0, 7) ?? "none"}) were not cut side by side; only a pair cut from one base head merges`);
   if (!["pushed", "merged"].includes(p.stage)) fail("PARTNER_NOT_PUSHED", `${partnerId} is ${p.stage}; merge it in once it has pushed`);
   if (job.stage !== "pushing") fail("NOT_PUSHING", `${id} is ${job.stage}; the partner is merged in at pushing, before the push`);
   if (!job.worktree || !existsSync(job.worktree)) fail("BAD_ARGS", `${id} has no worktree`);
@@ -91,6 +99,8 @@ export async function mergePartner(c, id, partnerId) {
   assertHolder(c, lockName, { holder: id, token: job.lockToken });
   const prefix = c.worktrees.branchPrefix;
   if (!p.branch || !prefix || !p.branch.startsWith(prefix)) fail("BRANCH_REFUSED", `${partnerId}'s branch "${p.branch}" is outside ${prefix}*`);
+  const target = assertFactoryBranch(c, job.worktree, "merged into");
+  if (target !== job.branch) fail("BRANCH_REFUSED", `${job.worktree} is on "${target}", not ${id}'s branch "${job.branch}"`);
   if (!isClean(job.worktree)) fail("DIRTY_TREE", `uncommitted changes in ${job.worktree}`);
   const message = `merge: ${p.branch} into ${job.branch} (parallel milestones)`;
   return withLock(c, "commit", { holder: id, waitMs: 60_000 }, async () => {
@@ -98,10 +108,14 @@ export async function mergePartner(c, id, partnerId) {
     if (r.error) fail("GIT_FAILED", `git not runnable: ${r.error.message}`);
     if (r.status !== 0) {
       const files = git(["diff", "--name-only", "--diff-filter=U"], { cwd: job.worktree, allowFail: true }).split(/\r?\n/).filter(Boolean);
-      git(["merge", "--abort"], { cwd: job.worktree, allowFail: true });
+      const abort = spawnSync("git", ["merge", "--abort"], { cwd: job.worktree, encoding: "utf8" });
+      if (abort.status !== 0) fail("MERGE_ABORT_FAILED", `${p.branch} into ${job.branch} failed${files.length ? ` with conflicts in ${files.join(", ")}` : ""}, and git merge --abort failed too (${(abort.stderr || abort.stdout || "").trim()}); ${job.worktree} is mid-merge and needs the person`);
       if (files.length) fail("MERGE_CONFLICT", `${p.branch} conflicts with ${job.branch} in: ${files.join(", ")}; the merge was aborted`);
       fail("GIT_FAILED", `git merge ${p.branch} (in ${job.worktree}): ${(r.stderr || r.stdout).trim()}`);
     }
+    // As commit.mjs does: a hook may add a trailer git itself writes; the merge is left in place, never reset.
+    const added = git(["log", "-1", "--format=%(trailers)", "HEAD"], { cwd: job.worktree });
+    if (added && c.git.trailers !== true) fail("TRAILER_REFUSED", `a hook added a trailer to the merge commit: ${added.split(/\r?\n/).filter(Boolean).join("; ")} (the merge was left in place, not reset)`);
     return { branch: p.branch, head: git(["rev-parse", "HEAD"], { cwd: job.worktree }) };
   });
 }

@@ -18,14 +18,23 @@ function firstTrailerCommit(c, cwd) {
   return null;
 }
 
+/**
+ * The branch checked out in cwd, refused unless the factory may write to it: inside branchPrefix, never main,
+ * master or the integration branch. push() and worktree merge (its target) share these refusals.
+ */
+export function assertFactoryBranch(c, cwd, verb = "pushed") {
+  const prefix = c.worktrees.branchPrefix;
+  if (!prefix) fail("BRANCH_REFUSED", `branchPrefix is empty; refusing to work on any branch`);
+  const branch = currentBranch(cwd);
+  if (!branch || !branch.startsWith(prefix)) fail("BRANCH_REFUSED", `only ${prefix}* branches are ${verb}; on "${branch || "(detached)"}"`);
+  const integ = integration({ ...c, repoRoot: cwd });
+  if (PROTECTED.includes(branch) || (integ && branch === integ)) fail("BRANCH_REFUSED", `"${branch}" is a protected branch and is never ${verb} by the factory`);
+  return branch;
+}
+
 export function push(c, { cwd, remote = "origin" }) {
   if (c.git.push !== true) fail("PUSH_DISABLED", `git.push is ${JSON.stringify(c.git.push)} in sfactory.config.json; only true allows a push`);
-  const prefix = c.worktrees.branchPrefix;
-  if (!prefix) fail("BRANCH_REFUSED", "branchPrefix is empty; refusing to push");
-  const branch = currentBranch(cwd);
-  if (!branch || !branch.startsWith(prefix)) fail("BRANCH_REFUSED", `only ${prefix}* branches are pushed; on "${branch || "(detached)"}"`);
-  const integ = integration({ ...c, repoRoot: cwd });
-  if (PROTECTED.includes(branch) || (integ && branch === integ)) fail("BRANCH_REFUSED", `"${branch}" is a protected branch and is never pushed by the factory`);
+  const branch = assertFactoryBranch(c, cwd, "pushed");
   if (!isClean(cwd)) fail("DIRTY_TREE", `uncommitted changes in ${cwd}`);
   if (c.git.trailers !== true) {
     const bad = firstTrailerCommit(c, cwd);

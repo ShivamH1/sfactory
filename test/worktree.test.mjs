@@ -321,14 +321,17 @@ test("worktree cli: cut --base-of cuts from the partner's recorded base, only fo
   r = io();
   assert.equal(await main(["worktree", "cut", "m-2", "--base-of", "m-1", "--no-fetch"], r.o), 2);
   assert.match(r.err.join(""), /NOT_PARALLEL/);
-  patch("m-2", { parallel: "approved", stage: "planning" });
+  patch("m-2", { parallel: "approved", parallelWith: "m-1", stage: "planning" });
+  r = io();
+  assert.equal(await main(["worktree", "cut", "m-2", "--base-of", "m-3", "--no-fetch"], r.o), 2, "m-2 was approved beside m-1, not m-3");
+  assert.match(r.err.join(""), /NOT_PARTNER/);
   r = io();
   assert.equal(await main(["worktree", "cut", "m-2", "--base-of", "m-1", "--no-fetch"], r.o), 0, r.err.join(""));
   const b = readJob(c, "m-2");
   assert.deepEqual({ branch: b.base.branch, head: b.base.head }, { branch: a.base.branch, head: a.base.head });
   assert.equal(sh("git", ["rev-parse", "HEAD"], b.worktree), a.base.head);
   // A stopped partner, or one with no worktree, is not active.
-  patch("m-3", { parallel: "approved" });
+  patch("m-3", { parallel: "approved", parallelWith: "m-1" });
   patch("m-1", { stage: "stopped" });
   r = io();
   assert.equal(await main(["worktree", "cut", "m-3", "--base-of", "m-1", "--no-fetch"], r.o), 2);
@@ -349,7 +352,7 @@ test("worktree cli: merge --from merges a pushed parallel partner into a pushing
   const commitIn = (dir, file, text) => { writeFileSync(join(dir, file), text); sh("git", ["add", file], dir); sh("git", ["commit", "-q", "-m", `add ${file}`], dir); };
   addJob(c, "milestone", "First"); addJob(c, "milestone", "Second");
   assert.equal((await run(["worktree", "cut", "m-1", "--no-fetch"])).code, 0);
-  patch("m-2", { parallel: "approved" });
+  patch("m-2", { parallel: "approved", parallelWith: "m-1" });
   assert.equal((await run(["worktree", "cut", "m-2", "--base-of", "m-1", "--no-fetch"])).code, 0);
   const a = readJob(c, "m-1"), b = readJob(c, "m-2");
   commitIn(a.worktree, "a.txt", "a\n"); commitIn(b.worktree, "b.txt", "b\n");
@@ -363,8 +366,26 @@ test("worktree cli: merge --from merges a pushed parallel partner into a pushing
   assert.equal(r.code, 2); assert.match(r.err, /NOT_PUSHING/);
   patch("m-2", { stage: "pushing", parallel: null });
   r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
-  assert.equal(r.code, 2); assert.match(r.err, /NOT_PARALLEL/);
-  patch("m-2", { parallel: "approved" });
+  assert.equal(r.code, 2); assert.match(r.err, /NOT_PARTNER/);
+  patch("m-2", { parallel: "approved", parallelWith: "m-3" });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 2, "approved beside another card"); assert.match(r.err, /NOT_PARTNER/);
+  patch("m-2", { parallelWith: "m-1" });
+  // A stacked pair (one cut from the other's branch) never merges; nor does a pair cut from two base heads.
+  patch("m-2", { base: { ...b.base, branch: a.branch } });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 2); assert.match(r.err, /STACKED_PAIR/);
+  patch("m-2", { base: { ...b.base, head: "0".repeat(40) } });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 2); assert.match(r.err, /NOT_SIDE_BY_SIDE/);
+  patch("m-2", { base: b.base });
+  // The target: the worktree must be on the card's own branch, a branch the factory may write.
+  patch("m-2", { branch: "feature/elsewhere" });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 2); assert.match(r.err, /BRANCH_REFUSED[^\n]*feature\/second/);
+  patch("m-2", { branch: b.branch });
+  const { assertFactoryBranch } = await import("../src/push.mjs");
+  assert.throws(() => assertFactoryBranch(c, root, "merged into"), (e) => e.code === "BRANCH_REFUSED" && /merged into/.test(e.message), "main is never a target");
   writeFileSync(join(b.worktree, "dirty.txt"), "x\n");
   r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
   assert.equal(r.code, 2); assert.match(r.err, /DIRTY_TREE/);
@@ -379,6 +400,15 @@ test("worktree cli: merge --from merges a pushed parallel partner into a pushing
   assert.equal(sh("git", ["log", "-1", "--format=%s"], b.worktree), "merge: feature/first into feature/second (parallel milestones)");
   assert.equal(sh("git", ["log", "-1", "--format=%P"], b.worktree).split(" ").length, 2, "a merge commit, never a fast-forward");
   assert.equal(sh("git", ["log", "-1", "--format=%(trailers)"], b.worktree), "");
+  // A hook that adds a trailer to the merge commit: refused, the merge left in place.
+  const hook = join(root, ".git", "hooks", "commit-msg");
+  commitIn(a.worktree, "hooked.txt", "h\n");
+  // Two newlines: git's merge message file has no final newline, and a trailer is its own paragraph.
+  writeFileSync(hook, "#!/bin/sh\nprintf '\\n\\nSigned-off-by: hook <h@example.com>\\n' >> \"$1\"\n", { mode: 0o755 });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  rmSync(hook);
+  assert.equal(r.code, 2, r.out); assert.match(r.err, /TRAILER_REFUSED[^\n]*Signed-off-by/);
+  assert.ok(existsSync(join(b.worktree, "hooked.txt")), "the merge is left in place");
   // A conflict: both cards change one file; the merge is aborted and the file named.
   commitIn(a.worktree, "same.txt", "from a\n"); commitIn(b.worktree, "same.txt", "from b\n");
   const head = sh("git", ["rev-parse", "HEAD"], b.worktree);
