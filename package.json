@@ -1,6 +1,6 @@
 {
   "name": "sfactory",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A software factory for Claude Code and Codex: cards move from backlog to pushed through plan, build, review, verify, with a kanban board of file-based state.",
   "license": "MIT",
   "author": "Shivam Sanjay (https://github.com/ShivamH1)",
