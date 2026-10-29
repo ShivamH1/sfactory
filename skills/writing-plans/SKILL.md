@@ -185,7 +185,7 @@ If you find issues, fix them inline. No need to re-review — just fix and move 
 
 The plan offers no execution choice: the factory builds it with sfactory:sdd once the card is in `building`. After the self-review:
 
-1. Commit the plan through the factory, on the card's branch: `sfactory commit --cwd <WORKTREE> --holder <JOB> --m "docs: plan for <title>" -- <record.plan>`. A fix card's plan in its job folder (an absolute `record.plan`, `<JOB_DIR>/plan/plan.md`) is the factory's file: write it and commit nothing.
+1. Commit the plan through the factory, on the card's branch: `sfactory commit --cwd <WORKTREE> --holder <JOB> --m "docs: plan for <title>" -- <record.plan>`. A fix card whose `record.plan` is an absolute path in its job folder (`<JOB_DIR>/plan/plan.md`, the default) has the factory's file: write it and commit nothing. A fix card whose `record.plan` is a relative path in WORKTREE (the config's `record.fix` patterns) is committed like a milestone's plan.
 2. Touch the job for the hand-over, `sfactory job touch <JOB> --note "finish writing-plans"`, then move the card:
    - a milestone: `sfactory job set <JOB> awaiting-approval --reason "brief and plan written"`. The card parks at the approval stop; the person reads the brief, the plan and `plan/questionnaire.md` (when sfactory:brainstorming wrote one) and approves on the board or with `/sfactory approve`.
    - a fix: `sfactory job set <JOB> building --reason "fix plan written"` once `sfactory fixcard` passed.

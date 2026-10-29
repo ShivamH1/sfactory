@@ -157,11 +157,11 @@ The person's review of the written brief is not an in-session wait: it is the ca
 The move to `awaiting-approval` happens after sfactory:writing-plans has written the plan, through `sfactory job set <JOB> awaiting-approval --reason "brief and plan written"` — that skill does it, not this one.
 
 **Fix cards:**
-A card of kind `fix` takes the light path: a one-page brief at `record.brief` (what is wrong, where, the fix, the done-whens), no stories step, no questionnaire and no approval stop. A fix card's record is its own and takes no milestone number: its brief is usually in the job folder (`<JOB_DIR>/plan/brief.md`, an absolute path), and a brief there is the factory's file, written and never committed. The orchestrator checks the plan with `sfactory fixcard <plan>` and refiles the card as a milestone on a hit.
+A card of kind `fix` takes the light path: a one-page brief at `record.brief` (what is wrong, where, the fix, the done-whens), no stories step, no questionnaire and no approval stop. A fix card's record is its own and takes no milestone number: its brief is the card's `record.brief`: by default an absolute path in the job folder (`<JOB_DIR>/plan/brief.md`), the factory's file, written and never committed; when the config's `record.fix` gives patterns it is a relative path in WORKTREE, and then it is committed like a milestone's brief. The orchestrator checks the plan with `sfactory fixcard <plan>` and refiles the card as a milestone on a hit.
 
 **Implementation:**
 
-- Hand back to the orchestrator: say that the brief is committed (or, for a fix card's brief in its job folder, written), and whether `plan/questionnaire.md` was written. The orchestrator then has sfactory:writing-plans write the plan at the card's `record.plan` path.
+- Hand back to the orchestrator: say that the brief is committed (or, for a fix card whose `record.brief` is an absolute path in its job folder, written and not committed), and whether `plan/questionnaire.md` was written. The orchestrator then has sfactory:writing-plans write the plan at the card's `record.plan` path.
 - Do NOT invoke any skill. The orchestrator's plan role is the next step.
 
 ## Rules of the factory

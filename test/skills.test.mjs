@@ -467,9 +467,13 @@ function programsRun(text) {
   // A one-word span (`codex`, the mode) is a name, not a command line.
   // A span on a line that forbids or quotes a refusal ("Never run `git stash`", "`commit` refuses `git add -A`") names a
   // program the session must not run; it is not a run (I7: the skills run no git and no bash).
+  // Only the spans in the clause with the never/refuses are skipped: a later sentence on the same line is still read (N5).
   for (const line of text.split("\n")) {
-    if (/\bnever\b|\brefuses\b/i.test(line)) continue;
-    for (const m of line.matchAll(/(?<!`)`([^`\n]+)`(?!`)/g)) { const w = /\s\S/.test(m[1].trim()) ? first(m[1]) : null; if (PROGRAMS.includes(w)) out.add(w); }
+    for (const m of line.matchAll(/(?<!`)`([^`\n]+)`(?!`)/g)) {
+      const clause = line.slice(0, m.index).replace(/`[^`]*`/g, "X").split(/[.;!?](?:\s|$)/).pop();
+      if (/\bnever\b|\brefuses\b/i.test(clause)) continue;
+      const w = /\s\S/.test(m[1].trim()) ? first(m[1]) : null; if (PROGRAMS.includes(w)) out.add(w);
+    }
   }
   let fence = null;
   for (const line of text.split("\n")) {
@@ -491,6 +495,8 @@ test("skills/sfactory: allowed-tools covers every program the orchestrator and t
   assert.ok(allowed.includes("Monitor"), "Monitor");
   assert.ok(!allowed.some((t) => /sleep/.test(t)) && !used.has("sleep"), "no sleep");
   assert.deepEqual([...programsRun("Run `git -C x status`, `sfactory doctor`, not `sfactory:sdd` or the `codex` mode; `codex exec x` counts.\n```bash\nbash run.sh\n```")].sort(), ["bash", "codex", "git", "sfactory"]);
+  // N5: a refusal clause hides only its own spans; the next sentence on the same line is a run.
+  assert.deepEqual([...programsRun("Never run `git stash`. Run `sfactory doctor`, and `commit` refuses `git add -A`; then `node x.mjs`.")].sort(), ["node", "sfactory"]);
 });
 
 test("skills/sfactory: every refusal worktree merge can raise has a row in the skill's stop table, with the person's next step", () => {

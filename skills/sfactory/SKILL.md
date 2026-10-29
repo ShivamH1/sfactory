@@ -182,7 +182,7 @@ The sdd skill's whole-branch review, run in this order:
    - Write the closing section of LOG: what was built, the review verdicts, the suite count and the deviations. A fix filed with `--log <n>` closes inside its own dated section of milestone `<n>`'s log, under `record.postCloseHeading`, never above that heading.
    - Tick the plan's checkboxes for every completed task.
    - When `record.carriedForward` is set, reconcile it.
-   - Commit with `sfactory commit --cwd <WORKTREE> --holder <id> --m "docs: close <title>" -- <the files changed>`, naming only files inside WORKTREE (a record file in JOB_DIR is never committed).
+   - Commit with `sfactory commit --cwd <WORKTREE> --holder <id> --m "docs: close <title>" -- <the files changed>`, naming only files inside WORKTREE (a record file in JOB_DIR is never committed). When nothing inside WORKTREE changed (a fix card whose log and plan both live in JOB_DIR), there is nothing to commit: skip this step and go on to the push.
 4. **Push** with `sfactory push --cwd <WORKTREE>`.
 5. **Write `<JOB_DIR>/pr.md`.** Its first line is the card's title. Then add:
    - a summary;
