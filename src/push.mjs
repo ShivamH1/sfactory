@@ -1,6 +1,8 @@
+import { realpathSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
 import { fail } from "./errors.mjs";
 import { integration } from "./worktree.mjs";
-import { git, currentBranch, isClean, remoteHead, headOf } from "./git.mjs";
+import { git, currentBranch, isClean, remoteHead, headOf, worktrees } from "./git.mjs";
 
 const PROTECTED = ["main", "master"];
 
@@ -16,6 +18,30 @@ function firstTrailerCommit(c, cwd) {
     if (sha && trailers && trailers.trim()) return { sha, line: trailers.trim().split(/\r?\n/)[0] };
   }
   return null;
+}
+
+/** A path as the filesystem names it (symlinks and 8.3 short names resolved), case-folded on Windows, for comparison only. */
+function canon(p) {
+  let r = resolve(p);
+  try { r = realpathSync.native(r); } catch { /* not there: compare as resolved */ }
+  return process.platform === "win32" ? r.toLowerCase() : r;
+}
+
+/**
+ * The top level of cwd, refused (MAIN_CHECKOUT) unless it is a worktree the factory may write: a worktree
+ * registered with the repository (git worktree list) that lies under worktrees.dir, and never the main
+ * checkout itself. commit and push share it.
+ */
+export function assertFactoryWorktree(c, cwd, verb = "written") {
+  const top = git(["rev-parse", "--show-toplevel"], { cwd });
+  const t = canon(top);
+  if (!c.repoRoot || t === canon(c.repoRoot)) fail("MAIN_CHECKOUT", `${top} is the main checkout; the factory has ${verb} only in a card's worktree under worktrees.dir`);
+  const dir = c.worktrees?.dir;
+  const rel = dir ? relative(canon(dir), t) : "";
+  const under = !!rel && !rel.startsWith("..") && !isAbsolute(rel);
+  const registered = worktrees(c.repoRoot).some((w) => canon(w.path) === t);
+  if (!under || !registered) fail("MAIN_CHECKOUT", `${top} is not a card's worktree (a worktree of ${c.repoRoot} under ${dir ?? "worktrees.dir"}); the factory has ${verb} nowhere else`);
+  return top;
 }
 
 /**
@@ -34,6 +60,7 @@ export function assertFactoryBranch(c, cwd, verb = "pushed") {
 
 export function push(c, { cwd, remote = "origin" }) {
   if (c.git.push !== true) fail("PUSH_DISABLED", `git.push is ${JSON.stringify(c.git.push)} in sfactory.config.json; only true allows a push`);
+  assertFactoryWorktree(c, cwd, "pushed");
   const branch = assertFactoryBranch(c, cwd, "pushed");
   if (!isClean(cwd)) fail("DIRTY_TREE", `uncommitted changes in ${cwd}`);
   if (c.git.trailers !== true) {

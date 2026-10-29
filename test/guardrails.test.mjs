@@ -18,10 +18,17 @@ const now = "2026-10-27T10:00:00.000Z";
 
 function repoWithRemote() {
   const bare = tmpDir("sf-bare-"); sh("git", ["init", "-q", "--bare", bare], bare);
-  const r = tmpRepo(); sh("git", ["remote", "add", "origin", bare], r); sh("git", ["push", "-q", "-u", "origin", "main"], r);
+  const root = tmpRepo(); sh("git", ["remote", "add", "origin", bare], root); sh("git", ["push", "-q", "-u", "origin", "main"], root);
+  // I3: push works only in a registered worktree under worktrees.dir, so the main checkout steps off main (detached)
+  // and r is a worktree on main; cfg() carries repoRoot and worktrees.dir.
+  sh("git", ["checkout", "-q", "--detach"], root);
+  const dir = tmpDir("sf-pw-"); const r = join(dir, "card");
+  sh("git", ["worktree", "add", "-q", r, "main"], root);
+  ctx = { repoRoot: root, dir };
   return { r, bare };
 }
-const cfg = (over = {}) => ({ stateDir: tmpDir("sf-g-"), git: { push: true, trailers: false }, worktrees: { branchPrefix: "feature/", integrationBranch: null, ...over } });
+let ctx = {};
+const cfg = (over = {}) => ({ stateDir: tmpDir("sf-g-"), git: { push: true, trailers: false }, repoRoot: ctx.repoRoot, worktrees: { branchPrefix: "feature/", integrationBranch: null, dir: ctx.dir, ...over } });
 function commit(r, name, msg) {
   writeFileSync(join(r, name), name); sh("git", ["add", name], r); sh("git", ["commit", "-q", "-m", msg], r);
   return sh("git", ["rev-parse", "HEAD"], r);

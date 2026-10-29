@@ -4,6 +4,7 @@ import { fail } from "./errors.mjs";
 import { git } from "./git.mjs";
 import { withLock } from "./lock.mjs";
 import { coveredBySecret } from "./secrets.mjs";
+import { assertFactoryWorktree, assertFactoryBranch } from "./push.mjs";
 
 const regexTrailers = (message) => {
   const paras = String(message).trim().split(/\n\s*\n/);
@@ -53,6 +54,9 @@ export async function commit(c, { cwd, paths, message, holder }) {
   assertNotSecret(c, paths, { cwd });
   const trailers = hasTrailers(message, { cwd });
   if (trailers.length && c.git.trailers !== true) fail("TRAILER_REFUSED", `trailers are off (git.trailers): ${trailers.join("; ")}`);
+  // Never the main checkout, never a branch the factory may not write (push's refusals).
+  assertFactoryWorktree(c, cwd, "committed");
+  assertFactoryBranch(c, cwd, "committed to");
   return withLock(c, "commit", { holder: holder ?? "session", waitMs: 60_000 }, async () => {
     git(["--literal-pathspecs", "add", "--", ...paths], { cwd });
     git(["--literal-pathspecs", "commit", "--quiet", "-m", message, "--", ...paths], { cwd });
