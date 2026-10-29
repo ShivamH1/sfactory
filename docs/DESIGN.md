@@ -283,7 +283,7 @@ or, on Claude Code 2.1.275 and later, the one-step `/plugin install sfactory --m
 ```
 npm install -g sfactory        # or: npx sfactory init
 sfactory init                  # writes sfactory.config.json and .gitignore lines
-sfactory install               # copies skills/, agents/ and prompts/ into the project's .claude/ (or ~/.codex/skills for Codex)
+sfactory install --codex       # the Codex skills into ~/.codex/skills (Claude Code takes the plugin; amended 2026-10-28)
 sfactory doctor
 sfactory board
 ```
