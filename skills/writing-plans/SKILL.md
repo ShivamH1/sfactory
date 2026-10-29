@@ -151,7 +151,7 @@ A task that needs a later task's work is ordered by its `**Depends on:**` line, 
 The plan is parsed outside code only. Keep these out of fenced or indented code blocks, and out of HTML comments:
 
 - a task heading (`### Task N:`), a `**Files:**` label, or a line starting with a list bullet and an operation word (`Create`, `Modify`, `Test`, `Delete`, `Read`, `Add`, `Remove`, `Edit`, `Rename`, `Move`, `Touch`) followed by a colon or a backticked path — the parser refuses the plan when it finds one inside code, because a fence that re-pairs would hide a task;
-- a `**Depends on:**` line — inside code it is skipped, so the task counts as having none.
+- a `**Depends on:**` line — the parser refuses it inside code too, since a hidden one would make its task read as having none.
 
 Also: a Files line outside any task is refused; a task that mentions backticked paths but has no Files block is refused; a `**Depends on:**` line must name task ids or say `none`. When a step must show a Markdown file's content, write it without such lines or describe it in prose.
 

@@ -451,10 +451,13 @@ export function parsePlan(md) {
     ? `${emptyLabel.at}: a bare "- ${emptyLabel.op}:" line with nothing under it - list its files under it`
     : `${emptyLabel.at}: a Files label with nothing under it - list the files under it, or write "**Files:** none"`);
 
-  /** Round 6, R1: a task heading, op Files line or Files label inside code would be hidden. */
+  /**
+   * Round 6, R1: a task heading, op Files line or Files label inside code would be hidden. Plan C final review: so would
+   * a Depends on label (its task would read as having none, or a plan as declared that is not), so it is refused too.
+   */
   const codeHidesTask = (text, no) => {
     const t = unquote(text).s.trimStart();
-    const what = heading.test(t) ? "a task heading" : fileLine(t) ? "a Files line" : label.test(t) ? "a Files label" : null;
+    const what = heading.test(t) ? "a task heading" : fileLine(t) ? "a Files line" : label.test(t) ? "a Files label" : depends.test(t) ? "a Depends on line" : null;
     if (what) fail("PLAN_CODE_HIDES_TASK", `line ${no}: ${what} inside code ("${t.trim()}") - a fence that re-pairs or an indented block would hide it; fix the fences (use a longer fence around nested ones) or move it out of the code`);
   };
 

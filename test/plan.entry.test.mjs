@@ -416,14 +416,16 @@ test("fix R4-3: HTML comments are skipped for every reading", () => {
 
 test("fix R4-3: fenced and 4-space indented code is skipped; nested lists are not code", () => {
   const each = (extra) => "### Task 1: A\n- Create: `a.ts`\n" + extra + "\n### Task 2: B\n- Create: `b.ts`\n" + extra + "\n";
-  assert.equal(info(each("\nExample:\n\n    **Depends on:** none")), "none");
-  assert.equal(info(each("\n    **Depends on:** none")), "none");
+  // Plan C final review (minor 7) superseded the Depends on lines below in code and the quoted one in the next test:
+  // a Depends on label inside code was skipped (its task read as having none); it is now refused, like a heading.
+  assert.equal(code(each("\nExample:\n\n    **Depends on:** none")), "PLAN_CODE_HIDES_TASK");
+  assert.equal(info(each("\n    **Depends on:** none")), "none"); // indented under the list item: its content, not code, and not a label either (kept)
   // Round 6 (R1) superseded this: an op Files line inside code is now refused, not skipped,
   // since nested fences can re-pair and hide one. Code holding other text is still skipped.
   assert.equal(code(one("- Create: `a.ts`\n\nExample:\n\n    - Modify: `x.ts`")), "PLAN_CODE_HIDES_TASK");
   assert.deepEqual(files(one("- Create: `a.ts`\n\nExample:\n\n    edit `x.ts`")), ["create a.ts"]);
   // A fence inside a list item, indented four spaces, is still a fence.
-  assert.equal(info(each("- Note:\n\n    ```md\n    **Depends on:** none\n    ```")), "none");
+  assert.equal(code(each("- Note:\n\n    ```md\n    **Depends on:** none\n    ```")), "PLAN_CODE_HIDES_TASK");
   // A list item's fence ends with the item: the next item is read, not hidden.
   // Fix round 5 (N1) superseded this: a fence ended by its item rather than by a
   // closer is now refused outright, since the stray closer after it can re-pair with
@@ -442,7 +444,7 @@ test("fix R4-3: blockquote prefixes are stripped and the line read", () => {
   assert.deepEqual(deps(t2("> > **Depends on:** Task 1\n"), 1), [1]);
   assert.equal(info(t2("> **Depends on:** Task 1\n")), "declared");
   // A fence inside a quote is skipped; one that loses its quote ends there.
-  assert.equal(info(t2("**Depends on:** Task 1\n").replace("**Depends on:** none", "> ```\n> **Depends on:** none\n> ```")), "none");
+  assert.equal(code(t2("**Depends on:** Task 1\n").replace("**Depends on:** none", "> ```\n> **Depends on:** none\n> ```")), "PLAN_CODE_HIDES_TASK");
   // Fix round 5 (N1) superseded this: a quoted fence ended by an unquoted line, not
   // by a closer, is now refused rather than read past.
   assert.equal(code(one("- Create: `a.ts`\n> ```\n- Modify: `secret.ts`\n```\n```")), "PLAN_UNCLOSED_FENCE");
@@ -595,4 +597,12 @@ test("fix round 6 R2: an unindented path-only bullet right after a Files line is
   // A bullet with prose beside its paths, or a step, is not an item.
   assert.deepEqual(files(one("- Modify: `a.ts`\n- Run `npm test` in `src/x.ts`")), ["modify a.ts"]);
   assert.deepEqual(files(one("- Modify: `a.ts`\n- [ ] `b.ts`")), ["modify a.ts"]);
+});
+
+test("Plan C final review (minor 7): a Depends on line inside code is PLAN_CODE_HIDES_TASK", () => {
+  const nl = "\n", fence = "```";
+  assert.equal(code(one(["**Depends on:** none", "- Create: `a.ts`", "", fence + "md", "**Depends on:** Task 3", fence].join(nl))), "PLAN_CODE_HIDES_TASK");
+  assert.equal(code(one(["**Depends on:** none", "- Create: `a.ts`", "", "Example:", "", "    Depends on: none"].join(nl))), "PLAN_CODE_HIDES_TASK");
+  // prose that merely mentions a dependency inside code is not a label
+  assert.equal(code(one(["**Depends on:** none", "- Create: `a.ts`", "", fence, "this depends on the schema", fence].join(nl))), null);
 });

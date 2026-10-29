@@ -34,8 +34,11 @@ register("independence", async ({ positional, flags }, io) => {
     const allow = flags["allow-undeclared"] === true;
     if (args.length !== 1) fail("BAD_ARGS", "usage: sfactory independence tasks <plan> [--max n] [--allow-undeclared]");
     const config = tryConfig(io);
-    let max = flags.max != null ? Number(flags.max) : config?.limits.parallelTasks ?? 4;
-    if (!Number.isInteger(max) || max < 1) fail("BAD_ARGS", "--max must be a positive integer");
+    // A bare --max (no value) is BAD_ARGS, never 1; a value above limits.parallelTasks is capped at it.
+    if (flags.max !== undefined && !(typeof flags.max === "string" && /^[1-9][0-9]*$/.test(flags.max))) fail("BAD_ARGS", "--max needs a positive whole number");
+    const limit = config?.limits.parallelTasks ?? 4;
+    let max = flags.max !== undefined ? Number(flags.max) : limit;
+    if (max > limit) { io.stderr(`--max ${max} is above limits.parallelTasks; capped at ${limit}\n`); max = limit; }
     const plan = readPlan(io, args[0]);
     if (plan.dependencyInfo !== "declared" && !allow) {
       // R4-1: every task must carry its own Depends on line; name the ones that do not.
