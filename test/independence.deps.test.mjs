@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { parsePlan } from "../src/plan.mjs";
 import { taskBatches, migrationsDirOf } from "../src/independence.mjs";
 import { main } from "../src/cli.mjs";
+import "./helpers.mjs"; // its empty global git config (minor 12)
 
 // Plan C entry criterion I7: a plan with no dependency information runs
 // sequentially unless the caller allows it, and the migrations rule applies
