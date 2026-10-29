@@ -47,6 +47,17 @@ const t = setTimeout(() => { killTree(p); process.stderr.write("fetch timed out"
 p.on("error", (e) => { clearTimeout(t); process.stderr.write(e.message); process.exit(1); });
 p.on("close", (code) => { clearTimeout(t); process.stderr.write(err); process.exit(code ?? 1); });
 `;
+/** An afterCut command under the same kind of wrapper: its tree is killed at the timeout (exit 124). */
+const AFTER_CUT_WRAPPER = `
+import { spawn } from "node:child_process";
+import { killTree, followSignals } from ${JSON.stringify(new URL("./suite.mjs", import.meta.url).href)};
+const detached = process.platform !== "win32";
+const p = spawn(process.env.SF_AFTER_CUT_CMD, { shell: true, stdio: ["ignore", "inherit", "inherit"], detached, windowsHide: true });
+if (detached) followSignals(p);
+const t = setTimeout(() => { killTree(p); process.exit(124); }, Number(process.env.SF_AFTER_CUT_TIMEOUT_MS));
+p.on("error", (e) => { clearTimeout(t); process.stderr.write(e.message); process.exit(1); });
+p.on("close", (code) => { clearTimeout(t); process.exit(code ?? 1); });
+`;
 /** The fetch's environment: no prompts, and BatchMode ssh only when the user has chosen no ssh command. */
 export function fetchEnv(cwd, env = process.env) {
   const out = { ...env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
@@ -110,7 +121,11 @@ export function cut(c, job, { slug, afterAdd, fetch = true, gitRun = git, base: 
       if (from && existsSync(from) && !existsSync(join(dir, rel))) { mkdirSync(dirname(join(dir, rel)), { recursive: true }); copyFileSync(from, join(dir, rel)); }
     }
     for (const cmd of c.worktrees.afterCut) {
-      const r = spawnSync(cmd, { cwd: dir, shell: true, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      // A hung command (an install waiting on a prompt) must not hold the cut forever: at worktrees.afterCutTimeoutMs
+      // its whole tree is killed (killTree, under a node wrapper) and the cut is undone.
+      const timeout = c.worktrees.afterCutTimeoutMs ?? 1_800_000;
+      const r = spawnSync(process.execPath, ["--input-type=module", "-e", AFTER_CUT_WRAPPER], { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true, timeout: timeout + 15_000, env: { ...process.env, SF_AFTER_CUT_CMD: cmd, SF_AFTER_CUT_TIMEOUT_MS: String(timeout) } });
+      if (r.status === 124 || r.error?.code === "ETIMEDOUT") fail("AFTER_CUT_TIMEOUT", `${cmd} ran past worktrees.afterCutTimeoutMs (${timeout} ms) in ${dir}; its process tree was killed and the cut undone`);
       if (r.status !== 0) fail("AFTER_CUT_FAILED", `${cmd} exited ${r.status} in ${dir}:
 ${(r.stderr ?? "").slice(-2000)}`);
     }

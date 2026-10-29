@@ -14,7 +14,7 @@ export const DEFAULTS = Object.freeze({
     claude: { plan: "opus/high", review: "opus/high", judge: "opus/high", implement: "sonnet", triage: "haiku" },
     codex: { implement: "implement", review: "review" },
   },
-  worktrees: { branchPrefix: "feature/", baseRule: "integration-branch", integrationBranch: null, afterCut: [], copyFromBase: [], copyForVerify: [] },
+  worktrees: { branchPrefix: "feature/", baseRule: "integration-branch", integrationBranch: null, afterCut: [], afterCutTimeoutMs: 1_800_000, copyFromBase: [], copyForVerify: [] },
   commands: { suiteSerial: true, build: null, typecheck: [], migrate: null, services: [] },
   ports: { base: 4100, step: 100, names: ["api", "web"] },
   record: {
@@ -99,6 +99,8 @@ export function validateConfig(raw) {
       else if (v.includes("{n}")) errs.push(`record.fix.${k}: "${v}" uses {n}, but a fix card takes no milestone number (use {id} and {slug})`);
     }
   }
+  const act = raw.worktrees?.afterCutTimeoutMs;
+  if (act != null && !(Number.isInteger(act) && act >= 1)) errs.push("worktrees.afterCutTimeoutMs: integer >= 1 (milliseconds)");
   for (const k of ["copyFromBase", "copyForVerify"]) {
     const v = raw.worktrees?.[k];
     if (Array.isArray(v)) for (const p of v) if (typeof p === "string" && outside(p)) errs.push(`worktrees.${k}: "${p}" must be a path inside the repo (no "..", not absolute)`);

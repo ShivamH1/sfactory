@@ -56,6 +56,7 @@
         "baseRule": { "type": "string", "description": "What a new branch is cut from: newest-feature-branch, integration-branch or a branch name." },
         "integrationBranch": { "type": ["string", "null"], "description": "The integration branch name, used by the integration-branch rule." },
         "afterCut": { "$ref": "#/$defs/stringList", "description": "Commands run in a fresh worktree after it is cut." },
+        "afterCutTimeoutMs": { "type": "integer", "minimum": 1, "description": "Longest each afterCut command may run, in milliseconds, before it is killed and the cut undone (AFTER_CUT_TIMEOUT). Default 1800000." },
         "copyFromBase": { "$ref": "#/$defs/stringList", "description": "Untracked files copied from the base checkout into a fresh worktree at the cut. A path listed in secrets.neverHandToAgents is refused (SECRET_PATH): agents work in the worktree from planning on; list such a file in copyForVerify instead." },
         "copyForVerify": { "$ref": "#/$defs/stringList", "description": "Untracked files (an .env, say) the verify stage's services need: copied into the card's worktree by services up, from the base branch's checkout or else the main checkout, and removed by services down, job stop and worktree remove." }
       },

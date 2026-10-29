@@ -495,3 +495,14 @@ test("I2: record.fix is validated - an object of brief, plan and log patterns in
   assert.ok(validateConfig({ ...base, record: { fix: { stories: "x" } } }).some((e) => /record\.fix\.stories: only brief, plan and log/.test(e)));
   assert.ok(validateConfig({ ...base, record: { fix: ["x"] } }).some((e) => /record\.fix: an object/.test(e)));
 });
+
+test("minor 9: an afterCut command past worktrees.afterCutTimeoutMs is killed, AFTER_CUT_TIMEOUT, and the cut is undone", async () => {
+  const { root, c } = setup({ afterCut: ["node -e \"setTimeout(()=>{},20000)\""], afterCutTimeoutMs: 700 });
+  const t0 = Date.now();
+  assert.throws(() => cut(c, newJob({ id: "m-1", kind: "milestone", title: "Hung install" }), {}), (e) => e.code === "AFTER_CUT_TIMEOUT" && /700 ms/.test(e.message));
+  assert.ok(Date.now() - t0 < 15000, "the cut did not wait for the command");
+  assert.equal(existsSync(join(c.worktrees.dir, "hung-install")), false);
+  assert.equal(branchExists(root, "feature/hung-install"), false);
+  const { validateConfig } = await import("../src/config.mjs");
+  assert.ok(validateConfig({ project: "p", agents: { mode: "claude" }, commands: { suite: "x" }, worktrees: { afterCutTimeoutMs: 0 } }).some((e) => /afterCutTimeoutMs/.test(e)));
+});
