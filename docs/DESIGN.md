@@ -1,6 +1,6 @@
 # sfactory — design
 
-*Status: draft for the owner's review, 2026-10-27. Nothing below is built.*
+*Status: built (Plans A, B and C, 2026-10-28); the first real run is pending. Where the build changed the design, a section carries a dated amendment.*
 
 sfactory is a Claude Code plugin that turns a backlog of features and fixes into reviewed, verified, pushed branches, with a kanban board that shows where every card is. A Claude Code session hosts it and drives the state machine. The code is written and reviewed by whichever agents the project configures: Claude subagents, Codex, or both. Scripts own the state and every deterministic step. The human is asked only at the points the project's config names.
 
@@ -63,7 +63,7 @@ Only `bin/job` writes `job.json`, and only along these edges.
 | `awaiting-approval` | Needs you | parked | `plan/approval.md` on release | `building` |
 | `building` | In process | the task loop (§5); one log entry per task; commits at each boundary | `tasks/<n>/*`; the record's log | `reviewing` |
 | `reviewing` | Review | whole-branch bug-hunt, then the judge against the brief's done-whens | `review/bug-hunt.md`, `review/judge.md` | `fixing` · `verifying` |
-| `fixing` | Fixed | findings fixed, full suite, back to the judge; at most `limits.fixRounds` rounds | `review/round-<r>/*` (`<r>`: the job's round) | `reviewing` · `stopped` |
+| `fixing` | Fixed | findings fixed, full suite, back to the judge; at most `limits.fixRounds` rounds | `review/round-<r>/*` (`<r>`: the job's round) | `reviewing` (past the cap the move to `fixing` is refused and the card parks as `decision-needed`) |
 | `verifying` | Fixed | takes the `live` lock; the project's verify steps: migrations, services on the card's ports, scripted or headed walkthrough, staging calls | `verify/suite.log`, `verify/walkthrough.md` | `pushing` · `fixing` |
 | `pushing` | Pushed / PR | closing section, plan ticks, carried-forward reconciled, push, PR text | `pr.md` | `pushed` |
 | `pushed` | Pushed / PR | waits for the person's merge; the board checks whether the integration branch contains the head | | `merged` |
@@ -245,18 +245,18 @@ Slash commands in the session; each is a thin call into the scripts with the ski
 | `pushed` | the PR title and body with a copy button; *Mark merged* if detection lags | `sfactory-job merged <id>` |
 | any working stage | *Stop*; *Rework* with a notes box on a reviewed or pushed card | `sfactory-job stop <id>` · `sfactory-job rework <id>` |
 
-The session's `/sfactory` commands do the same things, so either surface works. The orchestrator session, when it waits on a gate, polls the card's `job.json` and continues the moment the board releases it. The server binds to localhost only, accepts no write for a card it does not hold, and starts no agent: everything that spends tokens is still begun from the session.
+The session's `/sfactory` commands do the same things, so either surface works. *Amended 2026-10-28:* the orchestrator session does not poll at a gate: it ends its turn naming what releases each waiting card, and `/sfactory run` (idempotent) carries on once the board or a command has released it. Only when the person asks does it watch, with a bounded Monitor loop (a check every 30 s, at most 30 minutes). The server binds to localhost only, accepts no write for a card it does not hold, and starts no agent: everything that spends tokens is still begun from the session.
 
 ## 12. Guardrails (script refusals)
 
-- `push` refuses a branch outside `branchPrefix`, a dirty tree, and any push when `git.push` is false.
-- `commit` refuses `git add -A`, any stash, and trailers unless `git.trailers` is true.
-- `job` refuses to leave `awaiting-approval` without `plan/approval.md`, and any edge not in §4.
-- `worktree` refuses the main checkout, any directory with another holder's lock, and a cut whose base moved between the read and the add.
-- `add fix` refuses a card whose plan touches `fixCardRefusals` and refiles it.
+- `push` refuses a branch outside `branchPrefix`, a dirty tree, any push when `git.push` is false, and any tree but a card's worktree.
+- `commit` refuses the main checkout, a branch the factory may not write, a path in `secrets.neverHandToAgents`, `git add -A`, any stash, and trailers unless `git.trailers` is true.
+- `job` refuses to leave `awaiting-approval` without `plan/approval.md`, any edge not in §4, a milestone's start at `limits.parallelMilestones`, and a milestone's approval beside an active milestone without the person's parallel yes.
+- `worktree` refuses the main checkout, any directory with another holder's lock, a cut whose base moved between the read and the add, and a `copyFromBase` path listed in `secrets.neverHandToAgents`.
+- `fixcard` names the files of a fix card's plan that match `fixCardRefusals`; the orchestrator then refiles the card as a milestone.
 - Agents never receive `secrets.neverHandToAgents`; the implementer's prompt lists the files it may touch.
-- `suite` holds its lock for the whole run; `live` is one lock for the machine.
-- A fix round over `limits.fixRounds` stops the card; nothing loops unbounded.
+- `suite` holds its lock for the whole run, and the lock stays held while the suite still runs; `live` is one lock for the machine.
+- A fix round over `limits.fixRounds` is refused and parks the card for the person; nothing loops unbounded.
 
 ## 13. Codex integration
 

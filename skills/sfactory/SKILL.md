@@ -25,7 +25,7 @@ Parse `$ARGUMENTS`: the first word is the command. Each row is the CLI line you 
 | `/sfactory answer <id> ["<answer>"]` | Write the person's answer (from the command, or ask for it) to `<JOB_DIR>/decisions/<k>-answer.md`, where `<k>` is the highest `decisions/<k>.md`. Then run `sfactory job answer <id>`. |
 | `/sfactory parallel <id> --yes` or `--no` | `sfactory job parallel <id> --yes` or `sfactory job parallel <id> --no` (section 5). |
 | `/sfactory status` | `sfactory job list`: one line per card. |
-| `/sfactory board` | `sfactory board`, run in the background (the Bash tool's background mode), because it serves until stopped. Print the link it prints. |
+| `/sfactory board` | `sfactory board`, run in the background (the Bash tool's background mode), because it serves until stopped. Print the link it prints. To stop it, stop that background task (the board exits on Ctrl+C or SIGTERM); a board left from another session is stopped in the terminal it runs in. |
 | `/sfactory rework <id> "<notes>"` | `sfactory job rework <id> --notes "<notes>"`. This works on a `reviewing` or `pushed` card. The next run turns the notes into a task (section 4, building). |
 | `/sfactory stop <id>` | `sfactory job stop <id> --reason "stopped by the person"`. Dispatch nothing more for it. An agent already running finishes its call, and its output stays in JOB_DIR. The stop also removes the card's verify copies (`worktrees.copyForVerify`) from WORKTREE. |
 | `/sfactory clean <id>` | `sfactory worktree remove <id>`, for a `merged` card only. |
@@ -155,12 +155,13 @@ The sdd skill's whole-branch review, run in this order:
 3. One verdict rule:
    - **Move to `verifying`** (`sfactory job set <id> verifying`) only when the judge is ✅, no Critical or Important bug-hunt finding stands, and no scoped re-review says NOT ADDRESSED.
    - **Otherwise,** move to `fixing` (`sfactory job set <id> fixing`). The fix round dispatches one fixer, runs `sfactory suite` and returns the card to `reviewing` (`sfactory job set <id> reviewing`).
-   - **When `job set` refuses with `FIX_ROUNDS_EXHAUSTED`,** park the card with every open finding: `sfactory job park <id> --reason "<the open findings>"`. Never move to `verifying` while the judge, the bug-hunt or a scoped re-review says ❌ Needs fixes.
+   - **When `job set` refuses with `FIX_ROUNDS_EXHAUSTED`,** park the card with every open finding and the person's options: `sfactory job park <id> --reason "<the open findings>; options: answer, then /sfactory rework <id> with notes to send it back to building, or /sfactory stop <id>"`. Tell them the same. Never move to `verifying` while the judge, the bug-hunt or a scoped re-review says ❌ Needs fixes.
 
 **verifying**
 
 1. If `verifying` is in `stops` and the card's last history entry is not the release of that park, park it: `sfactory job park <id> --reason "verifying is a stop here: <the steps below that will run>"`.
 2. Take the machine's `live` lock with `sfactory lock acquire live --holder <id> --durable`. It does not wait: a `LOCK_HELD` refusal means another card is verifying, so work other cards and come back. Keep the token it prints in `<JOB_DIR>/verify/live-token.txt`.
+   - **A stranded `live` lock.** The lock is durable, so a session that died mid-verify leaves it held. When `sfactory lock status live` names a holder that is not in `verifying` (or not running), tell the person; on their word run `sfactory services down <holder>`, then `sfactory lock release live --holder <holder> --token <the token in that card's verify/live-token.txt>`.
 3. Run `sfactory suite --cwd <WORKTREE> --job <id> --log <JOB_DIR>/verify/suite.log`. Then run `commands.build` and each `commands.typecheck` in WORKTREE, when the config sets them.
 4. Run `sfactory services copy <id>`. It copies `worktrees.copyForVerify` into WORKTREE: the untracked files the services and the migrations need, credentials among them, which no agent ever sees in the worktree. They exist there for this stage only; never read them. Then run `commands.migrate` in WORKTREE, when it is set. These are the project's own commands, so the harness may ask the person for permission.
 5. Run `sfactory services up <id>`. The services run on the card's ports (`up` makes the same copies, if step 4 did not run).
@@ -279,14 +280,14 @@ The config's `stops` list names the stages that wait for the person. The default
 
 The CLI refuses these (design §12, verbatim):
 
-- `push` refuses a branch outside `branchPrefix`, a dirty tree, and any push when `git.push` is false.
-- `commit` refuses `git add -A`, any stash, and trailers unless `git.trailers` is true.
-- `job` refuses to leave `awaiting-approval` without `plan/approval.md`, and any edge not in §4.
-- `worktree` refuses the main checkout, any directory with another holder's lock, and a cut whose base moved between the read and the add.
-- `add fix` refuses a card whose plan touches `fixCardRefusals` and refiles it.
+- `push` refuses a branch outside `branchPrefix`, a dirty tree, any push when `git.push` is false, and any tree but a card's worktree.
+- `commit` refuses the main checkout, a branch the factory may not write, a path in `secrets.neverHandToAgents`, `git add -A`, any stash, and trailers unless `git.trailers` is true.
+- `job` refuses to leave `awaiting-approval` without `plan/approval.md`, any edge not in §4, a milestone's start at `limits.parallelMilestones`, and a milestone's approval beside an active milestone without the person's parallel yes.
+- `worktree` refuses the main checkout, any directory with another holder's lock, a cut whose base moved between the read and the add, and a `copyFromBase` path listed in `secrets.neverHandToAgents`.
+- `fixcard` names the files of a fix card's plan that match `fixCardRefusals`; the orchestrator then refiles the card as a milestone.
 - Agents never receive `secrets.neverHandToAgents`; the implementer's prompt lists the files it may touch.
-- `suite` holds its lock for the whole run; `live` is one lock for the machine.
-- A fix round over `limits.fixRounds` stops the card; nothing loops unbounded.
+- `suite` holds its lock for the whole run, and the lock stays held while the suite still runs; `live` is one lock for the machine.
+- A fix round over `limits.fixRounds` is refused and parks the card for the person; nothing loops unbounded.
 
 And in this session:
 

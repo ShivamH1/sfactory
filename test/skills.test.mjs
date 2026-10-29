@@ -563,3 +563,13 @@ test("I5/I6: brainstorming hands back (never invokes writing-plans); the orchest
   assert.match(planning, /still in `planning`/);
   assert.match(planning, /resumes a fix card found in `planning`/);
 });
+
+test("Plan C final review minors: a stranded live lock, the options at the fix-round cap, stopping the board; DESIGN no longer drifts", () => {
+  for (const s of ["**A stranded `live` lock.**", "sfactory lock status live", "options: answer, then /sfactory rework <id>", "To stop it, stop that background task"]) assert.ok(orch.includes(s), `names ${s}`);
+  assert.match(read(join(skillsRoot, "sdd", "SKILL.md")), /options: rework or stop/);
+  const design = read(join(root, "docs", "DESIGN.md"));
+  assert.ok(!design.includes("Nothing below is built"), "the status line is current");
+  assert.ok(!/polls the card's `job\.json`/.test(design), "§11 no longer says the session polls");
+  const sec = design.slice(design.indexOf("## 12. Guardrails"), design.indexOf("## 13."));
+  for (const s of ["`limits.parallelMilestones`", "parks the card for the person", "`fixcard` names", "`copyFromBase`", "any tree but a card's worktree"]) assert.ok(sec.includes(s), `§12 names ${s}`);
+});
