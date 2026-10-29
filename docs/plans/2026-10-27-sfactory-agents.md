@@ -52,7 +52,7 @@ test/ plan.entry.test.mjs independence.deps.test.mjs push.guard.test.mjs job.cap
 - `taskBatches(plan, max, { allowUndeclared = false })`: when `plan.dependencyInfo === "none"` and `allowUndeclared` is false, every task is its own batch in plan order (sequential); the migrations rule applies inside a batch (two tasks each adding a file under `migrations.dir` never share one). `checkMilestones` unchanged.
 - `scripts/acceptance-plans.mjs <dir>` prints `file | tasks | code` and a summary line; the test runs it over `test/fixtures/plans/`.
 
-- [ ] Tests for each item (crafted plans), seen red first; the acceptance over the reference project's `spec/plans/` run by the implementer outside the repo and pasted in the report: expected still 31 parse / 16 fail, with no plan newly failing. Commit `fix(plan): the five parked holes closed; dependencies from Consumes; undeclared plans run sequentially`.
+- [x] Tests for each item (crafted plans), seen red first; the acceptance over the reference project's `spec/plans/` run by the implementer outside the repo and pasted in the report: expected still 31 parse / 16 fail, with no plan newly failing. Commit `fix(plan): the five parked holes closed; dependencies from Consumes; undeclared plans run sequentially`.
 
 ---
 
@@ -66,7 +66,7 @@ test/ plan.entry.test.mjs independence.deps.test.mjs push.guard.test.mjs job.cap
 - `allocate` runs under `withLock(c, "ports", { holder: HOLDER, waitMs: 10_000 })`.
 - `resolveBase`: when a remote `origin` exists, `git fetch --quiet origin` first; a fetch failure is a warning on stderr, never a stop; `--no-fetch` skips it.
 - `checkFixCard(c, plan) -> { ok, hits: [{ file, pattern }] }` over `fixCardRefusals` patterns (`**` = any depth, `*` = one segment); `sfactory fixcard <plan>` exits 1 and names the hits; a hit means the card is refiled as a milestone (the skill does the refiling).
-- [ ] Tests for each; commit `feat: push trailer re-check and protected branches, fix-round cap, ports lock, base fetch, fix-card refusals`.
+- [x] Tests for each; commit `feat: push trailer re-check and protected branches, fix-round cap, ports lock, base fetch, fix-card refusals`.
 
 ---
 
@@ -79,7 +79,7 @@ test/ plan.entry.test.mjs independence.deps.test.mjs push.guard.test.mjs job.cap
 - `runCodexReview(c, { cwd, base, commit, prompt, profile, outDir })` → `{ ok, text, logPath }` via `codex review [--base|--commit] -` with the prompt on stdin.
 - `doctor`: the profile rows check `~/.codex/<name>.config.toml` exists (not a `[profiles.*]` table); README's Codex section gives two files `implement.config.toml` / `review.config.toml` (model and `model_reasoning_effort` keys, sandbox left to the flag).
 - CLI `sfactory codex exec --cwd <dir> --profile <p> --out <dir> [--sandbox s] < prompt` and `sfactory codex review --cwd <dir> --base <b>|--commit <sha> --out <dir> < prompt`; both record cost with `addCost` when usage is known.
-- [ ] Tests with an injected `spawn` that fakes the JSONL stream (no real Codex call); one opt-in integration test `SFACTORY_CODEX_LIVE=1` that runs `codex exec -s read-only "say ok"` (skipped by default). Commit `feat(codex): exec and review runners with usage capture; doctor checks profile files`.
+- [x] Tests with an injected `spawn` that fakes the JSONL stream (no real Codex call); one opt-in integration test `SFACTORY_CODEX_LIVE=1` that runs `codex exec -s read-only "say ok"` (skipped by default). Commit `feat(codex): exec and review runners with usage capture; doctor checks profile files`.
 
 ---
 
@@ -89,7 +89,7 @@ test/ plan.entry.test.mjs independence.deps.test.mjs push.guard.test.mjs job.cap
 
 **Interfaces:**
 - `servicesUp(c, job, { log })` starts every `commands.services` entry for the card: `cmd` and `env` values with `{port.<name>}` substituted from `job.ports`, cwd the job's worktree, stdout/stderr to `<jobDir>/verify/<name>.log`, pids recorded in `<jobDir>/verify/services.json`; `servicesDown(c, job)` kills them (tree kill on win32) and removes the record; `servicesStatus(c, job)` reports alive pids. An entry with `"live": true` requires the `live` lock to be held by this job (`LIVE_LOCK_REQUIRED`). `sfactory services up|down|status <id>`.
-- [ ] Tests with `node -e` sleepers; commit `feat(services): start, stop and inspect a card's services on its port block`.
+- [x] Tests with `node -e` sleepers; commit `feat(services): start, stop and inspect a card's services on its port block`.
 
 ---
 
@@ -101,7 +101,7 @@ test/ plan.entry.test.mjs independence.deps.test.mjs push.guard.test.mjs job.cap
 - `sfactory init [--force]`: refuses an existing config without `--force`; inspects `package.json` (`scripts.test` → `commands.suite`, `scripts.build`, workspaces → hotspots suggestion `packages/*`), `pyproject.toml`/`uv.lock` (`uv run pytest`), `git` (branches `development`/`develop`/`main` → `integrationBranch`; `feature/*` present → `baseRule: newest-feature-branch`), a `spec/` tree with `modules`/`plans`/`decisions` → `record.style: spec-tree` with the templates, `CLAUDE.md`/`AGENTS.md` → `rules`, `prisma/migrations` → `migrations.dir`; writes the config with a `// generated by sfactory init` first-line comment stripped (JSON) and prints every guess and every key it left at the default; appends `.sfactory/` to `.gitignore` when `stateDir` is inside the repo.
 - `sfactory install [--codex] [--dest <dir>]`: copies `skills/`, `agents/` and `prompts/` from the plugin root (`${CLAUDE_PLUGIN_ROOT}` or the package's own dir) into `<repo>/.claude/` (or `~/.codex/skills/` with `--codex`); never overwrites a file that differs without `--force`; prints what it copied.
 - `sfactory sync-rules [--check]`: copies `rules[0]` over every other `rules` entry (CRLF-normalised compare; `--check` exits 1 when they differ and writes nothing); the first line of a copy is rewritten from "guidance to Claude Code" to the other tool's name when it matches that phrase.
-- [ ] Tests on temp repos; commit per command.
+- [x] Tests on temp repos; commit per command.
 
 ---
 
@@ -113,7 +113,7 @@ test/ plan.entry.test.mjs independence.deps.test.mjs push.guard.test.mjs job.cap
 - Each agent file: frontmatter `name`, `description`, `model` (from a placeholder the skill fills from config), `tools` (reviewers and judge: read-only — `Read, Grep, Glob, Bash(git log *), Bash(git diff *)`); body built from superpowers' `implementer-prompt.md`, `task-reviewer-prompt.md`, `re-review-prompt.md` and `code-reviewer.md` with the factory's additions: the files it may touch (`{{files}}`), the record paths (`{{brief}}`, `{{plan}}`, `{{log}}`), the commit rule (`sfactory commit --cwd {{worktree}} --holder {{job}} --m "…" -- <paths>`; never `git commit`), no trailers, never read `{{secrets}}`, the report path.
 - Codex prompts: the same content shaped for `codex exec` (a single Markdown prompt with the brief inlined under a heading, since Codex has no file-path contract), the sandbox rule, and the report contract (write the report file, print the short status).
 - Placeholders are `{{name}}`; the test asserts every placeholder used in a file is in the known set and no file contains `.env`, `SECRET` or a model id literal.
-- [ ] Commit `feat(agents): agent definitions and Codex prompts`.
+- [x] Commit `feat(agents): agent definitions and Codex prompts`.
 
 ---
 
@@ -125,7 +125,7 @@ test/ plan.entry.test.mjs independence.deps.test.mjs push.guard.test.mjs job.cap
 - brainstorming: the design doc goes to `record.brief` (the project's brief path for the card), not `docs/superpowers/specs/`; the visual companion section is removed; the "commit the design document" step becomes `sfactory commit`; a milestone's brainstorm ends by writing `plan/questionnaire.md` when questions remain, and the stage moves to `awaiting-approval` through `sfactory job set` after writing-plans; stories first when `record.stories` exists.
 - writing-plans: the plan goes to `record.plan`; **every task MUST carry a `**Depends on:**` line** (`none` allowed) and a `**Files:**` block with backticked paths only; the header's "REQUIRED SUB-SKILL" names `sfactory:sdd`; the execution handoff offers nothing (the skill continues).
 - sdd: the workspace is the job folder (`tasks/<n>/brief.md`, `report.md`, `review.md`); the implementer is `sfactory:implementer` (claude) or `sfactory codex exec` (codex/mixed); the code reviewer is `sfactory:code-reviewer` (claude) or `sfactory codex review` (codex/mixed); the spec reviewer is always `sfactory:spec-reviewer`; BASE/HEAD and review packages use the same `review-package`-style diff file written by `sfactory` (add `sfactory diff <base> <head> --out <file>` to Task 2's guardrails? — no: the skill shells `git diff` into the job folder directly); the fix loop's cap is `limits.taskRounds`; the final whole-branch review is the judge (`sfactory:judge`), not `requesting-code-review`; "finishing-a-development-branch" is replaced by the pushing stage.
-- [ ] The test checks: each skill folder has `SKILL.md`, `ATTRIBUTION.md`, `CHANGES.md`; no `docs/superpowers` string remains; `writing-plans/SKILL.md` contains "Depends on"; `sdd/SKILL.md` names `sfactory codex exec`. Commit `feat(skills): adapted brainstorming, writing-plans and sdd with attribution`.
+- [x] The test checks: each skill folder has `SKILL.md`, `ATTRIBUTION.md`, `CHANGES.md`; no `docs/superpowers` string remains; `writing-plans/SKILL.md` contains "Depends on"; `sdd/SKILL.md` names `sfactory codex exec`. Commit `feat(skills): adapted brainstorming, writing-plans and sdd with attribution`.
 
 ---
 
@@ -143,9 +143,25 @@ test/ plan.entry.test.mjs independence.deps.test.mjs push.guard.test.mjs job.cap
 7. **Cost**: after every subagent or Codex call record `sfactory cost add` when usage is known.
 8. **Stops**: the `stops` list; anything in it parks the card instead of running.
 9. **Never**: the design §12 list, verbatim.
-- [ ] The test checks the eleven commands are each mentioned with their CLI line and that no model id or secret path appears. Commit `feat(skill): the sfactory orchestrator`.
+- [x] The test checks the eleven commands are each mentioned with their CLI line and that no model id or secret path appears. Commit `feat(skill): the sfactory orchestrator`.
 
 ---
+
+**Amendment (2026-10-28, controller, from the Plan C reviews; binding for Task 8):**
+- The worktree is cut when a card ENTERS planning, not at building: on `backlog` -> `planning` run `sfactory worktree cut <id>` (milestone and fix cards alike) before brainstorming, skip it when `job.worktree` is already set (resume, changes requested), and hand WORKTREE to brainstorming and writing-plans; the brief, stories and plan are written and committed inside the worktree. At `awaiting-approval`, tell the person the brief and plan are on the card branch in WORKTREE (the board shows only job-folder files). `building` no longer cuts.
+- `fixcard` and `independence` take the plan as `<WORKTREE>/<record.plan>` (absolute path).
+- allowed-tools must cover what the skills really run: `Bash(sfactory *)`, `Bash(sfactory-* *)`, `Bash(git *)` (the sdd skill uses `git -C <WORKTREE> ...`, `git ... status --porcelain`, `git diff`), `Bash(bash *)` (the sdd `task-brief` script), `Read`, `Write` (job-folder files), `Agent`.
+- Agent activity: `sfactory job touch <id> --note "<start|finish> <role> ..."` at every agent start and finish (best effort; skipped outside working stages).
+- Every subagent dispatch passes a model ALIAS from `agents.claude.*`; per-dispatch effort cannot be set (config effort applies to Codex profiles only).
+- Codex never commits; its final message is its report; the orchestrator commits the declared paths with `sfactory commit` and runs the full suite through `sfactory suite` after each Codex task.
+- After each task commit `git -C <WORKTREE> status --porcelain` must be empty, else STOP the card ("task wrote outside its declared files").
+- Reviews are stored as `reviews/<n>-<stage>.md` in the job folder, verdict on the first line.
+- At the branch fix-round cap (`FIX_ROUNDS_EXHAUSTED`), park the card `decision-needed` with the open findings; never move to `verifying` while the judge, the bug-hunt or a scoped re-review says Needs fixes.
+- A second commit in this task, `fix(skills): Task 7 review minors`, carries: writing-plans hand-over touch moved before `job set awaiting-approval`; writing-plans CHANGES item 4 and brainstorming CHANGES item 8 marked "(superseded by 15)"; the sdd Fixing paragraph (branch fixer logs to `suite-<r>.log`; one meaning of `<k>`; branch-level TASK/FINDINGS are the brief and `review/round-<k>/brief.md`; codex/mixed re-reviewer is `sfactory codex review`); the sdd verdict rule names a scoped re-review NOT ADDRESSED as blocking; `cutJob` undo in src/commands/worktree.mjs runs `git worktree prune` before `branch -D` when it added the worktree.
+
+**Note (2026-10-28, Task 8 fix round 1, from the Opus review):** item 4's "`awaiting-approval` → wait (poll `sfactory job show <id> --json` every 30 s …)" and "`decision-needed` → wait as for approval" are replaced: at a gate the session ends its turn, naming what releases each card (`/sfactory approve|answer|parallel <id>` or the board) and then `/sfactory run`, which is idempotent. Only when the person asks to keep watching does it run a bounded Monitor loop (a check every 30 s, at most 30 minutes); there is no `sleep` polling and `Bash(sleep *)` is not in allowed-tools (`Monitor` is). Item 5's parallel check moves from `add milestone` to the card's real plan, after the plan commit and before `awaiting-approval` (`park --pending parallel` is legal from `planning`), and the four CLI additions (`worktree cut --base-of`, `job request-changes`, `job add fix --log` with `job.record` resolved at the cut, `worktree merge --from`) replace the skill's workarounds.
+
+**Note (2026-10-28, Plan C final review, I7):** the amendment's allowed-tools list above (`Bash(git *)` for the sdd skill's git reads, `Bash(bash *)` for its `task-brief` script) is replaced. The git reads are sfactory verbs: `sfactory brief <plan> <n> --out <file>` (the script, ported to src/brief.mjs and removed), `sfactory diff --cwd <worktree> <base> <head|WORKTREE> (--out <file> | --names | --commits) [-- <paths>]` and `sfactory tree <worktree> [--head]`. allowed-tools are `Bash(sfactory *)`, `Bash(sfactory-* *)`, `Bash(agent-browser *)` and the non-Bash tools only; the skills test refuses a skill that runs git or bash directly.
 
 ### Task 9: Install docs, versions, package check, first run
 
@@ -153,10 +169,12 @@ test/ plan.entry.test.mjs independence.deps.test.mjs push.guard.test.mjs job.cap
 
 - [ ] INSTALL.md: the plugin channel (the two commands and the one-step form), the npm channel, the Codex profile files, `init`, `doctor`, `board`, updating. README: what it is, a 90-second walkthrough of one card, the board, the modes, the commands, licence and attribution.
 - [ ] `npm pack --dry-run` on a machine where it runs, or `npm pack` into a temp dir here and list the tarball; the plugin loads in a fresh Claude Code session (`/plugin marketplace add <local path>` then `/plugin install sfactory@sfactory`; `/sfactory status` answers) — the controller does this step and records the result.
-- [ ] **First real run (controller, with the user informed)**: install the plugin in the Thrive repo, `sfactory init` (expect the Thrive example), `doctor` green after the two profile files exist, add one small **fix** card (candidate: the Give form's Send button under the bottom bar at 360 px, finding F1 of M54 — confirm it is still open and not owned by the live M55 session), run it end to end in `mixed` mode with the board open, and stop before `pushing` to let the user see the branch; then push. Record the run in the plan's workspace and the outcome in this plan's closing notes.
+- [ ] **First real run (controller, with the user informed)**: install the plugin in the Thrive repo, `sfactory init` (expect the Thrive example), `doctor` green after the two profile files exist, add one small **fix** card (user ruling, 2026-10-28: `19.1-CARRIED-FORWARD.md` entry 9, bullet 1 — `listAwards` runs 3N+2 queries; derive `hasNominations` from the cycle summaries it already loads — in Thrive's nomination-awards module; the earlier candidate, M54 F1, was settled as an observation and is not a defect), run it end to end in `mixed` mode with the board open, and stop before `pushing` to let the user see the branch; then push. Record the run in the plan's workspace and the outcome in this plan's closing notes.
 
 ---
 
 ## Self-review
 
 Spec coverage: design §3 (modes) → Tasks 6–8; §5 (task loop) → Task 7's sdd + Task 8; §6 → Task 8 §5 + Task 1; §7 → Task 8 §8; §9 (layout) → every task; §10 (commands) → Task 8 §2; §12 (guardrails) → Task 2 + Task 8 §9; §13 (Codex) → Task 3 (with the profile-file correction); §14 (install) → Task 5 + 9; the core review's Plan C entry criteria (N1–N5, I7, I9, M8, M10, M12, M13) → Tasks 1–2. Placeholders: the Markdown deliverables (Tasks 6–8) are specified by section and sentence, not full text, because they are adaptations of existing files the implementer copies. Types: `runCodexExec`/`runCodexReview` (Task 3) are what Task 7's sdd and Task 8 call through the CLI; `servicesUp/Down` (Task 4) through `sfactory services`; `checkFixCard` (Task 2) through `sfactory fixcard`.
+
+**Note (2026-10-28, Plan C final review, I8):** Tasks 1 to 8 are ticked; Task 9 is ticked after the first real run. Every item the reviews parked or deferred, with its ruling, is in `2026-10-27-sfactory-agents-followups.md`.

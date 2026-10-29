@@ -5,6 +5,15 @@ import { spawnSync } from "node:child_process";
 
 export function tmpDir(prefix = "sf-") { return mkdtempSync(join(tmpdir(), prefix)); }
 
+// Minor 12 (Plan C final review): every git the tests run reads an empty global config, never the machine's
+// (a commit.gpgsign, a hook path, an init.defaultBranch or a credential helper there changes what the tests see),
+// with a fixed identity for the commits made in clones that carry no local user.
+const EMPTY_GLOBAL = join(tmpDir("sf-gitcfg-"), "gitconfig");
+writeFileSync(EMPTY_GLOBAL, "");
+process.env.GIT_CONFIG_GLOBAL = EMPTY_GLOBAL;
+for (const [k, v] of [["GIT_AUTHOR_NAME", "t"], ["GIT_AUTHOR_EMAIL", "t@example.com"], ["GIT_COMMITTER_NAME", "t"], ["GIT_COMMITTER_EMAIL", "t@example.com"]]) process.env[k] = v;
+export const GIT_CONFIG_GLOBAL = EMPTY_GLOBAL;
+
 export function sh(cmd, args, cwd, env) {
   const r = spawnSync(cmd, args, { cwd, encoding: "utf8", env: { ...process.env, ...env } });
   if (r.status !== 0) throw new Error(`${cmd} ${args.join(" ")} failed: ${r.stderr}`);

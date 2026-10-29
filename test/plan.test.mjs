@@ -24,6 +24,10 @@ test("plan: real format - h2 headings, no-colon lines, several paths, letter ids
   assert.deepEqual(real.tasks[0].title, "Service");
   assert.deepEqual(real.tasks[1].files.map((f) => f.path), ["src/a.ts", "src/b.ts"]);
   assert.deepEqual(real.tasks[1].dependsOn, [1]);
+  // Round 6 (R1): the fixture's fence held "### Task 9: ..." and "- Create: `fenced.ts`", skipped as code then.
+  // A task heading or Files line inside code is now refused (nested fences re-pair and hide a task), so the
+  // fixture's fence holds a mention instead and the old form is pinned here.
+  assert.throws(() => parsePlan("## Task 1: A\n- Create: `a.ts`\n\n```md\n### Task 9: A fake heading inside a fence\n- Create: `fenced.ts`\n```\n"), { code: "PLAN_CODE_HIDES_TASK" });
 });
 
 const code = (md) => { try { parsePlan(md); } catch (e) { return e.code; } return null; };
@@ -42,9 +46,15 @@ const tail = "### Task 2: Next\n- Create: `next.ts`\n";
 const names = (md) => parsePlan(md).tasks.map((t) => t.n);
 
 test("plan: CommonMark fences", () => {
+  // Round 6 (R1) superseded the first case: a task heading and a Files line inside a
+  // (correctly closed) four-backtick fence were skipped; any such line inside code is now
+  // refused, since same-length nested fences re-pair and hide a task. The fence-length
+  // rule itself is still pinned below with code that holds neither.
   const four = "### Task 1: A\n- Create: `a.ts`\n````md\n```js\n### Task 9: fake\n- Create: `leak.ts`\n```\n````\n" + tail;
-  assert.deepEqual(names(four), [1, 2]);
-  assert.deepEqual(parsePlan(four).tasks[0].files, [{ op: "create", path: "a.ts" }]);
+  assert.equal(code(four), "PLAN_CODE_HIDES_TASK");
+  const fourPlain = "### Task 1: A\n- Create: `a.ts`\n````md\n```js\nconst leak = \"leak.ts\";\n```\n````\n" + tail;
+  assert.deepEqual(names(fourPlain), [1, 2]);
+  assert.deepEqual(parsePlan(fourPlain).tasks[0].files, [{ op: "create", path: "a.ts" }]);
   assert.deepEqual(names("### Task 1: A\n- Create: `a.ts`\n~~~\n```\n~~~\n" + tail), [1, 2]);
   assert.equal(code("### Task 1: A\n- Create: `a.ts`\n```\n### Task 2: hidden\n"), "PLAN_UNCLOSED_FENCE");
 });
@@ -64,7 +74,13 @@ test("plan: mixed Files lines refuse unquoted text", () => {
 
 test("plan: fence openers - inline triple-backtick runs and tab indents are not fences", () => {
   assert.deepEqual(names("### Task 1: A\n- Create: `a.ts`\n```x```\n" + tail), [1, 2]);
-  assert.deepEqual(names("### Task 1: A\n- Create: `a.ts`\n\t```\n" + tail), [1, 2]);
+  // Fix round 5 (N1) superseded this case: under the "- Create:" item a tab-indented
+  // fence is the item's own fence (R4-3), and "### Task 2" ends it by its container,
+  // not by a closer - now refused, since such a fence can re-pair with a later closer
+  // and swallow Files lines. The original intent, a tab-indented run outside any
+  // item being indented code and not a fence, holds directly under the heading.
+  assert.equal(code("### Task 1: A\n- Create: `a.ts`\n\t```\n" + tail), "PLAN_UNCLOSED_FENCE");
+  assert.deepEqual(names("### Task 1: A\n\t```\n- Create: `a.ts`\n" + tail), [1, 2]);
 });
 
 const files = (md) => parsePlan(md).tasks[0].files;
@@ -85,10 +101,20 @@ test("plan round 5: backticked items that are not path-like are prose", () => {
   assert.deepEqual(files(one1("- Modify: `apps/api/src/app.ts` (`register`, `describe`, `RewardProgram`)")).map((f) => f.path), ["apps/api/src/app.ts"]);
   assert.deepEqual(files(one1("- Modify: `web/api.ts` (the `\"/me/wallet\"` route, `'/x'`)")).map((f) => f.path), ["web/api.ts"]);
   assert.deepEqual(files(one1("- Modify: `.env`, `.`, `Makefile.am`")).map((f) => f.path), [".env", ".", "Makefile.am"]);
-  // A Files line made only of identifiers contributes no files; the task then falls under ruling 4.
+  // Plan C Task 1 (N4) changed this expectation: the first backticked item after
+  // an op is the op's object, so a bare word there (`createSession`, as `src` or
+  // `Makefile` would be) is taken as a path, fail closed; later identifiers stay prose.
   const p = parsePlan("### Task 1: A\n- Modify: `createSession` and `adminUserId`\nThen run it.\n### Task 2: B\n- Create: `b.ts`\n");
-  assert.deepEqual(p.tasks[0].files, []);
-  assert.equal(code("### Task 1: A\n- Modify: `createSession`\nSee `src/auth.ts`.\n### Task 2: B\n- Create: `b.ts`\n"), "PLAN_TASK_NO_FILES");
+  assert.deepEqual(p.tasks[0].files, [{ op: "modify", path: "createSession" }]);
+  // A Files line whose items are none of them paths (the first is not a bare
+  // word) contributes no files; the task then falls under ruling 4.
+  const q = parsePlan("### Task 1: A\n- Modify: `createSession()` and `adminUserId`\nThen run it.\n### Task 2: B\n- Create: `b.ts`\n");
+  assert.deepEqual(q.tasks[0].files, []);
+  // Fix round 4 (R4-4): "See `src/auth.ts`." directly under the Files line now
+  // continues it (the path is recorded, fail closed); after a blank line it is
+  // prose and the mention check applies as before.
+  assert.equal(code("### Task 1: A\n- Modify: `createSession()`\n\nSee `src/auth.ts`.\n### Task 2: B\n- Create: `b.ts`\n"), "PLAN_TASK_NO_FILES");
+  assert.deepEqual(parsePlan("### Task 1: A\n- Modify: `createSession()`\nSee `src/auth.ts`.\n### Task 2: B\n- Create: `b.ts`\n").tasks[0].files, [{ op: "modify", path: "src/auth.ts" }]);
 });
 
 test("plan round 4: a path-like token beside a backticked item is refused", () => {
@@ -117,7 +143,11 @@ test("plan round 4: file-less tasks", () => {
   const p = parsePlan("### Task 1: Baseline\nRun the suite; record the count.\n### Task 2: B\n- Create: `b.ts`\n");
   assert.deepEqual(p.tasks.map((t) => t.files), [[], [{ op: "create", path: "b.ts" }]]);
   assert.deepEqual(parsePlan("### Task 1: A\n**Files:** none changed. Log entry only, see `spec/log.md`.\n### Task 2: B\n- Create: `b.ts`\n").tasks[0].files, [{ op: "touch", path: "spec/log.md" }]);
-  assert.deepEqual(parsePlan("### Task 1: A\n**Files:** none in the repo.\nThen read `docs/x.md`.\n### Task 2: B\n- Create: `b.ts`\n").tasks[0].files, []);
+  // Fix round 4 (R4-4) changed this expectation: the unindented line right
+  // after the label continues it, so `docs/x.md` is recorded (fail closed).
+  // After a blank line it is prose, and the label's "none" stands.
+  assert.deepEqual(parsePlan("### Task 1: A\n**Files:** none in the repo.\nThen read `docs/x.md`.\n### Task 2: B\n- Create: `b.ts`\n").tasks[0].files, [{ op: "touch", path: "docs/x.md" }]);
+  assert.deepEqual(parsePlan("### Task 1: A\n**Files:** none in the repo.\n\nThen read `docs/x.md`.\n### Task 2: B\n- Create: `b.ts`\n").tasks[0].files, []);
   assert.equal(code("### Task 1: A\nRun `pnpm test` and read `CLAUDE.md`.\n### Task 2: B\n- Create: `b.ts`\n"), "PLAN_TASK_NO_FILES");
   assert.equal(code("### Task 1: A\nRun the suite.\n### Task 2: B\nAnd the build.\n"), "PLAN_NO_FILES");
   // Prose after the plan's last task is not that task's.

@@ -6,6 +6,9 @@ import { isFree } from "../ports.mjs";
 
 const SOFT = new Set(["NO_CONFIG", "INVALID_CONFIG", "NOT_A_REPO"]);
 
+/** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
+export const ACCEPTS = { verbs: null, flags: [] };
+
 register("doctor", async (_args, io) => {
   let c = null;
   let configError = null;
@@ -19,6 +22,6 @@ register("doctor", async (_args, io) => {
     r.checks.push({ name: "ports.base", ok: free, detail: free ? String(c.ports.base) : `${c.ports.base} is in use` });
   }
   let ok = true;
-  for (const k of r.checks) { if (!k.ok) ok = false; io.stdout(`${k.ok ? "ok  " : "FAIL"}  ${k.name}  ${k.detail}\n`); }
+  for (const k of r.checks) { if (!k.ok) ok = false; io.stdout(`${!k.ok ? "FAIL" : k.warn ? "WARN" : "ok  "}  ${k.name}  ${k.detail}\n`); }
   return ok ? 0 : 1;
-});
+}, ACCEPTS);

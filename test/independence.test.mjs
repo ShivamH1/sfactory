@@ -30,11 +30,17 @@ test("independence: migrations and numbering are skipped when the project has ne
 });
 
 test("independence: task batches respect dependencies, disjointness and the cap", () => {
-  assert.deepEqual(taskBatches(read("a"), 4), [[1, 4], [2], [3]]);
+  // Fix round 4 (R4-1) changed this expectation: a.md gives only Tasks 2 and 3
+  // a Depends on line, so by default it runs one task per batch; batching by
+  // its dependencies and files is opted into.
+  assert.deepEqual(taskBatches(read("a"), 4), [[1], [2], [3], [4]]);
+  assert.deepEqual(taskBatches(read("a"), 4, { allowUndeclared: true }), [[1, 4], [2], [3]]);
   const plan = { tasks: [1, 2, 3, 4, 5].map((n) => ({ n, title: String(n), files: [{ op: "create", path: `f${n}` }], dependsOn: [] })) };
-  assert.deepEqual(taskBatches(plan, 2), [[1, 2], [3, 4], [5]]);
+  // Plan C Task 1 (I7): a plan with no dependency information is sequential by
+  // default; these cases test batching by files, so they allow it explicitly.
+  assert.deepEqual(taskBatches(plan, 2, { allowUndeclared: true }), [[1, 2], [3, 4], [5]]);
   const shared = { tasks: [{ n: 1, title: "", files: [{ op: "modify", path: "x" }], dependsOn: [] }, { n: 2, title: "", files: [{ op: "modify", path: "x" }], dependsOn: [] }] };
-  assert.deepEqual(taskBatches(shared, 4), [[1], [2]]);
+  assert.deepEqual(taskBatches(shared, 4, { allowUndeclared: true }), [[1], [2]]);
 });
 
 const tk = (n, deps = [], p = `f${n}`) => ({ n, title: "", files: [{ op: "create", path: p }], dependsOn: deps });
@@ -45,7 +51,7 @@ test("taskBatches: validation and ordering", () => {
   assert.equal(code(() => taskBatches({ tasks: [tk(1, [2]), tk(2, [1])] }, 4)), "PLAN_DEPENDENCY_CYCLE");
   assert.deepEqual(taskBatches({ tasks: [tk(1, [2]), tk(2)] }, 4), [[2], [1]]);
   assert.equal(code(() => taskBatches({ tasks: [tk(1)] }, 0)), "BAD_ARGS");
-  assert.deepEqual(taskBatches({ tasks: [tk(1, [], "pkg"), tk(2, [], "pkg/x.ts")] }, 4), [[1], [2]]);
+  assert.deepEqual(taskBatches({ tasks: [tk(1, [], "pkg"), tk(2, [], "pkg/x.ts")] }, 4, { allowUndeclared: true }), [[1], [2]]);
 });
 
 test("independence: normalised hotspots and a parent migrations directory count", () => {
@@ -59,7 +65,8 @@ test("independence: normalised hotspots and a parent migrations directory count"
 
 test("independence: a file-less task touches nothing", () => {
   const plan = parsePlan("### Task 1: Baseline\nRun the suite.\n### Task 2: B\n- Create: `b.ts`\n### Task 3: C\n- Modify: `b.ts`\n### Task 4: Close\nTick the boxes.\n");
-  assert.deepEqual(taskBatches(plan, 4), [[1, 2, 4], [3]]);
+  // Plan C Task 1 (I7): this plan declares no dependencies, so batching by files is opted into.
+  assert.deepEqual(taskBatches(plan, 4, { allowUndeclared: true }), [[1, 2, 4], [3]]);
   const r = checkMilestones({ hotspots: [], migrations: null, repoRoot: "/repo", record: {} }, plan, { tasks: [tk(1, [], "c.ts"), { n: 2, title: "", files: [], dependsOn: [] }] });
   assert.equal(r.ok, true);
 });
@@ -70,7 +77,8 @@ test("independence: read lines never conflict", () => {
   assert.deepEqual(a.tasks[0].files[0], { op: "read", path: "CLAUDE.md" });
   const r = checkMilestones({ hotspots: ["CLAUDE.md"], migrations: null, repoRoot: "/repo", record: {} }, a, b);
   assert.deepEqual(r.checks.filter((c) => ["disjoint-files", "hotspots"].includes(c.name)).map((c) => c.ok), [true, true]);
-  assert.deepEqual(taskBatches(a, 4), [[1, 2]]);
+  // Plan C Task 1 (I7): no dependency information, so batching by files is opted into.
+  assert.deepEqual(taskBatches(a, 4, { allowUndeclared: true }), [[1, 2]]);
   const w = parsePlan("### Task 1: X\n- Modify: `CLAUDE.md`\n");
   assert.equal(checkMilestones({ hotspots: ["CLAUDE.md"], migrations: null, repoRoot: "/repo", record: {} }, w, w).ok, false);
 });

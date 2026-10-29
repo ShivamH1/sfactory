@@ -39,27 +39,61 @@ export function checkMilestones(c, a, b, { nameA = "A", nameB = "B" } = {}) {
   return { ok: checks.every((x) => x.ok), checks };
 }
 
-/** Greedy batches in dependency order (Kahn, ties by plan order); a batch holds tasks with overlap-free files, at most `max`. */
-export function taskBatches(plan, max = 4) {
+/** The project's migrations directory relative to the repo root, as checkMilestones reads it; null when it has none. */
+export const migrationsDirOf = (c) => (c?.migrations?.dir ? toRel(c, c.migrations.dir) : null);
+
+/**
+ * Greedy batches in dependency order (Kahn, ties by plan order); a batch holds
+ * tasks with overlap-free files, at most `max`, and at most one task that adds
+ * or changes anything under `migrationsDir` (one applied list on a shared
+ * database). A plan whose `dependencyInfo` is not "declared" - no explicit
+ * "Depends on" line; edges read from Consumes or "after Task N" do not count
+ * (S1) - runs one task per batch, in dependency order, unless
+ * `allowUndeclared`: inferred or absent dependencies are not proof of
+ * independence.
+ *
+ * A file a task shares with an earlier task (plan order) is an implicit
+ * ordering edge: the later task waits for the earlier one. The edge is left
+ * out only when the earlier task already waits, by the edges so far, for the
+ * later one (an explicit forward "Depends on"), so it never makes a cycle.
+ * Two tasks that each touch `migrationsDir` are ordered the same way, since
+ * migration folders are numbered in creation order.
+ */
+export function taskBatches(plan, max = 4, { allowUndeclared = false, migrationsDir = null } = {}) {
   if (!Number.isInteger(max) || max < 1) fail("BAD_ARGS", "max must be an integer >= 1");
   const byN = new Map(plan.tasks.map((t) => [t.n, t]));
   for (const t of plan.tasks) for (const d of t.dependsOn) if (!byN.has(d)) fail("PLAN_BAD_DEPENDENCY", `Task ${t.n} depends on Task ${d} which does not exist`);
+  const mig = migrationsDir ? norm(migrationsDir) : null;
+  const migrates = (t) => !!mig && touched(t).some((f) => overlaps(norm(f.path), mig));
+  const shares = (a, b) => touched(a).some((f) => touched(b).some((g) => overlaps(norm(f.path), norm(g.path))));
+  const waits = new Map(plan.tasks.map((t) => [t.n, [...t.dependsOn]]));
+  const reaches = (from, to) => {
+    const seen = new Set(), stack = [from];
+    while (stack.length) { const n = stack.pop(); if (n === to) return true; if (!seen.has(n)) { seen.add(n); stack.push(...waits.get(n)); } }
+    return false;
+  };
+  plan.tasks.forEach((t, k) => {
+    for (const u of plan.tasks.slice(0, k)) if ((shares(u, t) || (migrates(u) && migrates(t))) && !reaches(u.n, t.n) && !waits.get(t.n).includes(u.n)) waits.get(t.n).push(u.n);
+  });
   const order = [];
   const done = new Set();
   while (order.length < plan.tasks.length) {
-    const next = plan.tasks.find((t) => !done.has(t.n) && t.dependsOn.every((d) => done.has(d)));
+    const next = plan.tasks.find((t) => !done.has(t.n) && waits.get(t.n).every((d) => done.has(d)));
     if (!next) fail("PLAN_DEPENDENCY_CYCLE", `dependency cycle among Tasks ${plan.tasks.filter((t) => !done.has(t.n)).map((t) => t.n).join(", ")}`);
     done.add(next.n); order.push(next);
   }
+  if (plan.dependencyInfo !== "declared" && !allowUndeclared) return order.map((t) => [t.n]);
   const batches = [];
   const placed = new Map();   // n -> batch index
   for (const t of order) {
-    let i = t.dependsOn.length ? Math.max(...t.dependsOn.map((d) => placed.get(d))) + 1 : 0;
+    const w = waits.get(t.n);
+    let i = w.length ? Math.max(...w.map((d) => placed.get(d))) + 1 : 0;
     for (; ; i++) {
       if (!batches[i]) batches[i] = [];
       const b = batches[i];
-      const disjoint = b.every((n) => !touched(byN.get(n)).some((f) => touched(t).some((g) => overlaps(norm(f.path), norm(g.path)))));
-      if (b.length < max && disjoint) { b.push(t.n); placed.set(t.n, i); break; }
+      const disjoint = b.every((n) => !shares(byN.get(n), t));
+      const oneMigration = !migrates(t) || !b.some((n) => migrates(byN.get(n)));
+      if (b.length < max && disjoint && oneMigration) { b.push(t.n); placed.set(t.n, i); break; }
     }
   }
   return batches.filter((b) => b.length);

@@ -1,0 +1,581 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { readdirSync, readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { KNOWN_PLACEHOLDERS, PLACEHOLDERS } from "../src/placeholders.mjs";
+import { READ_ONLY_TOOLS, checkCommon, selfTest, commandLines, commandProblems } from "./skills.helpers.mjs";
+import { main as _registerCommands } from "../src/cli.mjs"; // importing cli.mjs registers every command module
+import { commands } from "../src/registry.mjs";
+import { usages } from "../src/registry.mjs";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+// Task 7 extends the folders. agents/ are static (Claude Code renders no placeholders); prompts/ are rendered by the script.
+const READ_ONLY_AGENTS = new Set(["spec-reviewer", "code-reviewer", "judge", "triage"]);
+
+const FOLDERS = ["agents", "prompts"];
+function files(dir) {
+  const p = join(root, dir);
+  return existsSync(p) ? readdirSync(p).filter((f) => f.endsWith(".md") && f !== "ATTRIBUTION.md").map((f) => ({ dir, f, path: join(p, f) })) : [];
+}
+function split(text) {
+  const m = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(text.replace(/\r\n/g, "\n"));
+  if (!m) return { fm: null, body: text };
+  const fm = {};
+  for (const l of m[1].split("\n")) { const i = l.indexOf(":"); if (i > 0) fm[l.slice(0, i).trim()] = l.slice(i + 1).trim(); }
+  return { fm, body: m[2] };
+}
+
+for (const dir of FOLDERS) {
+  for (const { f, path } of files(dir)) {
+    const text = readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+    const { fm } = split(text);
+    const label = `${dir}/${f}`;
+    checkCommon(label, text);
+    if (dir === "agents") {
+      test(`${label}: static - no placeholders, frontmatter has no model`, () => {
+        assert.ok(!/\{\{/.test(text), "agents are never rendered");
+        assert.ok(fm, "frontmatter present");
+        for (const k of ["name", "description", "tools"]) assert.ok(fm[k], `key ${k}`);
+        assert.ok(!("model" in fm), "the orchestrator passes the model at dispatch");
+        assert.equal(fm.name, f.replace(/\.md$/, ""));
+      });
+      const name = f.replace(/\.md$/, "");
+      if (READ_ONLY_AGENTS.has(name)) {
+        test(`${label}: read-only tools, final-message report, gate rule`, () => {
+          for (const t of fm.tools.split(",").map((s) => s.trim())) assert.ok(READ_ONLY_TOOLS.has(t), `tool ${t} is not read-only`);
+          assert.match(text, /final message IS the report/);
+          assert.match(text, /✅ Approved/);
+          assert.match(text, /❌ Needs fixes/);
+          assert.match(text, /Critical or Important/);
+        });
+      }
+      if (name === "implementer") {
+        test(`${label}: commit rule, files rule, TDD evidence, fix round`, () => {
+          assert.match(text, /sfactory commit --cwd <WORKTREE> --holder <JOB> --m /);
+          assert.match(text, /Never `git commit`/);
+          assert.match(text, /Touch only those files/);
+          assert.match(text, /RED/); assert.match(text, /GREEN/);
+          assert.match(text, /After review findings/);
+        });
+      }
+    } else {
+      test(`${label}: placeholders are known`, () => {
+        for (const m of text.matchAll(/\{\{([^}]*)\}\}/g)) assert.ok(KNOWN_PLACEHOLDERS.has(m[1]), `unknown placeholder {{${m[1]}}}`);
+      });
+      test(`${label}: Codex never commits and reports by final message`, () => {
+        assert.ok(!/sfactory commit --cwd/.test(text), "no commit command");
+        assert.ok(!/standard output|stdout/i.test(text), "report is the final message");
+        assert.match(text, /final message/);
+      });
+      test(`${label}: inlined inputs sit in a fenced data block after the rules`, () => {
+        const i = text.indexOf("## Rules of the factory");
+        const j = text.indexOf("````text");
+        assert.ok(i > 0 && j > i, "fence after the rules");
+        for (const m of text.matchAll(/\{\{(\w+_text)\}\}/g)) {
+          const at = m.index;
+          const open = text.lastIndexOf("````text\n", at);
+          const close = text.indexOf("\n````", at);
+          assert.ok(open > i && open < at && close > at && !text.slice(open + 9, at).includes("\n````"), `{{${m[1]}}} is inside a fence`);
+        }
+      });
+    }
+  }
+}
+
+test("secrets: example configs' neverHandToAgents entries are not named in any file", () => {
+  const dir = join(root, "examples");
+  const entries = [];
+  for (const f of readdirSync(dir).filter((x) => x.endsWith(".json"))) {
+    const c = JSON.parse(readFileSync(join(dir, f), "utf8"));
+    entries.push(...(c.secrets?.neverHandToAgents ?? []));
+  }
+  assert.ok(entries.length > 0);
+  for (const d of FOLDERS) for (const { f, path } of files(d)) {
+    const text = readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+    for (const e of entries) assert.ok(!text.includes(e), `${d}/${f} names ${e}`);
+  }
+});
+
+test("all expected Task 6 files exist", () => {
+  for (const f of ["agents/implementer.md", "agents/spec-reviewer.md", "agents/code-reviewer.md", "agents/judge.md", "agents/triage.md", "prompts/codex-implement.md", "prompts/codex-review.md", "prompts/codex-judge.md", "docs/attribution/agents.md", "prompts/ATTRIBUTION.md"])
+    assert.ok(existsSync(join(root, f)), f);
+});
+
+test("the Rules of the factory block is identical across agents/ and across prompts/", () => {
+  const rules = (text) => /## Rules of the factory[\s\S]*?(?=\n## )/.exec(text)?.[0];
+  for (const dir of FOLDERS) {
+    const blocks = files(dir).map(({ f, path }) => [f, rules(readFileSync(path, "utf8").replace(/\r\n/g, "\n"))]); // a CRLF checkout is the same block
+    assert.ok(blocks.length > 0);
+    for (const [f, b] of blocks) { assert.ok(b, `${dir}/${f} has the block`); assert.equal(b, blocks[0][1], `${dir}/${f} differs from ${blocks[0][0]}`); }
+  }
+});
+
+selfTest();
+
+test("no tracked text file contains control bytes (a raw backspace once replaced every \b)", () => {
+  const out = execFileSync("git", ["ls-files", "-z", "--", "src", "test", "board", "agents", "prompts", "skills", "examples", "bin"], { cwd: root, encoding: "utf8" });
+  const bad = [];
+  for (const f of out.split("\0").filter(Boolean)) {
+    if (/\.(png|jpg|jpeg|gif|ico|woff2?|zip)$/i.test(f)) continue;
+    const p = join(root, f);
+    if (!existsSync(p)) continue;
+    if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(readFileSync(p, "latin1"))) bad.push(f);
+  }
+  assert.deepEqual(bad, []);
+});
+
+// Task 7: the three adapted skills (skills/<name>/), copied from superpowers with ATTRIBUTION.md and CHANGES.md.
+const SKILLS = ["brainstorming", "writing-plans", "sdd"];
+const skillsRoot = join(root, "skills");
+function walk(dir) {
+  const out = [];
+  if (!existsSync(dir)) return out;
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) out.push(...walk(p)); else out.push(p);
+  }
+  return out;
+}
+const read = (p) => readFileSync(p, "utf8").replace(/\r\n/g, "\n");
+const rel = (p) => p.slice(root.length + 1).split("\\").join("/");
+/** The agent-facing Markdown of a skill: everything but the attribution and the changelog. */
+const skillDocs = (s) => walk(join(skillsRoot, s)).filter((p) => p.endsWith(".md") && !/(ATTRIBUTION|CHANGES)\.md$/.test(p));
+
+test("all expected Task 7 skill files exist", () => {
+  for (const s of SKILLS) for (const f of ["SKILL.md", "ATTRIBUTION.md", "CHANGES.md"]) assert.ok(existsSync(join(skillsRoot, s, f)), `skills/${s}/${f}`);
+  // I7: the task-brief script is ported to "sfactory brief" (test/readverbs.test.mjs); no skill runs bash.
+  assert.ok(!existsSync(join(skillsRoot, "sdd", "scripts", "task-brief")), "skills/sdd/scripts/task-brief is gone");
+  assert.ok(!existsSync(join(skillsRoot, "brainstorming", "visual-companion.md")), "the visual companion is removed");
+  assert.ok(!existsSync(join(skillsRoot, "brainstorming", "scripts")), "the visual companion's scripts are removed");
+});
+
+for (const s of SKILLS) {
+  const dir = join(skillsRoot, s);
+  test(`skills/${s}/SKILL.md: frontmatter names the skill and describes it`, () => {
+    const { fm } = split(read(join(dir, "SKILL.md")));
+    assert.ok(fm, "frontmatter present");
+    assert.equal(fm.name, s);
+    assert.ok(fm.description && fm.description.length > 40, "a description");
+    assert.ok(!("model" in fm), "the orchestrator passes the model at dispatch");
+  });
+  test(`skills/${s}/ATTRIBUTION.md: MIT, the copyright line, the full permission notice and the source path`, () => {
+    const t = read(join(dir, "ATTRIBUTION.md"));
+    assert.match(t, /MIT License/);
+    assert.ok(t.includes("Copyright (c) 2025 Jesse Vincent"), "copyright line");
+    assert.ok(t.includes("Permission is hereby granted, free of charge, to any person obtaining a copy of this software"), "grant");
+    assert.ok(t.includes("The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software."), "condition");
+    assert.ok(t.includes('THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND'), "warranty disclaimer");
+    assert.ok(t.includes("IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE"), "liability disclaimer");
+    const upstream = s === "sdd" ? "subagent-driven-development" : s;
+    assert.ok(t.includes(`skills/${upstream}/`), "source path");
+  });
+  test(`skills/${s}/CHANGES.md: names the upstream skill and lists numbered edits`, () => {
+    const t = read(join(dir, "CHANGES.md"));
+    assert.match(t, /^# Changes from the upstream /);
+    assert.ok((t.match(/^\d+\. /gm) ?? []).length >= 5, "numbered edits");
+    assert.match(t, /SKILL\.md/);
+  });
+  for (const p of skillDocs(s)) {
+    const label = rel(p);
+    const text = read(p);
+    checkCommon(label, text);
+    test(`${label}: every {{placeholder}} it names is known`, () => {
+      for (const m of text.matchAll(/\{\{([^}]*)\}\}/g)) assert.ok(KNOWN_PLACEHOLDERS.has(m[1]), `unknown placeholder {{${m[1]}}}`);
+    });
+  }
+}
+
+test("skills: no upstream specs or plans folder path remains anywhere", () => {
+  const needle = ["docs", "superpowers"].join("/");
+  for (const p of walk(skillsRoot)) assert.ok(!read(p).includes(needle), `${rel(p)} names ${needle}`);
+});
+
+test("skills: example configs' neverHandToAgents entries are not named in any skill file", () => {
+  const entries = [];
+  for (const f of readdirSync(join(root, "examples")).filter((x) => x.endsWith(".json"))) entries.push(...(JSON.parse(readFileSync(join(root, "examples", f), "utf8")).secrets?.neverHandToAgents ?? []));
+  assert.ok(entries.length > 0);
+  for (const p of walk(skillsRoot)) for (const e of entries) assert.ok(!read(p).includes(e), `${rel(p)} names ${e}`);
+});
+
+test("writing-plans: every task carries a Depends on line and a Files block, the parser's refusals are named", () => {
+  const t = read(join(skillsRoot, "writing-plans", "SKILL.md"));
+  assert.match(t, /Depends on/);
+  assert.match(t, /every task MUST carry a `\*\*Depends on:\*\*` line/i);
+  assert.match(t, /\*\*Depends on:\*\* none/);
+  assert.match(t, /`\*\*Files:\*\*` block/);
+  assert.match(t, /Backticked paths only/);
+  assert.match(t, /REQUIRED SUB-SKILL: [^\n]*sfactory:sdd/);
+  assert.ok(!/executing-plans|Which approach\?/.test(t), "the execution handoff offers nothing");
+  assert.match(t, /sfactory independence tasks <record\.plan>/);
+  assert.match(t, /sfactory job set <JOB> awaiting-approval/);
+  assert.match(t, /inside code/);
+});
+
+test("brainstorming: the brief goes to record.brief, stories first, questionnaire, no visual companion", () => {
+  const t = read(join(skillsRoot, "brainstorming", "SKILL.md"));
+  assert.match(t, /record\.brief/);
+  assert.match(t, /record\.stories/);
+  assert.match(t, /plan\/questionnaire\.md/);
+  assert.match(t, /sfactory:writing-plans/);
+  assert.ok(!/visual companion|visual-companion|start-server/i.test(t), "the visual companion is removed");
+});
+
+test("planning happens in the card's worktree: brainstorming and writing-plans write and commit with --cwd <WORKTREE>", () => {
+  for (const s of ["brainstorming", "writing-plans"]) {
+    const t = read(join(skillsRoot, s, "SKILL.md"));
+    assert.match(t, /\*\*WORKTREE\*\*/, `${s}: WORKTREE is an input`);
+    assert.match(t, /sfactory commit --cwd <WORKTREE> --holder <JOB>/, `${s}: commits in the worktree`);
+    assert.ok(!t.includes("<checkout>"), `${s}: no other checkout`);
+    assert.match(t, /cut when the card enters `planning`/, `${s}: the worktree exists from planning`);
+  }
+  assert.match(read(join(skillsRoot, "brainstorming", "SKILL.md")), /sfactory job set <JOB> awaiting-approval/);
+  assert.match(read(join(skillsRoot, "sdd", "SKILL.md")), /cut when the card entered `planning`/);
+});
+
+test("every agent start and finish is a job touch; no agents.log", () => {
+  const t = read(join(skillsRoot, "sdd", "SKILL.md"));
+  assert.match(t, /sfactory job touch <JOB> --note "<start\|finish> <role> task <n> <alias\|profile>"/);
+  assert.ok(!t.includes("agents.log"), "the agents.log stand-in is gone");
+  for (const s of ["brainstorming", "writing-plans"]) assert.match(read(join(skillsRoot, s, "SKILL.md")), /sfactory job touch <JOB> --note/, `${s}: touches the job`);
+});
+
+test("sdd: the branch fixer is chosen per design §3 and the branch cap has one rule", () => {
+  const t = read(join(skillsRoot, "sdd", "SKILL.md"));
+  const fixing = t.slice(t.indexOf("**Fixing.**"));
+  assert.ok(t.indexOf("**Fixing.**") > 0, "a Fixing paragraph");
+  assert.match(fixing, /`claude` and `mixed`: a fresh `sfactory:implementer`/);
+  assert.match(fixing, /`codex`: `sfactory codex exec`/);
+  assert.match(t, /Never move the card to `verifying` while the latest judge verdict is ❌/);
+  assert.match(t, /FIX_ROUNDS_EXHAUSTED[^\n]*sfactory job park <JOB>/);
+  assert.ok(!/Residual findings at the cap are adjudicated/.test(t), "no second rule at the branch cap");
+  assert.match(t, /The judge — the vendor that did not write the code, except in `codex` mode/);
+  for (const m of t.matchAll(/`(sfactory codex review [^`]*)`/g)) assert.match(m[1], /--stage /, `codex review records its stage: ${m[1]}`);
+  for (const m of t.matchAll(/`(sfactory codex exec [^`]*)`/g)) assert.match(m[1], /--stage /, `codex exec records its stage: ${m[1]}`);
+  assert.ok(t.includes("sfactory diff --cwd <WORKTREE> <BASE> <HEAD> --out <JOB_DIR>/tasks/<n>/diff-<base7>..<head7>.diff -- "), "the task package is sfactory diff over the task's paths");
+  assert.ok(t.includes("sfactory diff --cwd <WORKTREE> HEAD WORKTREE --out"), "the triage's wip package includes new files");
+  assert.ok(t.includes("sfactory brief <PLAN> <n> --out"), "the brief is sfactory brief");
+  assert.match(t, /suite-<r>\.log/);
+  assert.ok(!t.includes("suite-0.log"), "one suite log name pattern");
+  assert.match(t, /untracked artefacts? (?:the|a) suite leaves/i);
+  assert.match(t, /BLOCKED[^\n]*Codex/);
+});
+
+test("sdd: roles by mode, the job folder, the cap, the judge, and every Codex placeholder rendered", () => {
+  const t = read(join(skillsRoot, "sdd", "SKILL.md"));
+  for (const s of ["sfactory codex exec", "sfactory codex review", "sfactory:implementer", "sfactory:spec-reviewer", "sfactory:code-reviewer", "sfactory:judge", "sfactory:triage",
+    "limits.taskRounds", "tasks/<n>/brief.md", "tasks/<n>/report.md", "tasks/<n>/review.md", "reviews/<k>-<stage>.md", "sfactory tree <WORKTREE>", "task wrote outside its declared files",
+    "sfactory independence tasks <PLAN>", "sfactory suite --cwd <WORKTREE> --job <JOB>", "sfactory commit --cwd <WORKTREE> --holder <JOB>", "per-dispatch effort cannot be set"])
+    assert.ok(t.includes(s), `names ${s}`);
+  for (const p of KNOWN_PLACEHOLDERS) assert.ok(t.includes(`{{${p}}}`), `renders {{${p}}}`);
+  assert.ok(!/requesting-code-review|finishing-a-development-branch|sdd-workspace|review-package/.test(t), "upstream skills and scripts are not referenced");
+});
+
+/** The field names an agent's body says the dispatch message supplies (parentheticals dropped). */
+const agentFields = (a) => (/supplies these fields: ([^\n]*?)\. /.exec(read(join(root, "agents", `${a}.md`)))?.[1] ?? "")
+  .replace(/\([^)]*\)/g, "").split(",").map((x) => x.trim()).filter(Boolean);
+
+test("sdd: every dispatch block carries its agent's full field set", () => {
+  const t = read(join(skillsRoot, "sdd", "SKILL.md"));
+  // A dispatch block may sit inside a list item, indented: "   ```" / "   # sfactory:judge" / … / "   ```".
+  const blocks = [...t.matchAll(/^( *)```\n\1# (sfactory:[a-z-]+)( re-review)?\n([\s\S]*?)^\1```/gm)].map((m) => [m[0], m[2], m[3], m[4]]);
+  const byAgent = new Map();
+  for (const [, agent, rereview, body] of blocks) {
+    const name = agent.slice("sfactory:".length);
+    const fields = agentFields(name);
+    assert.ok(fields.length >= 6, `${name}: fields read`);
+    const present = new Set([...body.matchAll(/^ *([A-Z_]+): /gm)].map((m) => m[1]));
+    for (const f of fields) {
+      if (f === "FINDINGS" && !rereview) continue; // a re-review only
+      assert.ok(present.has(f), `${agent}${rereview ?? ""}: field ${f}`);
+    }
+    byAgent.set(name, (byAgent.get(name) ?? 0) + 1);
+  }
+  for (const a of ["implementer", "spec-reviewer", "code-reviewer", "judge", "triage"]) assert.ok(byAgent.get(a) > 0, `a dispatch block for sfactory:${a}`);
+  assert.ok(blocks.some((b) => b[1] === "sfactory:code-reviewer" && b[2]), "a code-reviewer re-review block");
+});
+
+test("commandLines: backtick spans and fenced lines are read; problems name bad verbs, sub-verbs and flags", () => {
+  const t = ["Run `sfactory job show <JOB>` first.", "", "```bash", "sfactory job bogus m-1", "  sfactory commit --cwd a --m \"x\" -- --not-a-flag.txt", "```", "", "sfactory job set outside a fence"].join("\n");
+  assert.deepEqual(commandLines(t), ["sfactory job show <JOB>", "sfactory job bogus m-1", "sfactory commit --cwd a --m \"x\" -- --not-a-flag.txt"]);
+  assert.deepEqual(commandProblems("sfactory job bogus m-1"), ['unknown "sfactory job bogus"']);
+  assert.deepEqual(commandProblems("sfactory suite --cwd a --nope"), ['"sfactory suite" has no --nope']);
+  assert.deepEqual(commandProblems("sfactory commit --cwd a --m \"x\" -- --not-a-flag.txt"), []);
+  assert.deepEqual(commandProblems("sfactory nosuch"), ['unknown command "sfactory nosuch"']);
+});
+
+test("skills: every sfactory command line, in backticks or in a fence, uses a registered verb, a defined sub-verb and defined flags", () => {
+  let seen = 0, fenced = 0;
+  for (const s of [...SKILLS, "sfactory"]) for (const p of skillDocs(s)) {
+    const text = read(p);
+    for (const line of commandLines(text)) {
+      assert.deepEqual(commandProblems(line), [], `${rel(p)}: ${line}`);
+      seen++;
+      if (!text.includes("`" + line + "`")) fenced++;
+    }
+  }
+  assert.ok(seen > 20, `only ${seen} command lines found`);
+  assert.ok(fenced > 0, "no fenced command line was read");
+});
+
+// The task-brief script's test moved with it: "sfactory brief" in test/readverbs.test.mjs (I7).
+
+test("codex-implement: Codex runs focused tests only; the full suite and its count are the orchestrator's", () => {
+  const t = read(join(root, "prompts", "codex-implement.md"));
+  assert.ok(!t.includes("run the full suite once before committing"), "Codex never runs the full suite");
+  assert.match(t, /run only the focused tests \(\{\{test_command\}\}\)/i);
+  assert.match(t, /the orchestrator runs the full suite and adds its count/);
+  assert.match(PLACEHOLDERS.test_command.doc, /focused tests/);
+  assert.match(PLACEHOLDERS.test_command.doc, /orchestrator runs the full suite/);
+});
+
+// Task 8: the orchestrator skill (skills/sfactory/SKILL.md) - original to sfactory, so no ATTRIBUTION or CHANGES.
+const ORCH = join(skillsRoot, "sfactory", "SKILL.md");
+const orch = existsSync(ORCH) ? read(ORCH) : "";
+checkCommon("skills/sfactory/SKILL.md", orch);
+
+test("skills/sfactory/SKILL.md: exists, frontmatter names the skill, describes it and lists its tools", () => {
+  assert.ok(existsSync(ORCH), "skills/sfactory/SKILL.md");
+  const { fm } = split(orch);
+  assert.ok(fm, "frontmatter present");
+  assert.equal(fm.name, "sfactory");
+  assert.ok(fm.description && /\/sfactory/.test(fm.description) && fm.description.length > 80, "a description naming /sfactory");
+  assert.ok(!("model" in fm), "no model in the frontmatter");
+  // I7: no Bash(git *) and no Bash(bash *): the git reads are sfactory verbs.
+  for (const t of ["Bash(git *)", "Bash(bash *)"]) assert.ok(!fm["allowed-tools"].split(",").map((x) => x.trim()).includes(t), "allowed-tools has no " + t);
+  for (const t of ["Bash(sfactory *)", "Bash(sfactory-* *)", "Bash(agent-browser *)", "Read", "Write", "Agent", "Monitor"])
+    assert.ok(fm["allowed-tools"].split(",").map((x) => x.trim()).includes(t), `allowed-tools has ${t}`);
+  for (const m of orch.matchAll(/\{\{([^}]*)\}\}/g)) assert.ok(KNOWN_PLACEHOLDERS.has(m[1]), `unknown placeholder {{${m[1]}}}`);
+});
+
+/** Design §10's eleven commands (stop and clean share a row there), plus merged, each with the CLI line its row runs. */
+const ORCH_COMMANDS = {
+  init: ["sfactory init"], doctor: ["sfactory doctor"],
+  add: ['sfactory job add milestone "<title>"', 'sfactory job add fix "<title>" --log <n>', 'sfactory job add fix "<title>"'],
+  run: ["sfactory job list --json", "sfactory job resume <id>"],
+  approve: ["sfactory job approve <id>"], answer: ["sfactory job answer <id>"],
+  parallel: ["sfactory job parallel <id> --yes", "sfactory job parallel <id> --no"],
+  status: ["sfactory job list"], board: ["sfactory board"],
+  rework: ['sfactory job rework <id> --notes "<notes>"'],
+  stop: ["sfactory job stop <id>"], clean: ["sfactory worktree remove <id>"],
+  merged: ["sfactory job merged <id>"],
+};
+
+test("skills/sfactory: every design §10 command has a row naming the CLI line it runs", () => {
+  const rows = orch.split("\n").filter((l) => /^\| `\/sfactory /.test(l));
+  for (const [cmd, lines] of Object.entries(ORCH_COMMANDS)) {
+    const row = rows.filter((r) => r.startsWith("| `/sfactory " + cmd + "`") || r.startsWith("| `/sfactory " + cmd + " "));
+    assert.ok(row.length > 0, `a row for /sfactory ${cmd}`);
+    for (const l of lines) assert.ok(row.some((r) => r.includes("`" + l)), `/sfactory ${cmd} runs \`${l}\``);
+  }
+  // design §10's own list, read from the design: every command it names has a row here.
+  const design = read(join(root, "docs", "DESIGN.md"));
+  const sec = design.slice(design.indexOf("## 10. Commands"), design.indexOf("## 11."));
+  const named = new Set([...sec.matchAll(/`\/sfactory ([a-z]+)/g)].map((m) => m[1]));
+  assert.equal(named.size, 12, "design §10 names eleven rows' twelve verbs");
+  for (const c of named) assert.ok(c in ORCH_COMMANDS, `design §10's ${c} is mapped`);
+});
+
+test("skills/sfactory: design §12 is quoted verbatim", () => {
+  const design = read(join(root, "docs", "DESIGN.md"));
+  const sec = design.slice(design.indexOf("## 12. Guardrails"), design.indexOf("## 13."));
+  const bullets = sec.split("\n").filter((l) => l.startsWith("- "));
+  assert.equal(bullets.length, 8);
+  for (const b of bullets) assert.ok(orch.includes(b), `quotes: ${b}`);
+});
+
+/** The run loop's section of the skill for a stage: from its bold heading line to the next heading line. */
+const SECTION_HEADING = { backlog: "backlog", planning: "planning", "awaiting-approval": "awaiting-approval", reviewing: "reviewing and fixing", fixing: "reviewing and fixing", verifying: "verifying", pushing: "pushing" };
+function stageSection(stage) {
+  const lines = orch.split("\n");
+  const start = lines.indexOf(`**${SECTION_HEADING[stage]}**`);
+  assert.ok(start >= 0, `a **${SECTION_HEADING[stage]}** section`);
+  let end = start + 1;
+  while (end < lines.length && !/^\*\*[a-z][a-z ,-]*\*\*$/.test(lines[end]) && !lines[end].startsWith("## ")) end++;
+  return lines.slice(start, end).join("\n");
+}
+
+/** Every move the skill scripts, from the stage its step runs in: each line must be in that stage's section and legal in TRANSITIONS. */
+const ORCH_MOVES = [
+  ["backlog", "planning", "sfactory job set <id> planning"],
+  ["planning", "awaiting-approval", "sfactory job set <id> awaiting-approval"],
+  ["planning", "building", "sfactory job set <id> building"],
+  ["reviewing", "verifying", "sfactory job set <id> verifying"],
+  ["reviewing", "fixing", "sfactory job set <id> fixing"],
+  ["fixing", "reviewing", "sfactory job set <id> reviewing"],
+  ["verifying", "fixing", 'sfactory job set <id> fixing --reason "verify'],
+  ["verifying", "pushing", "sfactory job set <id> pushing"],
+  ["pushing", "pushed", "sfactory job set <id> pushed"],
+];
+/** Every park the skill scripts, from the stage it parks in, with its pending kind: each must be allowed by PARK_PENDING. */
+const ORCH_PARKS = [
+  ["planning", "parallel"], ["backlog", "parallel"], ["planning", "decision"],
+  ["reviewing", "decision"], ["verifying", "decision"], ["pushing", "decision"], ["building", "decision"],
+];
+
+test("skills/sfactory: every move is a legal from -> to edge and every park is allowed from its stage", async () => {
+  const { TRANSITIONS, PARK_PENDING } = await import("../src/job.mjs");
+  for (const [from, to, line] of ORCH_MOVES) {
+    assert.ok(orch.includes("`" + line), `the skill scripts ${line}`);
+    assert.ok(TRANSITIONS[from].includes(to), `${from} -> ${to} is an edge`);
+    // ... and the line sits in the section of the skill that works the stage it moves from.
+    assert.ok(stageSection(from).includes("`" + line), `${line} is in the ${from} section`);
+  }
+  const scripted = new Set(ORCH_MOVES.map((m) => m[1]));
+  for (const m of orch.matchAll(/sfactory job set <[a-z]+> ([a-z-]+)/g)) assert.ok(scripted.has(m[1]), `a move to ${m[1]} is in the table`);
+  for (const [from, pending] of ORCH_PARKS) assert.ok(PARK_PENDING[from].includes(pending), `park ${pending} from ${from}`);
+  assert.ok(orch.includes("`sfactory job park <id> --pending parallel --with <A> --reason"), "the parallel park names the partner");
+  for (const s of ["STACKED_PAIR", "NOT_PARTNER", "MERGE_ABORT_FAILED", "plan/parallel-check.md", "parallelWith", "Only a pair cut side by side merges"]) assert.ok(orch.includes(s), `names ${s}`);
+  assert.ok(orch.includes('`sfactory job park <id> --reason "'), "the decision park");
+  // The approval gate leaves only through approve; a pushed card is marked merged.
+  assert.ok(TRANSITIONS["awaiting-approval"].includes("building") && orch.includes("`sfactory job approve <id>"));
+  assert.ok(TRANSITIONS.pushed.includes("merged") && orch.includes("`sfactory job merged <id>"));
+});
+
+test("skills/sfactory: the rulings, the stops and the amendment's rules are stated", () => {
+  for (const s of ["never merges", "limits.parallelMilestones", "--pending parallel", "sfactory independence milestones", "Parallel tasks need no ask",
+    "main checkout", "Request changes", "plan/changes-<k>.md", "`sfactory job touch <id> --note \"<start|finish> <role> <alias|profile>\"`",
+    "Per-dispatch effort cannot be set", "Codex never commits", "sfactory tree <WORKTREE>", "task wrote outside its declared files",
+    "reviews/<k>-<stage>.md", "FIX_ROUNDS_EXHAUSTED", "NOT ADDRESSED", "sfactory lock acquire live --holder <id>", "sfactory services up <id>",
+    "sfactory services down <id>", "sfactory push --cwd <WORKTREE>", "pr.md", "sfactory fixcard <PLAN>",
+    "sfactory independence tasks <PLAN> --max <limits.parallelTasks>", "postCloseHeading", "never committed", "sfactory cost add", "`stops`",
+    "sfactory:sdd", "sfactory:brainstorming", "writing-plans",
+    // fix round 1: the four CLI additions, the gates end the turn, the questionnaire waits, the parallel reason
+    "sfactory worktree cut <id> --base-of <A>", "sfactory worktree merge <id> --from <the partner>", "sfactory job request-changes <id> --notes-file",
+    "MERGE_CONFLICT", "LOG_NOT_FOUND", "LOCK_HELD", "review/round-<r>/brief.md", "end your turn", "Monitor tool", "30 minutes",
+    "An open questionnaire always waits", "the cost", "why parallel helps", "`/sfactory run` carries on"])
+    assert.ok(orch.includes(s), `names ${s}`);
+  // The worktree is cut on entering planning, before brainstorming.
+  const backlog = orch.indexOf("**backlog**"), cutAt = orch.indexOf("sfactory worktree cut <id>"), brainstorm = orch.indexOf("**planning**");
+  assert.ok(backlog > 0 && cutAt > backlog && cutAt < brainstorm, "the cut is in the backlog -> planning step");
+  for (const s of ["awaiting-approval", "decision-needed", "verifying", "pushing"]) assert.match(orch.slice(orch.indexOf("## 8. Stops")), new RegExp(s));
+});
+
+/**
+ * The shell programs a Markdown text runs: backtick spans and fenced lines that start with a known program.
+ * The gap, by design: a program outside PROGRAMS is not seen, and the project's own commands (commands.migrate,
+ * commands.build, commands.typecheck) are config values no allowed-tools entry can name ahead of time, so the
+ * harness asks the person for them; the skill says so.
+ */
+const PROGRAMS = ["sfactory", "git", "bash", "sh", "sleep", "agent-browser", "node", "npm", "npx", "pnpm", "codex", "gh", "curl"];
+function programsRun(text) {
+  const out = new Set();
+  const first = (s) => /^([a-z][a-z-]*)(?=\s|$)/.exec(s.trim())?.[1];
+  // A one-word span (`codex`, the mode) is a name, not a command line.
+  // A span on a line that forbids or quotes a refusal ("Never run `git stash`", "`commit` refuses `git add -A`") names a
+  // program the session must not run; it is not a run (I7: the skills run no git and no bash).
+  // Only the spans in the clause with the never/refuses are skipped: a later sentence on the same line is still read (N5).
+  for (const line of text.split("\n")) {
+    for (const m of line.matchAll(/(?<!`)`([^`\n]+)`(?!`)/g)) {
+      const clause = line.slice(0, m.index).replace(/`[^`]*`/g, "X").split(/[.;!?](?:\s|$)/).pop();
+      if (/\bnever\b|\brefuses\b/i.test(clause)) continue;
+      const w = /\s\S/.test(m[1].trim()) ? first(m[1]) : null; if (PROGRAMS.includes(w)) out.add(w);
+    }
+  }
+  let fence = null;
+  for (const line of text.split("\n")) {
+    const f = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) { if (f && f[0] === fence[0] && f.length >= fence.length && line.trim() === f) fence = null; else { const w = first(line); if (PROGRAMS.includes(w)) out.add(w); } }
+    else if (f) fence = f;
+  }
+  return out;
+}
+
+test("skills/sfactory: allowed-tools covers every program the orchestrator and the skills it runs call", () => {
+  const allowed = split(orch).fm["allowed-tools"].split(",").map((x) => x.trim());
+  const used = new Set();
+  for (const p of [ORCH, ...SKILLS.flatMap(skillDocs)]) for (const w of programsRun(read(p))) used.add(w);
+  assert.ok(used.has("sfactory"), "sfactory is read from the skills");
+  for (const w of ["git", "bash", "sh"]) assert.ok(!used.has(w), `no skill runs ${w} directly (I7)`);
+  for (const w of used) assert.ok(allowed.includes(`Bash(${w} *)`), `allowed-tools covers ${w}`);
+  // The gates end the turn or use a bounded Monitor loop; nothing polls with a shell wait.
+  assert.ok(allowed.includes("Monitor"), "Monitor");
+  assert.ok(!allowed.some((t) => /sleep/.test(t)) && !used.has("sleep"), "no sleep");
+  assert.deepEqual([...programsRun("Run `git -C x status`, `sfactory doctor`, not `sfactory:sdd` or the `codex` mode; `codex exec x` counts.\n```bash\nbash run.sh\n```")].sort(), ["bash", "codex", "git", "sfactory"]);
+  // N5: a refusal clause hides only its own spans; the next sentence on the same line is a run.
+  assert.deepEqual([...programsRun("Never run `git stash`. Run `sfactory doctor`, and `commit` refuses `git add -A`; then `node x.mjs`.")].sort(), ["node", "sfactory"]);
+});
+
+test("skills/sfactory: every refusal worktree merge can raise has a row in the skill's stop table, with the person's next step", () => {
+  const src = read(join(root, "src", "commands", "worktree.mjs"));
+  const body = src.slice(src.indexOf("export async function mergePartner"), src.indexOf("/** What this command accepts"));
+  const push = read(join(root, "src", "push.mjs"));
+  const helper = push.slice(push.indexOf("export function assertFactoryBranch"), push.indexOf("export function push("));
+  const codes = new Set([...(body + helper).matchAll(/fail\("([A-Z_]+)"/g)].map((m) => m[1]));
+  for (const c of ["NOT_HOLDER", "DIRTY_TREE"]) codes.add(c); // assertHolder (lock.mjs) and the clean-tree check
+  assert.ok(codes.size >= 12, `codes read: ${[...codes]}`);
+  const table = orch.slice(orch.indexOf("Every refusal of `sfactory worktree merge` stops the card"), orch.indexOf("## 6. Roles by mode"));
+  // A row: | `CODE` | what it means | the next step |, both cells non-empty.
+  for (const c of codes) assert.match(table, new RegExp(String.raw`^ *\| ${"`"}${c}${"`"} \| [^|\n]*\S[^|\n]* \| [^|\n]*\S[^|\n]* \|$`, "m"), `a row for ${c} with a next step`);
+  assert.match(table, /sfactory job stop <id> --reason/);
+  assert.match(orch, /another card's approved `parallelWith` names it/, "who is a side of a pair");
+  assert.match(orch, /run the check of section 5, step 1 again on the revised plan/, "changes re-check the pair");
+  assert.match(orch, /queued card \(`parallel` is `queued`\) resuming while another milestone is active/, "a resumed queued card is check due");
+});
+
+// Strict YAML-subset rule for frontmatter: an unquoted plain value must not contain ": " or " #", nor start with a
+// YAML indicator. Claude Code drops every field of a file whose frontmatter fails to parse (the tools list included).
+export function frontmatterProblems(text) {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  if (!m) return ["no frontmatter"];
+  const problems = [];
+  for (const line of m[1].split(/\r?\n/)) {
+    if (!line.trim() || /^\s/.test(line)) continue;
+    const kv = /^([A-Za-z][\w-]*):(?:\s+(.*))?$/.exec(line);
+    if (!kv) { problems.push(`not a key: value line: ${line.slice(0, 60)}`); continue; }
+    const v = (kv[2] ?? "").trim();
+    if (!v) continue;
+    if (/^"(?:[^"\\]|\\.)*"$/.test(v) || /^'(?:[^']|'')*'$/.test(v)) continue;
+    if (/^["']/.test(v)) problems.push(`${kv[1]}: unterminated or trailing text after a quoted value`);
+    else if (/^[-?:,\[\]{}#&*!|>'"%@`]/.test(v)) problems.push(`${kv[1]}: plain value starts with a YAML indicator (${v[0]})`);
+    else if (/: /.test(v) || /:$/.test(v)) problems.push(`${kv[1]}: plain value contains ": " and must be quoted`);
+    else if (/ #/.test(v)) problems.push(`${kv[1]}: plain value contains " #" and must be quoted`);
+  }
+  return problems;
+}
+
+test("frontmatter rule: sees the old spec-reviewer description red, and a quoted one green", () => {
+  assert.ok(frontmatterProblems("---\nname: x\ndescription: Read-only review: missing, extra\n---\nbody").length > 0);
+  assert.ok(frontmatterProblems("---\nname: x\ndescription: a # b\n---\n").length > 0);
+  assert.ok(frontmatterProblems("---\nname: x\ndescription: *star\n---\n").length > 0);
+  assert.deepEqual(frontmatterProblems('---\nname: x\ndescription: "Read-only review: missing, extra"\ntools: Read, Grep\n---\n'), []);
+});
+
+for (const rel of [
+  ...readdirSync(join(root, "agents")).filter((f) => f.endsWith(".md")).map((f) => `agents/${f}`),
+  ...readdirSync(join(root, "skills")).map((d) => `skills/${d}/SKILL.md`).filter((p) => existsSync(join(root, p))),
+]) {
+  test(`${rel}: frontmatter parses under the strict YAML-subset rule`, () => {
+    assert.deepEqual(frontmatterProblems(readFileSync(join(root, rel), "utf8")), []);
+  });
+}
+
+test("agents/ holds only agent definitions (every .md there loads as an agent)", () => {
+  assert.ok(!existsSync(join(root, "agents", "ATTRIBUTION.md")));
+  assert.ok(existsSync(join(root, "docs", "attribution", "agents.md")));
+});
+
+test("I5/I6: brainstorming hands back (never invokes writing-plans); the orchestrator moves a fix to building after fixcard exits 0", () => {
+  const b = read(join(skillsRoot, "brainstorming", "SKILL.md"));
+  assert.match(b, /The terminal state is handing back to the sfactory orchestrator/);
+  assert.ok(!/invoke the sfactory:writing-plans skill|"Invoke sfactory:writing-plans"|The ONLY skill you invoke after brainstorming is/.test(b), "brainstorming never invokes writing-plans");
+  assert.match(split(b).fm.description, /handing back to the orchestrator/);
+  const planning = stageSection("planning");
+  assert.match(planning, /hands back to you\. It never invokes writing-plans itself/);
+  assert.ok(planning.includes('`sfactory job set <id> building --reason "fix plan written"`'), "the orchestrator makes the fix's move");
+  assert.match(planning, /still in `planning`/);
+  assert.match(planning, /resumes a fix card found in `planning`/);
+});
+
+test("Plan C final review minors: a stranded live lock, the options at the fix-round cap, stopping the board; DESIGN no longer drifts", () => {
+  for (const s of ["**A stranded `live` lock.**", "sfactory lock status live", "options: answer, then /sfactory rework <id>", "To stop it, stop that background task"]) assert.ok(orch.includes(s), `names ${s}`);
+  assert.match(read(join(skillsRoot, "sdd", "SKILL.md")), /options: rework or stop/);
+  const design = read(join(root, "docs", "DESIGN.md"));
+  assert.ok(!design.includes("Nothing below is built"), "the status line is current");
+  assert.ok(!/polls the card's `job\.json`/.test(design), "§11 no longer says the session polls");
+  const sec = design.slice(design.indexOf("## 12. Guardrails"), design.indexOf("## 13."));
+  for (const s of ["`limits.parallelMilestones`", "parks the card for the person", "`fixcard` names", "`copyFromBase`", "any tree but a card's worktree"]) assert.ok(sec.includes(s), `§12 names ${s}`);
+});

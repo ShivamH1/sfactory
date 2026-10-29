@@ -37,7 +37,7 @@
         },
         "codex": {
           "type": "object",
-          "description": "Codex profile names per role, as defined in ~/.codex/config.toml.",
+          "description": "Codex profile names per role. Each is a file ~/.codex/<name>.config.toml (or under $CODEX_HOME), layered on by --profile; not a table in ~/.codex/config.toml.",
           "properties": {
             "implement": { "type": "string", "description": "Codex profile that implements tasks." },
             "review": { "type": "string", "description": "Codex profile that reviews work." }
@@ -52,11 +52,13 @@
       "description": "How worktrees are placed and cut.",
       "properties": {
         "dir": { "type": "string", "description": "Directory holding the worktrees; default a sibling of the repo named <repo>-worktrees." },
-        "branchPrefix": { "type": "string", "description": "Prefix of every branch the factory creates, default feature/." },
+        "branchPrefix": { "type": "string", "pattern": "/$", "description": "Prefix of every branch the factory creates, default feature/." },
         "baseRule": { "type": "string", "description": "What a new branch is cut from: newest-feature-branch, integration-branch or a branch name." },
         "integrationBranch": { "type": ["string", "null"], "description": "The integration branch name, used by the integration-branch rule." },
         "afterCut": { "$ref": "#/$defs/stringList", "description": "Commands run in a fresh worktree after it is cut." },
-        "copyFromBase": { "$ref": "#/$defs/stringList", "description": "Untracked files copied from the base checkout into a fresh worktree." }
+        "afterCutTimeoutMs": { "type": "integer", "minimum": 1, "description": "Longest each afterCut command may run, in milliseconds, before it is killed and the cut undone (AFTER_CUT_TIMEOUT). Default 1800000." },
+        "copyFromBase": { "$ref": "#/$defs/stringList", "description": "Untracked files copied from the base checkout into a fresh worktree at the cut. A path listed in secrets.neverHandToAgents is refused (SECRET_PATH): agents work in the worktree from planning on; list such a file in copyForVerify instead." },
+        "copyForVerify": { "$ref": "#/$defs/stringList", "description": "Untracked files (an .env, say) the verify stage's services need: copied into the card's worktree by services up, from the base branch's checkout or else the main checkout, and removed by services down, job stop and worktree remove." }
       },
       "additionalProperties": true
     },
@@ -109,7 +111,17 @@
         "stories": { "type": ["string", "null"], "description": "Glob of product stories files, or null." },
         "carriedForward": { "type": ["string", "null"], "description": "Path of the carried-forward obligations file, or null." },
         "postCloseHeading": { "type": "string", "description": "Heading under which post-close work is appended to a log." },
-        "numbering": { "type": "string", "description": "How a job's number is chosen, e.g. job-id or next-milestone-number." }
+        "numbering": { "type": "string", "description": "How a milestone's number is chosen, e.g. job-id or next-milestone-number. A fix card never takes one." },
+        "fix": {
+          "type": "object",
+          "description": "A fix card's own record patterns ({id} and {slug}, never {n}), relative to the worktree. Without them a fix card's brief and plan are plan/brief.md and plan/plan.md in its job folder, and its log is log.md there, unless it was filed with --log <n>: then milestone n's log, under record.postCloseHeading.",
+          "properties": {
+            "brief": { "type": "string", "description": "Path pattern of a fix card's brief." },
+            "plan": { "type": "string", "description": "Path pattern of a fix card's plan." },
+            "log": { "type": "string", "description": "Path pattern of a fix card's log, used when it was filed without --log." }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": true
     },

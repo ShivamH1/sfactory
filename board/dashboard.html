@@ -316,6 +316,7 @@
     title.type = "button";
     title.addEventListener("click", function () { openDrawer(job.id); });
     card.appendChild(title);
+    if (job.activity && job.activity.note) card.appendChild(h("div", "branch", job.activity.note));
     if (job.branch) card.appendChild(h("div", "branch", job.branch));
     if (job.reviews && job.reviews.length) {
       var chips = h("div", "row");

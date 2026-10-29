@@ -136,7 +136,7 @@ test("job cmd: park, answer requires the answer file, parallel yes/no", async ()
   assert.equal(jobFileExists(c, "f-1", "decisions/3.md"), false);
 
   await run(root, ["job", "add", "milestone", "M2"]);
-  r = await run(root, ["job", "park", "m-1", "--reason", "parallel check passed", "--pending", "parallel"]);
+  r = await run(root, ["job", "park", "m-1", "--reason", "parallel check passed", "--pending", "parallel", "--with", "f-1"]);
   assert.equal(r.code, 0);
   assert.equal(jobFileExists(c, "m-1", "plan/parallel.md"), true);
   r = await run(root, ["job", "parallel", "m-1", "--no"]);
@@ -196,4 +196,97 @@ test("job cmd: set building from reviewing or pushed is refused, pointing at rew
   r = await run(root, ["job", "set", "f-1", "building"]);
   assert.equal(r.code, 2); assert.match(r.err, /job rework/);
   assert.equal(readJob(c, "f-1").stage, "pushed");
+});
+
+test("job cmd: touch marks a working stage; elsewhere it prints (not touched) and exits 0; a bare --note is BAD_ARGS", async () => {
+  const root = project(); const c = loadConfig(root);
+  await run(root, ["job", "add", "milestone", "M1 touch"]);
+  const before = readJob(c, "m-1");
+  let r = await run(root, ["job", "touch", "m-1", "--note", "early"]);
+  assert.equal(r.code, 0); assert.equal(r.out, "m-1 backlog (not touched)\n");
+  assert.deepEqual(readJob(c, "m-1"), before);
+  await run(root, ["job", "set", "m-1", "planning"]);
+  r = await run(root, ["job", "touch", "m-1", "--note", "start brainstorming"]);
+  assert.equal(r.code, 0); assert.equal(r.out, "m-1 planning\n");
+  assert.equal(readJob(c, "m-1").activity.note, "start brainstorming");
+  r = await run(root, ["job", "touch", "m-1", "--note"]);
+  assert.equal(r.code, 2); assert.match(r.err, /BAD_ARGS/);
+  await run(root, ["job", "set", "m-1", "awaiting-approval"]);
+  const parked = readJob(c, "m-1");
+  r = await run(root, ["job", "touch", "m-1", "--note", "late finish"]);
+  assert.equal(r.code, 0); assert.equal(r.out, "m-1 awaiting-approval (not touched)\n");
+  assert.deepEqual(readJob(c, "m-1"), parked, "awaiting-approval is not re-stamped (the board's Approve-after-viewing keys on it)");
+});
+
+test("job: a parallel proposal parks from backlog or planning; planning may also park a decision; a queued planning card goes back to backlog", async () => {
+  const { PARK_PENDING, queue } = await import("../src/job.mjs");
+  assert.deepEqual(PARK_PENDING.backlog, ["parallel"]);
+  assert.deepEqual([...PARK_PENDING.planning].sort(), ["decision", "parallel"]);
+  for (const s of WORKING.filter((x) => x !== "planning")) assert.deepEqual(PARK_PENDING[s], ["decision"], s);
+  const j = { ...newJob({ id: "m-2", kind: "milestone", title: "t", now }), stage: "planning", worktree: "/w" };
+  const p = park(j, { reason: "parallel rows", pending: "parallel", now });
+  assert.equal(p.stage, "decision-needed"); assert.equal(p.returnStage, "planning"); assert.equal(p.pending, "parallel");
+  assert.equal(release(p, { now }).stage, "planning");
+  const q = queue(p, { by: "board", now });
+  assert.equal(q.stage, "backlog"); assert.equal(q.returnStage, null); assert.equal(q.pending, null); assert.equal(q.worktree, "/w");
+  assert.deepEqual({ from: q.history.at(-1).from, to: q.history.at(-1).to, reason: q.history.at(-1).reason }, { from: "decision-needed", to: "backlog", reason: "queued" });
+  assert.throws(() => queue({ ...p, pending: "decision" }, { now }), (e) => e.code === "ILLEGAL_TRANSITION");
+  assert.throws(() => queue(j, { now }), (e) => e.code === "ILLEGAL_TRANSITION");
+});
+
+test("job cmd: request-changes takes --notes or --notes-file, only in awaiting-approval, and prints the changes file", async () => {
+  const { readFileSync, writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = project(); const c = loadConfig(root);
+  await run(root, ["job", "add", "milestone", "M"]);
+  await run(root, ["job", "set", "m-1", "planning"]);
+  let r = await run(root, ["job", "request-changes", "m-1", "--notes", "1: B"]);
+  assert.equal(r.code, 2); assert.match(r.err, /ILLEGAL_TRANSITION/);
+  await run(root, ["job", "set", "m-1", "awaiting-approval"]);
+  r = await run(root, ["job", "request-changes", "m-1", "--notes", "1: take B. 2: keep the cap"]);
+  assert.equal(r.code, 0, r.err);
+  const m = /^m-1 awaiting-approval (.*changes-1\.md)\n$/.exec(r.out);
+  assert.ok(m, r.out);
+  assert.match(readFileSync(m[1], "utf8"), /2: keep the cap/);
+  writeFileSync(join(root, "answers.md"), "1: take A\n");
+  r = await run(root, ["job", "request-changes", "m-1", "--notes-file", "answers.md"]);
+  assert.equal(r.code, 0, r.err); assert.match(r.out, /changes-2\.md/);
+  assert.equal(readJob(c, "m-1").stage, "awaiting-approval");
+  assert.equal(readJob(c, "m-1").history.at(-1).file, "plan/changes-2.md");
+  for (const bad of [["--notes", "x", "--notes-file", "answers.md"], [], ["--notes-file", "missing.md"]]) {
+    r = await run(root, ["job", "request-changes", "m-1", ...bad]);
+    assert.equal(r.code, 2, bad.join(" ")); assert.match(r.err, /BAD_ARGS/);
+  }
+});
+
+test("job cmd: add fix --log <n> records logOf; a milestone, zero or a non-number is BAD_ARGS", async () => {
+  const root = project(); const c = loadConfig(root);
+  let r = await run(root, ["job", "add", "fix", "Patch the thing", "--log", "7"]);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(readJob(c, "f-1").logOf, 7);
+  assert.equal(readJob(c, "f-1").title, "Patch the thing");
+  r = await run(root, ["job", "add", "fix", "No log"]);
+  assert.equal("logOf" in readJob(c, "f-2"), false);
+  for (const bad of [["milestone", "M", "--log", "3"], ["fix", "F", "--log", "0"], ["fix", "F", "--log", "x7"], ["fix", "F", "--log"]]) {
+    r = await run(root, ["job", "add", ...bad]);
+    assert.equal(r.code, 2, bad.join(" ")); assert.match(r.err, /BAD_ARGS/);
+  }
+});
+
+test("job cmd: request-changes --notes-file refuses a path listed in secrets.neverHandToAgents, and reads nothing from it", async () => {
+  const { writeFileSync, existsSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = tmpRepo();
+  writeConfig(root, { project: "p", agents: { mode: "claude" }, commands: { suite: "x" }, secrets: { neverHandToAgents: ["private/keys.txt"] } });
+  const c = loadConfig(root);
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(join(root, "private"), { recursive: true });
+  writeFileSync(join(root, "private", "keys.txt"), "TOKEN-VALUE\n");
+  await run(root, ["job", "add", "milestone", "M"]);
+  for (const s of ["planning", "awaiting-approval"]) await run(root, ["job", "set", "m-1", s]);
+  for (const p of ["private/keys.txt", "private"]) {
+    const r = await run(root, ["job", "request-changes", "m-1", "--notes-file", p]);
+    assert.equal(r.code, 2, p); assert.match(r.err, /SECRET_PATH/);
+  }
+  assert.equal(existsSync(join(c.stateDir, "jobs", "m-1", "plan", "changes-1.md")), false);
 });

@@ -47,7 +47,7 @@ test("actions: park, answer requires the answer file, parallel yes/no", () => {
   throwsCode(() => actions.park(c, { id: "f-1" }), "BAD_ARGS");
 
   actions.add(c, { kind: "milestone", title: "M2" });
-  actions.park(c, { id: "m-1", reason: "parallel check passed", pending: "parallel" });
+  actions.park(c, { id: "m-1", reason: "parallel check passed", pending: "parallel", with: "f-1" });
   assert.equal(jobFileExists(c, "m-1", "plan/parallel.md"), true);
   throwsCode(() => actions.parallel(c, { id: "m-1" }), "BAD_ARGS");
   const j = actions.parallel(c, { id: "m-1", yes: false });
@@ -106,7 +106,7 @@ test("actions: requestChanges only in awaiting-approval, writes changes-<k>.md, 
   const j = actions.requestChanges(c, { id: "m-1", notes: "split task 3", by: "board" });
   assert.equal(j.stage, "awaiting-approval");
   assert.match(readJobFile(c, "m-1", "plan/changes-1.md"), /split task 3/);
-  assert.deepEqual({ ...j.history.at(-1), at: 0 }, { at: 0, from: "awaiting-approval", to: "awaiting-approval", by: "board", reason: "changes requested" });
+  assert.deepEqual({ ...j.history.at(-1), at: 0 }, { at: 0, from: "awaiting-approval", to: "awaiting-approval", by: "board", reason: "changes requested", file: "plan/changes-1.md" });
   actions.requestChanges(c, { id: "m-1", notes: "again" });
   assert.equal(jobFileExists(c, "m-1", "plan/changes-2.md"), true);
   unheld(c, "m-1");
@@ -157,3 +157,143 @@ test("actions: answer with no decision file is refused and writes nothing", () =
 function withJobLockForTest(c, id, mutate) {
   return withJobLock(c, id, () => { const j = readJob(c, id); mutate(j); return writeJob(c, j); });
 }
+
+test("actions: set applies the config's fix-round cap (moved here from commands/job.mjs in the board merge)", () => {
+  const c = { ...cfg(), limits: { lockStaleMs: 60_000, fixRounds: 1 } };
+  actions.add(c, { kind: "fix", title: "F1 thing" });
+  for (const to of ["planning", "building", "reviewing", "fixing", "reviewing"]) actions.set(c, { id: "f-1", to });
+  assert.equal(readJob(c, "f-1").round, 1);
+  throwsCode(() => actions.set(c, { id: "f-1", to: "fixing" }), "FIX_ROUNDS_EXHAUSTED", /1 of 1/);
+  assert.equal(readJob(c, "f-1").stage, "reviewing");
+  unheld(c, "f-1");
+});
+
+test("actions: touch stamps updated and activity, changes no stage or history, validates the note", () => {
+  const c = cfg();
+  actions.add(c, { kind: "fix", title: "F" });
+  actions.set(c, { id: "f-1", to: "planning" });
+  const before = readJob(c, "f-1");
+  const j = actions.touch(c, { id: "f-1", note: "writing the plan", by: "claude" });
+  assert.equal(j.stage, before.stage);
+  assert.equal(j.history.length, before.history.length);
+  assert.equal(j.activity.note, "writing the plan"); assert.equal(j.activity.by, "claude");
+  assert.ok(Date.parse(j.updated) >= Date.parse(before.updated));
+  assert.equal(actions.touch(c, { id: "f-1" }).activity.note, undefined);
+  throwsCode(() => actions.touch(c, { id: "f-1", note: "x".repeat(201) }), "BAD_ARGS");
+  throwsCode(() => actions.touch(c, { id: "f-1", note: 5 }), "BAD_ARGS");
+  unheld(c, "f-1");
+});
+
+test("actions: touch writes nothing outside a working stage and returns the job unchanged", () => {
+  const c = cfg();
+  actions.add(c, { kind: "milestone", title: "M" });
+  for (const to of [null, "planning", "awaiting-approval"]) {
+    if (to) actions.set(c, { id: "m-1", to });
+    if (to === "planning") { assert.ok(actions.touch(c, { id: "m-1", note: "n" }).activity, "planning is a working stage"); continue; }
+    const before = readJob(c, "m-1");
+    assert.deepEqual(actions.touch(c, { id: "m-1", note: "n" }), before);
+    assert.deepEqual(readJob(c, "m-1"), before);
+  }
+  unheld(c, "m-1");
+});
+
+test("actions: a parallel proposal from planning - yes returns to planning, no queues the card in backlog", () => {
+  const c = cfg();
+  actions.add(c, { kind: "milestone", title: "A" });
+  actions.add(c, { kind: "milestone", title: "B" });
+  for (const id of ["m-1", "m-2"]) actions.set(c, { id, to: "planning" });
+  actions.park(c, { id: "m-1", reason: "rows: files ok", pending: "parallel", with: "m-2" });
+  assert.match(readJobFile(c, "m-1", "plan/parallel.md"), /rows: files ok/);
+  let j = actions.parallel(c, { id: "m-1", yes: true });
+  assert.equal(j.stage, "planning"); assert.equal(j.parallel, "approved");
+  actions.park(c, { id: "m-2", reason: "rows: files FAIL", pending: "parallel", with: "m-1" });
+  j = actions.parallel(c, { id: "m-2", yes: false });
+  assert.equal(j.stage, "backlog"); assert.equal(j.parallel, "queued");
+  unheld(c, "m-1"); unheld(c, "m-2");
+});
+
+test("actions: a parallel park names its partner (--with): recorded as parallelWith, kept by yes and by no; refused without it, for itself or an unknown card", () => {
+  const c = cfg();
+  for (const t of ["A", "B", "C"]) actions.add(c, { kind: "milestone", title: t });
+  actions.set(c, { id: "m-2", to: "planning" });
+  throwsCode(() => actions.park(c, { id: "m-2", reason: "rows", pending: "parallel" }), "BAD_ARGS", /--with/);
+  throwsCode(() => actions.park(c, { id: "m-2", reason: "rows", pending: "parallel", with: "m-2" }), "BAD_ARGS");
+  throwsCode(() => actions.park(c, { id: "m-2", reason: "rows", pending: "parallel", with: "m-9" }), "JOB_NOT_FOUND");
+  throwsCode(() => actions.park(c, { id: "m-2", reason: "a decision", with: "m-1" }), "BAD_ARGS", /--with/);
+  let j = actions.park(c, { id: "m-2", reason: "rows", pending: "parallel", with: "m-1" });
+  assert.equal(j.parallelWith, "m-1");
+  assert.match(readJobFile(c, "m-2", "plan/parallel.md"), /beside m-1/);
+  j = actions.parallel(c, { id: "m-2", yes: true });
+  assert.deepEqual([j.stage, j.parallel, j.parallelWith], ["planning", "approved", "m-1"]);
+  actions.park(c, { id: "m-3", reason: "rows", pending: "parallel", with: "m-1" });
+  j = actions.parallel(c, { id: "m-3", yes: false });
+  assert.deepEqual([j.stage, j.parallel, j.parallelWith], ["backlog", "queued", "m-1"], "a queued card keeps the partner it waits on");
+  unheld(c, "m-2"); unheld(c, "m-3");
+});
+
+test("I4: a milestone's start at the cap is CAP_REACHED; queued and stopped cards do not count; fixes are never capped", () => {
+  const c = { ...cfg(), limits: { lockStaleMs: 60_000, parallelMilestones: 2 } };
+  for (const t of ["A", "B", "C", "D"]) actions.add(c, { kind: "milestone", title: t });
+  actions.set(c, { id: "m-1", to: "planning" });
+  actions.set(c, { id: "m-2", to: "planning" });
+  throwsCode(() => actions.set(c, { id: "m-3", to: "planning" }), "CAP_REACHED", /m-1 planning, m-2 planning/);
+  assert.equal(readJob(c, "m-3").stage, "backlog", "nothing written");
+  // a parallel proposal answered no puts m-2 back in backlog (queued): it no longer counts
+  actions.park(c, { id: "m-2", reason: "beside m-1?", pending: "parallel", with: "m-1" });
+  actions.parallel(c, { id: "m-2", yes: false });
+  assert.equal(readJob(c, "m-2").parallel, "queued");
+  actions.set(c, { id: "m-3", to: "planning" });
+  actions.stop(c, { id: "m-3" });
+  actions.set(c, { id: "m-4", to: "planning" }); // m-3 stopped: one active (m-1) + m-4
+  actions.add(c, { kind: "fix", title: "F" });
+  actions.set(c, { id: "f-1", to: "planning" });   // a fix is never capped
+  unheld(c, "m-4");
+});
+
+test("I4: approve refuses a milestone beside an active one without a parallel yes (PARALLEL_UNANSWERED); either side of an approved pair passes", () => {
+  const c = cfg();
+  actions.add(c, { kind: "milestone", title: "A" });
+  actions.add(c, { kind: "milestone", title: "B" });
+  actions.set(c, { id: "m-1", to: "planning" }); actions.set(c, { id: "m-1", to: "awaiting-approval" });
+  actions.set(c, { id: "m-2", to: "planning" }); actions.set(c, { id: "m-2", to: "awaiting-approval" });
+  throwsCode(() => actions.approve(c, { id: "m-2" }), "PARALLEL_UNANSWERED", /m-1 is active/);
+  throwsCode(() => actions.approve(c, { id: "m-1" }), "PARALLEL_UNANSWERED", /m-2 is active/);
+  assert.equal(jobFileExists(c, "m-2", "plan/approval.md"), false, "nothing written");
+  // B asks beside A and the person says yes: both sides approve
+  withJobLock(c, "m-2", () => writeJob(c, { ...readJob(c, "m-2"), stage: "planning" }));
+  actions.park(c, { id: "m-2", reason: "beside m-1?", pending: "parallel", with: "m-1" });
+  actions.parallel(c, { id: "m-2", yes: true });
+  withJobLock(c, "m-2", () => writeJob(c, { ...readJob(c, "m-2"), stage: "awaiting-approval" }));
+  assert.equal(actions.approve(c, { id: "m-1" }).stage, "building", "the side that was never asked");
+  assert.equal(actions.approve(c, { id: "m-2" }).stage, "building");
+  // alone, a milestone approves as before
+  const d = cfg();
+  actions.add(d, { kind: "milestone", title: "Solo" });
+  actions.set(d, { id: "m-1", to: "planning" }); actions.set(d, { id: "m-1", to: "awaiting-approval" });
+  assert.equal(actions.approve(d, { id: "m-1" }).stage, "building");
+});
+
+test("N4: resume re-checks the cap and, past approval, the parallel answer; a card resting before the cap resumes freely", () => {
+  const c = { ...cfg(), limits: { lockStaleMs: 60_000, parallelMilestones: 2 } };
+  for (const t of ["A", "B", "C"]) actions.add(c, { kind: "milestone", title: t });
+  actions.set(c, { id: "m-1", to: "planning" });
+  actions.stop(c, { id: "m-1" });
+  actions.set(c, { id: "m-2", to: "planning" });
+  actions.set(c, { id: "m-3", to: "planning" });
+  throwsCode(() => actions.resume(c, { id: "m-1" }), "CAP_REACHED", /m-2 planning, m-3 planning/);
+  assert.equal(readJob(c, "m-1").stage, "stopped", "nothing written");
+  actions.stop(c, { id: "m-3" });
+  assert.equal(actions.resume(c, { id: "m-1" }).stage, "planning");
+  // past approval the parallel answer is needed beside another active card
+  withJobLock(c, "m-1", () => writeJob(c, { ...readJob(c, "m-1"), stage: "building" }));
+  actions.stop(c, { id: "m-1" });
+  throwsCode(() => actions.resume(c, { id: "m-1" }), "PARALLEL_UNANSWERED", /m-2 is active/);
+  actions.stop(c, { id: "m-2" });
+  assert.equal(actions.resume(c, { id: "m-1" }).stage, "building", "alone, it resumes");
+  // a fix is never capped
+  actions.add(c, { kind: "fix", title: "F" });
+  actions.set(c, { id: "f-1", to: "planning" });
+  actions.stop(c, { id: "f-1" });
+  assert.equal(actions.resume(c, { id: "f-1" }).stage, "planning");
+  unheld(c, "m-1");
+});

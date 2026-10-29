@@ -7,14 +7,20 @@ import { readJob, writeJob, withJobLock } from "../store.mjs";
 import { allocate, isFree } from "../ports.mjs";
 import { fail } from "../errors.mjs";
 
+/** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
+export const ACCEPTS = { verbs: ["allocate", "free"], flags: [] };
+
 register("ports", async ({ positional: [verb, arg] }, io) => {
   const c = loadConfig(findRepoRoot(io.cwd));
   if (verb === "allocate") {
     if (!arg) fail("BAD_ARGS", "usage: sfactory ports allocate <id> | sfactory ports free <port>");
     readJob(c, arg); // fail early on an unknown id, before any bind
-    const ports = await allocate(c, arg);
-    // re-read after the binds so a stage change made meanwhile is not overwritten
-    withJobLock(c, arg, () => writeJob(c, { ...readJob(c, arg), ports }));
+    // Persisted inside the ports lock, so the block is recorded before the next allocator reads the held set,
+    // and inside the job lock, re-read after the binds, so a stage change made meanwhile is not overwritten.
+    // Lock order: "ports" (outer) then "job:<id>" (inner). Nothing takes them the other way round:
+    // withJobLock runs a synchronous callback only (an async one is LOCK_ASYNC), and allocate is async,
+    // so the ports lock can never be taken while a job lock is held.
+    const ports = await allocate(c, arg, (p) => withJobLock(c, arg, () => writeJob(c, { ...readJob(c, arg), ports: p })));
     io.stdout(`${c.ports.names.map((n) => `${n}=${ports[n]}`).join(" ")}\n`);
     return 0;
   }
@@ -26,4 +32,4 @@ register("ports", async ({ positional: [verb, arg] }, io) => {
     return free ? 0 : 1;
   }
   fail("UNKNOWN_COMMAND", `ports ${verb}`);
-});
+}, ACCEPTS);

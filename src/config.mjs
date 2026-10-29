@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from "node:fs";
-import { join, resolve, isAbsolute, dirname, basename } from "node:path";
+import { join, resolve, isAbsolute, dirname, basename, posix } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fail } from "./errors.mjs";
 import { DEFAULT_PRICES } from "./prices.mjs";
@@ -14,7 +14,7 @@ export const DEFAULTS = Object.freeze({
     claude: { plan: "opus/high", review: "opus/high", judge: "opus/high", implement: "sonnet", triage: "haiku" },
     codex: { implement: "implement", review: "review" },
   },
-  worktrees: { branchPrefix: "feature/", baseRule: "integration-branch", integrationBranch: null, afterCut: [], copyFromBase: [] },
+  worktrees: { branchPrefix: "feature/", baseRule: "integration-branch", integrationBranch: null, afterCut: [], afterCutTimeoutMs: 1_800_000, copyFromBase: [], copyForVerify: [] },
   commands: { suiteSerial: true, build: null, typecheck: [], migrate: null, services: [] },
   ports: { base: 4100, step: 100, names: ["api", "web"] },
   record: {
@@ -51,6 +51,16 @@ export function findRepoRoot(cwd = process.cwd()) {
   return resolve(r.stdout.trim());
 }
 
+/** Do two repo-relative paths name the same file, or one a directory holding the other? Slashes and a leading "./" ignored; case-insensitive on Windows. */
+export function pathsOverlap(a, b) {
+  const norm = (x) => {
+    const n = posix.normalize(String(x).split("\\").join("/")).replace(/\/+$/, "") || ".";
+    return process.platform === "win32" ? n.toLowerCase() : n;
+  };
+  const x = norm(a), y = norm(b);
+  return x === y || x === "." || y === "." || x.startsWith(y + "/") || y.startsWith(x + "/");
+}
+
 export function validateConfig(raw) {
   const errs = [];
   if (!raw || typeof raw !== "object") return ["config must be a JSON object"];
@@ -75,11 +85,42 @@ export function validateConfig(raw) {
   }
   if (raw.commands?.suiteSerial != null && typeof raw.commands.suiteSerial !== "boolean") errs.push(`commands.suiteSerial: must be true or false, not ${JSON.stringify(raw.commands.suiteSerial)}`);
   const lists = { rules: raw.rules, hotspots: raw.hotspots, fixCardRefusals: raw.fixCardRefusals, stops: raw.stops,
-    "worktrees.afterCut": raw.worktrees?.afterCut, "worktrees.copyFromBase": raw.worktrees?.copyFromBase,
+    "worktrees.afterCut": raw.worktrees?.afterCut, "worktrees.copyFromBase": raw.worktrees?.copyFromBase, "worktrees.copyForVerify": raw.worktrees?.copyForVerify,
     "secrets.neverHandToAgents": raw.secrets?.neverHandToAgents, "commands.typecheck": raw.commands?.typecheck, "ports.names": raw.ports?.names };
   for (const [k, v] of Object.entries(lists)) {
     if (v == null) continue;
     if (!Array.isArray(v) || !v.every((x) => typeof x === "string")) errs.push(`${k}: must be an array of strings`);
+  }
+  if (Array.isArray(raw.rules)) for (const r of raw.rules) if (typeof r === "string" && (isAbsolute(r) || /^(\/|\\|[A-Za-z]:)/.test(r) || r.split(/[\/\\]/).includes(".."))) errs.push(`rules: "${r}" must be a path inside the repo (no "..", not absolute)`);
+  const outside = (p) => isAbsolute(p) || /^(\/|\\|[A-Za-z]:)/.test(p) || p.split(/[\/\\]/).includes("..");
+  for (const k of ["brief", "plan", "log", "stories", "carriedForward"]) {
+    const v = raw.record?.[k];
+    if (typeof v === "string" && outside(v)) errs.push(`record.${k}: "${v}" must be a path inside the worktree (no "..", not absolute)`);
+  }
+  // record.fix: a fix card's own record patterns; a fix reserves no milestone number, so {n} is refused.
+  const fx = raw.record?.fix;
+  if (fx != null) {
+    if (typeof fx !== "object" || Array.isArray(fx)) errs.push("record.fix: an object of brief, plan and log patterns");
+    else for (const k of Object.keys(fx)) {
+      const v = fx[k];
+      if (!["brief", "plan", "log"].includes(k)) errs.push(`record.fix.${k}: only brief, plan and log`);
+      else if (typeof v !== "string" || !v) errs.push(`record.fix.${k}: a path pattern string`);
+      else if (outside(v)) errs.push(`record.fix.${k}: "${v}" must be a path inside the worktree (no "..", not absolute)`);
+      else if (v.includes("{n}")) errs.push(`record.fix.${k}: "${v}" uses {n}, but a fix card takes no milestone number (use {id} and {slug})`);
+    }
+  }
+  const act = raw.worktrees?.afterCutTimeoutMs;
+  if (act != null && !(Number.isInteger(act) && act >= 1)) errs.push("worktrees.afterCutTimeoutMs: integer >= 1 (milliseconds)");
+  for (const k of ["copyFromBase", "copyForVerify"]) {
+    const v = raw.worktrees?.[k];
+    if (Array.isArray(v)) for (const p of v) if (typeof p === "string" && outside(p)) errs.push(`worktrees.${k}: "${p}" must be a path inside the repo (no "..", not absolute)`);
+  }
+  // A file in both lists would be copied into the worktree at the cut, where an agent works: copyForVerify is for what must not be.
+  const fromBase = raw.worktrees?.copyFromBase, forVerify = raw.worktrees?.copyForVerify;
+  if (Array.isArray(fromBase) && Array.isArray(forVerify)) {
+    for (const a of fromBase) for (const b of forVerify) {
+      if (typeof a === "string" && typeof b === "string" && pathsOverlap(a, b)) errs.push(`worktrees: "${a}" (copyFromBase) and "${b}" (copyForVerify) name the same file or one holds the other; a file is copied at the cut or for verify, never both`);
+    }
   }
   if (raw.worktrees?.baseRule != null && !BASE_RULES.includes(raw.worktrees.baseRule) && typeof raw.worktrees.baseRule !== "string")
     errs.push("worktrees.baseRule: newest-feature-branch, integration-branch or a branch name");
@@ -87,6 +128,8 @@ export function validateConfig(raw) {
     if (raw.ports.base != null && !(Number.isInteger(raw.ports.base) && raw.ports.base > 1024 && raw.ports.base < 65000)) errs.push("ports.base: integer 1025..64999");
     if (raw.ports.step != null && !(Number.isInteger(raw.ports.step) && raw.ports.step >= 2)) errs.push("ports.step: integer >= 2");
   }
+  const bp = raw.worktrees?.branchPrefix;
+  if (bp != null && !(typeof bp === "string" && bp.endsWith("/"))) errs.push('worktrees.branchPrefix: a non-empty string ending in "/"');
   if (raw.board?.activeMs != null && !(Number.isInteger(raw.board.activeMs) && raw.board.activeMs >= 1)) errs.push("board.activeMs: integer >= 1");
   if (raw.record?.style != null && !["docs-folder", "spec-tree"].includes(raw.record.style)) errs.push("record.style: docs-folder or spec-tree");
   return errs;

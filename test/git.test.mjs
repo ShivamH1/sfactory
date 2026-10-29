@@ -45,3 +45,14 @@ test("git: newestBranch works for a prefix without a trailing slash", () => {
   sh("git", ["checkout", "-q", "main"], r);
   assert.equal(newestBranch(r, "milestone-"), "milestone-b");
 });
+
+test("minor 12: the tests' git reads an empty global config, never the machine's", async () => {
+  const { GIT_CONFIG_GLOBAL } = await import("./helpers.mjs");
+  const { readFileSync } = await import("node:fs");
+  assert.equal(process.env.GIT_CONFIG_GLOBAL, GIT_CONFIG_GLOBAL);
+  assert.equal(readFileSync(GIT_CONFIG_GLOBAL, "utf8"), "");
+  const r = tmpRepo();
+  const { spawnSync } = await import("node:child_process");
+  const out = spawnSync("git", ["config", "--global", "--list"], { cwd: r, encoding: "utf8" });
+  assert.equal(out.stdout.trim(), "", "no global setting reaches a test's git");
+});

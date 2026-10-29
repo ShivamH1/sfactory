@@ -11,6 +11,9 @@ const int = (v, flag, required) => {
   return n;
 };
 
+/** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
+export const ACCEPTS = { verbs: ["add", "show"], flags: ["stage", "agent", "model", "in", "out", "cache-read", "usd"] };
+
 register("cost", async ({ positional: [verb, id], flags }, io) => {
   if (!id) fail("BAD_ARGS", "usage: sfactory cost <add|show> <id> [--stage s --agent claude|codex --model m --in n --out n [--cache-read n] [--usd x]]");
   const c = loadConfig(findRepoRoot(io.cwd));
@@ -32,4 +35,4 @@ register("cost", async ({ positional: [verb, id], flags }, io) => {
     return 0;
   }
   fail("UNKNOWN_COMMAND", `cost ${verb}`);
-});
+}, ACCEPTS);

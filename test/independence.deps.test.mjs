@@ -1,0 +1,165 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { parsePlan } from "../src/plan.mjs";
+import { taskBatches, migrationsDirOf } from "../src/independence.mjs";
+import { main } from "../src/cli.mjs";
+import "./helpers.mjs"; // its empty global git config (minor 12)
+
+// Plan C entry criterion I7: a plan with no dependency information runs
+// sequentially unless the caller allows it, and the migrations rule applies
+// inside a milestone.
+
+const undeclared = "### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Create: `b.ts`\n### Task 3: C\n- Create: `c.ts`\n";
+
+test("taskBatches: a plan with no dependency information is sequential", () => {
+  const p = parsePlan(undeclared);
+  assert.equal(p.dependencyInfo, "none");
+  assert.deepEqual(taskBatches(p, 4), [[1], [2], [3]]);
+  assert.deepEqual(taskBatches(p, 4, { allowUndeclared: true }), [[1, 2, 3]]);
+});
+
+test("taskBatches: a plan built without dependencyInfo is treated as undeclared (fail closed)", () => {
+  const plan = { tasks: [1, 2].map((n) => ({ n, title: "", files: [{ op: "create", path: `f${n}` }], dependsOn: [] })) };
+  assert.deepEqual(taskBatches(plan, 4), [[1], [2]]);
+  assert.deepEqual(taskBatches({ ...plan, dependencyInfo: "declared" }, 4), [[1, 2]]);
+});
+
+test("taskBatches: dependencies inferred from Consumes and (after Task N) order the batches", () => {
+  const p = parsePlan("### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Consumes: Task 1's `a`\n- Create: `b.ts`\n### Task 3: C (after Task 2)\n- Create: `c.ts`\n### Task 4: D\n- Create: `d.ts`\n");
+  // Fix round 3 (S1) changed this expectation: Consumes and "after" edges order
+  // tasks but do not declare the plan, so by default it runs one task per batch
+  // in dependency order; allowed, the edges shape parallel batches.
+  assert.equal(p.dependencyInfo, "none");
+  assert.deepEqual(taskBatches(p, 4), [[1], [2], [3], [4]]);
+  assert.deepEqual(taskBatches(p, 4, { allowUndeclared: true }), [[1, 4], [2], [3]]);
+});
+
+test("taskBatches: two tasks adding migrations never share a batch", () => {
+  // Fix round 4 (R4-1): every task carries its own Depends on line, since one
+  // line no longer declares the plan; the batches tested are unchanged.
+  const md = "### Task 1: A\n- Create: `db/migrations/1_a/migration.sql`\n**Depends on:** none\n### Task 2: B\n- Create: `db/migrations/2_b/migration.sql`\n**Depends on:** none\n### Task 3: C\n- Create: `c.ts`\n**Depends on:** none\n### Task 4: D\n- Modify: `db/migrations`\n**Depends on:** none\n";
+  const p = parsePlan(md);
+  assert.deepEqual(taskBatches(p, 4), [[1, 2, 3], [4]]);
+  assert.deepEqual(taskBatches(p, 4, { migrationsDir: "./db/migrations/" }), [[1, 3], [2], [4]]);
+  const q = parsePlan(md.replace("- Modify: `db/migrations`", "- Create: `d.ts`"));
+  assert.deepEqual(taskBatches(q, 4), [[1, 2, 3, 4]]);
+  assert.deepEqual(taskBatches(q, 4, { migrationsDir: "db/migrations" }), [[1, 3, 4], [2]]);
+  // A task touching a parent of the migrations dir counts as adding one.
+  const r = parsePlan("### Task 1: A\n- Modify: `db`\n**Depends on:** none\n### Task 2: B\n- Create: `db/migrations/2/m.sql`\n**Depends on:** none\n");
+  assert.deepEqual(taskBatches(r, 4, { migrationsDir: "db/migrations" }), [[1], [2]]);
+  // Read lines add nothing.
+  const s = parsePlan("### Task 1: A\n- Read: `db/migrations/1/m.sql`\n- Create: `a.ts`\n**Depends on:** none\n### Task 2: B\n- Create: `db/migrations/2/m.sql`\n**Depends on:** none\n");
+  assert.deepEqual(taskBatches(s, 4, { migrationsDir: "db/migrations" }), [[1, 2]]);
+});
+
+test("migrationsDirOf: relative to the repo root, null when the project has none", () => {
+  assert.equal(migrationsDirOf({ repoRoot: "/repo", migrations: { dir: "/repo/apps/api/prisma/migrations" } }), "apps/api/prisma/migrations");
+  assert.equal(migrationsDirOf({ repoRoot: "/repo", migrations: null }), null);
+  assert.equal(migrationsDirOf({ repoRoot: "/repo" }), null);
+});
+
+const run = async (argv, cwd) => { const out = [], err = []; const code = await main(argv, { cwd, stdout: (s) => out.push(s), stderr: (s) => err.push(s) }); return { code, out: out.join(""), err: err.join("") }; };
+
+test("independence tasks: sequential for an undeclared plan unless --allow-undeclared; migrations from the config", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "sf-deps-")));
+  spawnSync("git", ["init", "-q"], { cwd: dir });
+  writeFileSync(join(dir, "sfactory.config.json"), JSON.stringify({ project: "p", agents: { mode: "claude" }, commands: { suite: "x" }, migrations: { dir: "db/migrations" } }));
+  writeFileSync(join(dir, "u.md"), undeclared);
+  let r = await run(["independence", "tasks", "u.md"], dir);
+  assert.equal(r.code, 0);
+  assert.equal(r.out, "[[1],[2],[3]]\n");
+  // Fix round 3 (S1) reworded the message: it names the missing explicit Depends on line.
+  assert.match(r.err, /no explicit "Depends on" line/);
+  r = await run(["independence", "tasks", "--allow-undeclared", "u.md"], dir);
+  assert.equal(r.code, 0);
+  assert.equal(r.out, "[[1,2,3]]\n");
+  // Fix round 4 (R4-1): both tasks carry a Depends on line, so the plan is declared and the CLI says nothing.
+  writeFileSync(join(dir, "m.md"), "### Task 1: A\n- Create: `db/migrations/1/m.sql`\n**Depends on:** none\n### Task 2: B\n- Create: `db/migrations/2/m.sql`\n**Depends on:** none\n");
+  r = await run(["independence", "tasks", "m.md"], dir);
+  assert.equal(r.out, "[[1],[2]]\n");
+  assert.equal(r.err, "");
+});
+
+// Fix round 1 (review of 6126b68): a file shared with an earlier task is an ordering edge.
+
+test("fix I2: a task never runs before an earlier task it shares a file with", () => {
+  // The coordinator's shape: T3 lands after T1's batch.
+  const a = parsePlan("### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Consumes: Task 1\n- Create: `b.ts`\n### Task 3: C\n- Modify: `a.ts`\n");
+  // Fix round 3 (S1): these plans order tasks by Consumes only, which no longer
+  // declares a plan; the edges are tested with batching by files allowed.
+  const ba = taskBatches(a, 4, { allowUndeclared: true });
+  assert.ok(ba.findIndex((b) => b.includes(3)) > ba.findIndex((b) => b.includes(1)), JSON.stringify(ba));
+  // The reference plans' shape (08-ledger): the earlier task waits on a dependency, the later one does not.
+  const b = parsePlan("### Task 1: A\n- Create: `x.ts`\n### Task 2: B\n- Consumes: Task 1\n- Create: `a.ts`\n### Task 3: C\n- Modify: `a.ts`\n");
+  assert.deepEqual(taskBatches(b, 4, { allowUndeclared: true }), [[1], [2], [3]]);
+  // An explicit forward Depends on wins over plan order, without a cycle.
+  // Fix round 4 (R4-1): Task 2 carries its own line so the plan stays declared.
+  const c = parsePlan("### Task 1: A\n- Modify: `a.ts`\n**Depends on:** Task 2\n### Task 2: B\n- Create: `a.ts`\n**Depends on:** none\n");
+  assert.deepEqual(taskBatches(c, 4), [[2], [1]]);
+});
+
+test("fix round 1: tasks that each touch the migrations dir keep plan order", () => {
+  // The earlier migration task waits on a dependency; the later one must not overtake it.
+  const p = parsePlan("### Task 1: A\n- Create: `x.ts`\n### Task 2: B\n- Consumes: Task 1\n- Create: `db/migrations/2_b/migration.sql`\n### Task 3: C\n- Create: `db/migrations/3_c/migration.sql`\n");
+  // Fix round 3 (S1): these plans order tasks by Consumes only, which no longer
+  // declares a plan; the edges are tested with batching by files allowed.
+  assert.deepEqual(taskBatches(p, 4, { allowUndeclared: true, migrationsDir: "db/migrations" }), [[1], [2], [3]]);
+  // Without a migrations dir the two files are unrelated.
+  assert.deepEqual(taskBatches(p, 4, { allowUndeclared: true }), [[1, 3], [2]]);
+  // An explicit forward Depends on still wins, without a cycle.
+  // Fix round 4 (R4-1): Task 2 carries its own line so the plan stays declared.
+  const q = parsePlan("### Task 1: A\n- Create: `db/migrations/1/m.sql`\n**Depends on:** Task 2\n### Task 2: B\n- Create: `db/migrations/2/m.sql`\n**Depends on:** none\n");
+  assert.deepEqual(taskBatches(q, 4, { migrationsDir: "db/migrations" }), [[2], [1]]);
+});
+
+// Fix round 3 (S1, structural ruling): only an explicit Depends on line declares a plan.
+
+test("fix S1: edges without an explicit Depends on line do not unlock parallel batches", () => {
+  const tk = (n, deps = []) => ({ n, title: "", files: [{ op: "create", path: `f${n}` }], dependsOn: deps });
+  // A hand-built plan with edges but no dependencyInfo runs one task per batch, in dependency order.
+  assert.deepEqual(taskBatches({ tasks: [tk(1), tk(2, [1]), tk(3)] }, 4), [[1], [2], [3]]);
+  assert.deepEqual(taskBatches({ tasks: [tk(1, [2]), tk(2)] }, 4), [[2], [1]]);
+  // A forward "(after Task N)" orders the sequential run too.
+  const p = parsePlan("### Task 1: A (after Task 2)\n- Create: `a.ts`\n### Task 2: B\n- Create: `b.ts`\n");
+  assert.equal(p.dependencyInfo, "none");
+  assert.deepEqual(taskBatches(p, 4), [[2], [1]]);
+  // Fix round 4 (R4-1) changed this case: one task's Depends on line no longer
+  // declares the plan (it runs sequentially); a line on every task does.
+  const q = parsePlan("### Task 1: A\n- Create: `a.ts`\n**Depends on:** none\n### Task 2: B\n- Create: `b.ts`\n");
+  assert.deepEqual(taskBatches(q, 4), [[1], [2]]);
+  const q2 = parsePlan("### Task 1: A\n- Create: `a.ts`\n**Depends on:** none\n### Task 2: B\n- Create: `b.ts`\n**Depends on:** none\n");
+  assert.deepEqual(taskBatches(q2, 4), [[1, 2]]);
+});
+
+test("fix S1: the CLI names the missing Depends on line for a Consumes-only plan", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "sf-s1-")));
+  writeFileSync(join(dir, "c.md"), "### Task 1: A\n- Create: `a.ts`\n### Task 2: B\n- Consumes: Task 1\n- Create: `b.ts`\n### Task 3: C\n- Create: `c.ts`\n");
+  const r = await run(["independence", "tasks", "c.md"], dir);
+  assert.equal(r.code, 0);
+  assert.equal(r.out, "[[1],[2],[3]]\n");
+  assert.match(r.err, /no explicit "Depends on" line/);
+});
+
+// Fix round 4 (R4-1): every task declares its own dependencies.
+
+test("fix R4-1: a plan where only some tasks carry a Depends on line runs sequentially", () => {
+  const partial = parsePlan("### Task 1: A\n- Create: `a.ts`\n**Depends on:** none\n### Task 2: B\n- Create: `b.ts`\n### Task 3: C\n- Create: `c.ts`\n**Depends on:** none\n");
+  assert.deepEqual(taskBatches(partial, 4), [[1], [2], [3]]);
+  const all = parsePlan("### Task 1: A\n- Create: `a.ts`\n**Depends on:** none\n### Task 2: B\n- Create: `b.ts`\n**Depends on:** none\n### Task 3: C\n- Create: `c.ts`\n**Depends on:** Task 1\n");
+  assert.deepEqual(taskBatches(all, 4), [[1, 2], [3]]);
+});
+
+test("fix R4-1: the CLI names the tasks that lack a Depends on line", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "sf-r41-")));
+  writeFileSync(join(dir, "p.md"), "### Task 1: A\n- Create: `a.ts`\n**Depends on:** none\n### Task 2: B\n- Create: `b.ts`\n### Task 3: C\n- Create: `c.ts`\n### Task 4: D\n- Create: `d.ts`\n**Depends on:** none\n");
+  const r = await run(["independence", "tasks", "p.md"], dir);
+  assert.equal(r.code, 0);
+  assert.equal(r.out, "[[1],[2],[3],[4]]\n");
+  assert.match(r.err, /Tasks 2, 3 have no "Depends on" line/);
+  writeFileSync(join(dir, "q.md"), "### Task 1: A\n- Create: `a.ts`\n**Depends on:** none\n### Task 2: B\n- Create: `b.ts`\n");
+  assert.match((await run(["independence", "tasks", "q.md"], dir)).err, /Task 2 has no "Depends on" line/);
+});

@@ -3,6 +3,8 @@ import { isAbsolute, join, posix } from "node:path";
 import { fail } from "./errors.mjs";
 import { git } from "./git.mjs";
 import { withLock } from "./lock.mjs";
+import { coveredBySecret } from "./secrets.mjs";
+import { assertFactoryWorktree, assertFactoryBranch } from "./push.mjs";
 
 const regexTrailers = (message) => {
   const paras = String(message).trim().split(/\n\s*\n/);
@@ -41,11 +43,20 @@ export function assertNamedPaths(paths, { cwd } = {}) {
   }
 }
 
+/** A path named in secrets.neverHandToAgents is never committed (coveredBySecret's matching: equal, inside or an ancestor, repo-relative or absolute). */
+export function assertNotSecret(c, paths, { cwd } = {}) {
+  for (const p of paths) if (coveredBySecret(c, p, { cwd })) fail("SECRET_PATH", `"${p}" is, contains or lies inside a path listed in secrets.neverHandToAgents; it is never committed`);
+}
+
 export async function commit(c, { cwd, paths, message, holder }) {
   if (typeof message !== "string" || !message.trim()) fail("BAD_ARGS", "commit needs a message");
   if (c.git.namedPathsOnly !== false) assertNamedPaths(paths, { cwd });
+  assertNotSecret(c, paths, { cwd });
   const trailers = hasTrailers(message, { cwd });
   if (trailers.length && c.git.trailers !== true) fail("TRAILER_REFUSED", `trailers are off (git.trailers): ${trailers.join("; ")}`);
+  // Never the main checkout, never a branch the factory may not write (push's refusals).
+  assertFactoryWorktree(c, cwd, "committed");
+  assertFactoryBranch(c, cwd, "committed to");
   return withLock(c, "commit", { holder: holder ?? "session", waitMs: 60_000 }, async () => {
     git(["--literal-pathspecs", "add", "--", ...paths], { cwd });
     git(["--literal-pathspecs", "commit", "--quiet", "-m", message, "--", ...paths], { cwd });

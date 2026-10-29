@@ -1,16 +1,18 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, accessSync, constants, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, accessSync, constants, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { homedir } from "node:os";
+import { codexHomeDir } from "./codex.mjs";
+import { syncRules } from "./rules.mjs";
+import { coveredBySecret } from "./secrets.mjs";
+import { pathsOverlap } from "./config.mjs";
 
 const which = (exec, cmd) => {
   // On Windows an npm-installed shim is a .cmd, which needs a shell; pass one string so no args are concatenated.
   const r = process.platform === "win32" ? exec(`${cmd} --version`, { encoding: "utf8", shell: true }) : exec(cmd, ["--version"], { encoding: "utf8" });
   return r && r.status === 0 ? (r.stdout || "").trim().split("\n")[0] : null;
 };
-const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-export function runDoctor(c, { exec = spawnSync, codexConfigPath = join(homedir(), ".codex", "config.toml") } = {}) {
+export function runDoctor(c, { exec = spawnSync, codexHome = codexHomeDir() } = {}) {
   const checks = [];
   const add = (name, ok, detail) => checks.push({ name, ok, detail });
   const major = Number(process.versions.node.split(".")[0]);
@@ -22,20 +24,29 @@ export function runDoctor(c, { exec = spawnSync, codexConfigPath = join(homedir(
   if (resolve(c.worktrees.dir) === resolve(c.repoRoot)) add("worktrees.dir", false, "must not be the main checkout");
   else { try { mkdirSync(c.worktrees.dir, { recursive: true }); add("worktrees.dir", true, c.worktrees.dir); } catch (e) { add("worktrees.dir", false, e.message); } }
   add("commands.suite", !!c.commands.suite?.trim(), c.commands.suite || "empty");
+  // A warning, not a failure: the cut refuses the card (SECRET_PATH) and names the fix; doctor says so first.
+  for (const rel of c.worktrees.copyFromBase ?? []) {
+    if (coveredBySecret(c, rel, { cwd: c.repoRoot })) checks.push({ name: "copyFromBase", ok: true, warn: true, detail: `${rel} is covered by secrets.neverHandToAgents: every cut will refuse it (SECRET_PATH); move it to worktrees.copyForVerify` });
+  }
+  for (const a of c.worktrees.copyFromBase ?? []) for (const b of c.worktrees.copyForVerify ?? []) {
+    if (pathsOverlap(a, b)) checks.push({ name: "copyForVerify", ok: true, warn: true, detail: `${a} (copyFromBase) and ${b} (copyForVerify) overlap: the cut would copy it into the worktree an agent works in; list it in copyForVerify only` });
+  }
   const mode = c.agents.mode;
   if (mode !== "codex") { const v = which(exec, "claude"); add("claude", !!v, v ?? "claude not on PATH (needed for claude and mixed modes)"); }
   if (mode !== "claude") {
     const v = which(exec, "codex"); add("codex", !!v, v ?? "codex not on PATH (needed for codex and mixed modes)");
-    const toml = existsSync(codexConfigPath) ? readFileSync(codexConfigPath, "utf8") : "";
     for (const p of [c.agents.codex.implement, c.agents.codex.review]) {
-      const has = new RegExp("^\\s*\\[\\s*profiles\\.\\s*\"?" + esc(p) + "\"?\\s*\\]", "m").test(toml);
-      add(`codex profile ${p}`, has, toml ? (has ? "present" : `add [profiles.${p}] to ${codexConfigPath} (see the README's Codex section)`) : `${codexConfigPath} not found`);
+      const f = join(codexHome, `${p}.config.toml`);
+      const has = existsSync(f);
+      add(`codex profile ${p}`, has, has ? f : `${f} not found (see the Codex section of the README)`);
     }
   }
   if (c.rules.length > 1) {
-    const bodies = c.rules.map((r) => { const f = join(c.repoRoot, r); return existsSync(f) ? readFileSync(f, "utf8").replace(/\r\n/g, "\n") : null; });
-    const same = bodies.every((b) => b !== null && b === bodies[0]);
-    add("rules", same, same ? `${c.rules.join(" = ")}` : `${c.rules.join(", ")} differ or are missing; run sfactory sync-rules`);
+    // The same comparison sync-rules makes (adapted first line, BOM and line endings ignored), so the two never disagree.
+    try {
+      const r = syncRules(c.repoRoot, c.rules, { check: true });
+      add("rules", r.differs.length === 0, r.differs.length ? `${r.differs.join(", ")} differ from ${r.source} or are missing; run sfactory sync-rules` : c.rules.join(" = "));
+    } catch (e) { add("rules", false, e?.code ? `${e.code}: ${e.message}` : String(e?.message ?? e)); }
   }
   return { ok: checks.every((x) => x.ok), checks };
 }

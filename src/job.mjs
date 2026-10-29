@@ -42,6 +42,8 @@ export function transition(job, to, opts = {}) {
   const allowed = TRANSITIONS[job.stage] ?? [];
   if (!STAGES.includes(to) || !allowed.includes(to)) fail("ILLEGAL_TRANSITION", `${job.stage} -> ${to} is not allowed for ${job.id}`);
   if (job.stage === "planning" && to === "building" && job.kind === "milestone") fail("ILLEGAL_TRANSITION", `planning -> building needs approval for a milestone (${job.id})`);
+  const cap = opts.limits?.fixRounds;
+  if (to === "fixing" && Number.isInteger(cap) && job.round >= cap) fail("FIX_ROUNDS_EXHAUSTED", `${job.id} has used ${job.round} of ${cap} fix rounds; park it for a decision`);
   const next = structuredClone(job);
   next.history.push(entry(job, to, { ...opts, now }));
   next.stage = to;
@@ -51,10 +53,19 @@ export function transition(job, to, opts = {}) {
   return next;
 }
 
+/**
+ * What each stage may park as: a parallel proposal from backlog or planning (the question is asked on the
+ * card's real plan, after it is committed and before awaiting-approval), a decision from any working stage.
+ */
+export const PARK_PENDING = Object.freeze({
+  backlog: ["parallel"], planning: ["decision", "parallel"],
+  ...Object.fromEntries(WORKING.filter((s) => s !== "planning").map((s) => [s, ["decision"]])),
+});
+
 export function park(job, { by = "session", reason, pending = "decision", now } = {}) {
   if (!reason) fail("BAD_ARGS", "park needs a reason");
-  if (!WORKING.includes(job.stage) && job.stage !== "backlog") fail("ILLEGAL_TRANSITION", `${job.stage} cannot park (${job.id})`);
-  const ok = job.stage === "backlog" ? pending === "parallel" : pending === "decision";
+  if (!PARK_PENDING[job.stage]) fail("ILLEGAL_TRANSITION", `${job.stage} cannot park (${job.id})`);
+  const ok = PARK_PENDING[job.stage].includes(pending);
   if (!ok) fail("ILLEGAL_TRANSITION", `${job.stage} cannot park with pending "${pending}" (${job.id})`);
   const next = structuredClone(job);
   next.history.push(entry(job, "decision-needed", { by, reason, now }));
@@ -66,6 +77,14 @@ export function release(job, { by = "session", now } = {}) {
   const next = structuredClone(job);
   next.history.push(entry(job, job.returnStage, { by, reason: "released", now }));
   next.stage = job.returnStage; next.returnStage = null; next.pending = null;
+  return next;
+}
+/** A parallel proposal answered "no": the card goes back to backlog, wherever it was parked from; its worktree and plan stay. */
+export function queue(job, { by = "session", now } = {}) {
+  if (job.stage !== "decision-needed" || job.pending !== "parallel") fail("ILLEGAL_TRANSITION", `${job.id} is not a parallel proposal`);
+  const next = structuredClone(job);
+  next.history.push(entry(job, "backlog", { by, reason: "queued", now }));
+  next.stage = "backlog"; next.returnStage = null; next.pending = null;
   return next;
 }
 export function stop(job, { by = "session", reason = "stopped", now } = {}) {

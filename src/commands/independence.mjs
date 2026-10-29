@@ -4,7 +4,7 @@ import { fail, SfactoryError } from "../errors.mjs";
 import { register } from "../registry.mjs";
 import { findRepoRoot, loadConfig } from "../config.mjs";
 import { parsePlan } from "../plan.mjs";
-import { checkMilestones, taskBatches } from "../independence.mjs";
+import { checkMilestones, taskBatches, migrationsDirOf } from "../independence.mjs";
 
 function readPlan(io, file) {
   const path = resolve(io.cwd, file);
@@ -18,6 +18,9 @@ function tryConfig(io) {
   }
 }
 
+/** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
+export const ACCEPTS = { verbs: ["milestones", "tasks"], flags: ["max", "allow-undeclared"] };
+
 register("independence", async ({ positional, flags }, io) => {
   const [sub, ...args] = positional;
   if (sub === "milestones") {
@@ -28,11 +31,24 @@ register("independence", async ({ positional, flags }, io) => {
     return r.ok ? 0 : 1;
   }
   if (sub === "tasks") {
-    if (args.length !== 1) fail("BAD_ARGS", "usage: sfactory independence tasks <plan> [--max n]");
-    let max = flags.max != null ? Number(flags.max) : tryConfig(io)?.limits.parallelTasks ?? 4;
-    if (!Number.isInteger(max) || max < 1) fail("BAD_ARGS", "--max must be a positive integer");
-    io.stdout(JSON.stringify(taskBatches(readPlan(io, args[0]), max)) + "\n");
+    const allow = flags["allow-undeclared"] === true;
+    if (args.length !== 1) fail("BAD_ARGS", "usage: sfactory independence tasks <plan> [--max n] [--allow-undeclared]");
+    const config = tryConfig(io);
+    // A bare --max (no value) is BAD_ARGS, never 1; a value above limits.parallelTasks is capped at it.
+    if (flags.max !== undefined && !(typeof flags.max === "string" && /^[1-9][0-9]*$/.test(flags.max))) fail("BAD_ARGS", "--max needs a positive whole number");
+    const limit = config?.limits.parallelTasks ?? 4;
+    let max = flags.max !== undefined ? Number(flags.max) : limit;
+    if (max > limit) { io.stderr(`--max ${max} is above limits.parallelTasks; capped at ${limit}\n`); max = limit; }
+    const plan = readPlan(io, args[0]);
+    if (plan.dependencyInfo !== "declared" && !allow) {
+      // R4-1: every task must carry its own Depends on line; name the ones that do not.
+      const miss = plan.missingDependsOn ?? [];
+      const why = !miss.length || miss.length === plan.tasks.length ? `no explicit "Depends on" line`
+        : miss.length === 1 ? `Task ${miss[0]} has no "Depends on" line (every task needs its own)` : `Tasks ${miss.join(", ")} have no "Depends on" line (every task needs its own)`;
+      io.stderr(`${args[0]}: ${why}: one task per batch, in dependency order; --allow-undeclared batches by files and the Consumes / "after Task N" edges\n`);
+    }
+    io.stdout(JSON.stringify(taskBatches(plan, max, { allowUndeclared: allow, migrationsDir: migrationsDirOf(config) })) + "\n");
     return 0;
   }
-  fail("BAD_ARGS", "usage: sfactory independence milestones <planA> <planB> | tasks <plan> [--max n]");
-});
+  fail("BAD_ARGS", "usage: sfactory independence milestones <planA> <planB> | tasks <plan> [--max n] [--allow-undeclared]");
+}, ACCEPTS);

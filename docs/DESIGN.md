@@ -1,6 +1,6 @@
 # sfactory — design
 
-*Status: draft for the owner's review, 2026-10-27. Nothing below is built.*
+*Status: built (Plans A, B and C, 2026-10-28); the first real run is pending. Where the build changed the design, a section carries a dated amendment.*
 
 sfactory is a Claude Code plugin that turns a backlog of features and fixes into reviewed, verified, pushed branches, with a kanban board that shows where every card is. A Claude Code session hosts it and drives the state machine. The code is written and reviewed by whichever agents the project configures: Claude subagents, Codex, or both. Scripts own the state and every deterministic step. The human is asked only at the points the project's config names.
 
@@ -48,6 +48,8 @@ The orchestrator is always the hosting Claude Code session: it runs the skill, c
 
 Why the mixed split: in the comparisons the owner weighed, Codex found more defects per pass and is cheaper per token on bulk implementation, while Claude was stronger on planning, long-horizon judgement and review depth. The judge is therefore the vendor that did not write the code.
 
+*Amendment (2026-10-28, from the Plan C review of the orchestrator skill):* the spec-compliance review of a task and failure triage are Claude subagents in every mode, `codex` included. Read the two `codex` cells above for those rows as "Claude subagent, read-only" and "Claude, lowest tier". The orchestrator is always a Claude Code session, so a Claude subagent is always at hand, and the plugin ships no Codex spec-review or triage prompt (`prompts/` holds implement, review and judge). The skills (`sfactory` and `sdd`) carry the same assignment.
+
 Model names, effort levels and Codex profile names are config, never constants, because they change monthly. A mode whose tool is missing (`codex` not on PATH, or `claude` subagents unavailable) fails at `sfactory doctor`, not mid-run.
 
 ## 4. Stages and transitions
@@ -57,16 +59,16 @@ Only `bin/job` writes `job.json`, and only along these edges.
 | Stage | Column | What runs | Leaves behind | Next |
 |---|---|---|---|---|
 | `backlog` | Backlog | nothing | `job.json` | `planning` |
-| `planning` | Plan | milestone: the adapted brainstorming skill with the person, then the adapted writing-plans skill; fix: a one-page brief | the record's brief and plan; `plan/questionnaire.md` | `awaiting-approval` (milestone) · `building` (fix) |
+| `planning` | Plan | the worktree is cut on entry; milestone: the adapted brainstorming skill with the person, then the adapted writing-plans skill; fix: a one-page brief | the record's brief and plan; `plan/questionnaire.md` | `awaiting-approval` (milestone) · `building` (fix) |
 | `awaiting-approval` | Needs you | parked | `plan/approval.md` on release | `building` |
-| `building` | In process | worktree cut; the task loop (§5); one log entry per task; commits at each boundary | `tasks/<n>/*`; the record's log | `reviewing` |
+| `building` | In process | the task loop (§5); one log entry per task; commits at each boundary | `tasks/<n>/*`; the record's log | `reviewing` |
 | `reviewing` | Review | whole-branch bug-hunt, then the judge against the brief's done-whens | `review/bug-hunt.md`, `review/judge.md` | `fixing` · `verifying` |
-| `fixing` | Fixed | findings fixed, full suite, back to the judge; at most `limits.fixRounds` rounds | `review/round-<k>/*` | `reviewing` · `stopped` |
+| `fixing` | Fixed | findings fixed, full suite, back to the judge; at most `limits.fixRounds` rounds | `review/round-<r>/*` (`<r>`: the job's round) | `reviewing` (past the cap the move to `fixing` is refused and the card parks as `decision-needed`) |
 | `verifying` | Fixed | takes the `live` lock; the project's verify steps: migrations, services on the card's ports, scripted or headed walkthrough, staging calls | `verify/suite.log`, `verify/walkthrough.md` | `pushing` · `fixing` |
 | `pushing` | Pushed / PR | closing section, plan ticks, carried-forward reconciled, push, PR text | `pr.md` | `pushed` |
 | `pushed` | Pushed / PR | waits for the person's merge; the board checks whether the integration branch contains the head | | `merged` |
 | `merged` | Done | terminal; `sfactory clean` removes the worktree | | |
-| `decision-needed` | Needs you | parked from any working stage with a return stage | `decisions/<k>.md` | the return stage |
+| `decision-needed` | Needs you | parked from any working stage with a return stage (a parallel proposal also from `backlog` or `planning`) | `decisions/<k>.md`; `plan/parallel.md` for a parallel proposal | the return stage · `backlog` when a parallel proposal is answered no (queued; planning → backlog through the park, amended 2026-10-28) |
 | `stopped` | its column, red | usage limit, a round over the limit, a failed worktree cut, a lock held too long | `stopped.md` | the previous stage |
 
 `job.json` fields: `id`, `kind`, `title`, `stage`, `returnStage`, `branch`, `base`, `worktree`, `ports`, `record` (paths of the brief, plan, log), `tasks` (n, done, parallel), `round`, `agents` (mode and the resolved models), `cost`, `started`, `updated`, `ended`, `history` (every transition with a timestamp and a reason).
@@ -112,31 +114,32 @@ Committed in the adopting repo's root. Every path is relative to the repo unless
 ```jsonc
 {
   "$schema": "https://raw.githubusercontent.com/ShivamH1/sfactory/main/schema/config.json",
-  "project": "thrive-rewards",
+  "project": "acme",
   "agents": {
     "mode": "mixed",                      // claude | codex | mixed
     "claude": { "plan": "opus/high", "review": "opus/high", "judge": "opus/high", "implement": "sonnet", "triage": "haiku" },
-    "codex":  { "implement": "implement", "review": "review" }   // profile names in ~/.codex/config.toml
+    "codex":  { "implement": "implement", "review": "review" }   // profile names: files ~/.codex/<name>.config.toml
   },
-  "stateDir": "C:/tw-wt/_sfactory",       // default: <repo>/.sfactory (gitignored by init)
+  "stateDir": "../worktrees/_sfactory",       // default: <repo>/.sfactory (gitignored by init)
   "worktrees": {
-    "dir": "C:/tw-wt",
+    "dir": "../worktrees",
     "branchPrefix": "feature/",
     "baseRule": "newest-feature-branch",  // newest-feature-branch | integration-branch | <branch name>
     "integrationBranch": "development",
     "afterCut": ["pnpm install"],
-    "copyFromBase": ["apps/api/.env", "apps/admin/.env", "apps/web/.env"]
+    "copyFromBase": ["apps/admin/.env", "apps/web/.env"],   // at the cut; never a secret (SECRET_PATH)
+    "copyForVerify": ["apps/api/.env"]                       // the verify stage only: services up/copy, removed by down, stop, clean
   },
   "commands": {
     "suite": "pnpm test",
     "suiteSerial": true,                  // never two at once
     "build": "pnpm build",
-    "typecheck": ["pnpm --filter @thrive/web exec tsc -b --force", "pnpm --filter @thrive/admin exec tsc -b --force"],
+    "typecheck": ["pnpm --filter @acme/web exec tsc -b --force", "pnpm --filter @acme/admin exec tsc -b --force"],
     "migrate": "pnpm migrate:deploy",
     "services": [
-      { "name": "api",    "cmd": "pnpm --filter @thrive/api exec tsx src/server.ts", "port": "api",   "env": { "PORT": "{port.api}", "CORS_ORIGIN": "http://localhost:{port.web}", "WEB_APP_URL": "http://localhost:{port.web}" } },
-      { "name": "worker", "cmd": "pnpm --filter @thrive/api exec tsx src/worker.ts", "live": true },
-      { "name": "web",    "cmd": "pnpm --filter @thrive/web dev --port {port.web}", "env": { "VITE_API_URL": "http://localhost:{port.api}" } }
+      { "name": "api",    "cmd": "pnpm --filter @acme/api exec tsx src/server.ts", "port": "api",   "env": { "PORT": "{port.api}", "CORS_ORIGIN": "http://localhost:{port.web}", "WEB_APP_URL": "http://localhost:{port.web}" } },
+      { "name": "worker", "cmd": "pnpm --filter @acme/api exec tsx src/worker.ts", "live": true },
+      { "name": "web",    "cmd": "pnpm --filter @acme/web dev --port {port.web}", "env": { "VITE_API_URL": "http://localhost:{port.api}" } }
     ]
   },
   "ports": { "base": 4100, "step": 100, "names": ["api", "admin", "web"] },
@@ -162,7 +165,7 @@ Committed in the adopting repo's root. Every path is relative to the repo unless
 }
 ```
 
-The block above is the reference project's config, used as the worked example because it exercises every key. Nothing in the pipeline depends on any value in it: `project` is only the name the board shows and the key that keeps two projects' state apart on one machine. Every key has a generic default, and `sfactory init` writes the file from what it finds in the repo, so a new adopter never starts from this block. The same file for a plain Node project, with every default left out, is this:
+The block above is the worked example of a spec-tree monorepo (`examples/spec-tree-monorepo.config.json`, with generic names), used because it exercises every key. Nothing in the pipeline depends on any value in it: `project` is only the name the board shows and the key that keeps two projects' state apart on one machine. Every key has a generic default, and `sfactory init` writes the file from what it finds in the repo, so a new adopter never starts from this block. The same file for a plain Node project, with every default left out, is this:
 
 ```jsonc
 {
@@ -197,17 +200,17 @@ sfactory/
   bin/                          on the Bash tool's PATH while the plugin is enabled; one-line shims into src/
     sfactory-job  sfactory-worktree  sfactory-lock  sfactory-suite  sfactory-commit  sfactory-push
     sfactory-independence  sfactory-ports  sfactory-board  sfactory-sync-rules  sfactory-init
-    sfactory-doctor  sfactory-cost
+    sfactory-doctor  sfactory-cost  sfactory-brief  sfactory-diff  sfactory-tree
   board/dashboard.html
   schema/config.json
   examples/
-    thrive-rewards.config.json  minimal-node.config.json  python-uv.config.json
+    spec-tree-monorepo.config.json  minimal-node.config.json  python-uv.config.json
     jobs/                       a finished run's job folders, for the board and the tests
   docs/DESIGN.md  INSTALL.md  README.md  LICENSE (MIT)
   test/                         node --test over bin/
 ```
 
-Facts this layout relies on (plugin docs, read 2026-10-27): a plugin skill is namespaced `/<plugin>:<skill>`, and the bare `/<skill>` form works unless another command takes the name, so the skill is named `sfactory` and `/sfactory run` is the everyday form. Sub-commands are not a plugin feature: the skill parses `$ARGUMENTS` itself (`add`, `run`, `approve`, …). A plugin's `bin/` is put on the Bash tool's PATH, so the scripts carry the `sfactory-` prefix to avoid collisions; inside Markdown the plugin root is `${CLAUDE_PLUGIN_ROOT}`. Plugin subagents are addressed as `sfactory:<name>`; whether the Agent tool can select one by that name is not documented and is the first thing the build tests, with "spawn a general agent with the agent file's prompt" as the fallback. State lives in `stateDir`, outside the plugin and (by default) gitignored inside the project.
+Facts this layout relies on (plugin docs, read 2026-10-27): a plugin skill is namespaced `/<plugin>:<skill>`, and the bare `/<skill>` form works unless another command takes the name, so the skill is named `sfactory` and `/sfactory run` is the everyday form. Sub-commands are not a plugin feature: the skill parses `$ARGUMENTS` itself (`add`, `run`, `approve`, …). A plugin's `bin/` is put on the Bash tool's PATH, so the scripts carry the `sfactory-` prefix to avoid collisions, and one dispatcher, `bin/sfactory`, takes the command as its first argument (`sfactory job show <id>`), so the skills read the same in the plugin and the npm channel; inside Markdown the plugin root is `${CLAUDE_PLUGIN_ROOT}`. Plugin subagents are addressed as `sfactory:<name>`; whether the Agent tool can select one by that name is not documented and is the first thing the build tests, with "spawn a general agent with the agent file's prompt" as the fallback. State lives in `stateDir`, outside the plugin and (by default) gitignored inside the project.
 
 ## 10. Commands
 
@@ -242,24 +245,24 @@ Slash commands in the session; each is a thin call into the scripts with the ski
 | `pushed` | the PR title and body with a copy button; *Mark merged* if detection lags | `sfactory-job merged <id>` |
 | any working stage | *Stop*; *Rework* with a notes box on a reviewed or pushed card | `sfactory-job stop <id>` · `sfactory-job rework <id>` |
 
-The session's `/sfactory` commands do the same things, so either surface works. The orchestrator session, when it waits on a gate, polls the card's `job.json` and continues the moment the board releases it. The server binds to localhost only, accepts no write for a card it does not hold, and starts no agent: everything that spends tokens is still begun from the session.
+The session's `/sfactory` commands do the same things, so either surface works. *Amended 2026-10-28:* the orchestrator session does not poll at a gate: it ends its turn naming what releases each waiting card, and `/sfactory run` (idempotent) carries on once the board or a command has released it. Only when the person asks does it watch, with a bounded Monitor loop (a check every 30 s, at most 30 minutes). The server binds to localhost only, accepts no write for a card it does not hold, and starts no agent: everything that spends tokens is still begun from the session.
 
 ## 12. Guardrails (script refusals)
 
-- `push` refuses a branch outside `branchPrefix`, a dirty tree, and any push when `git.push` is false.
-- `commit` refuses `git add -A`, any stash, and trailers unless `git.trailers` is true.
-- `job` refuses to leave `awaiting-approval` without `plan/approval.md`, and any edge not in §4.
-- `worktree` refuses the main checkout, any directory with another holder's lock, and a cut whose base moved between the read and the add.
-- `add fix` refuses a card whose plan touches `fixCardRefusals` and refiles it.
+- `push` refuses a branch outside `branchPrefix`, a dirty tree, any push when `git.push` is false, and any tree but a card's worktree.
+- `commit` refuses the main checkout, a branch the factory may not write, a path in `secrets.neverHandToAgents`, `git add -A`, any stash, and trailers unless `git.trailers` is true.
+- `job` refuses to leave `awaiting-approval` without `plan/approval.md`, any edge not in §4, a milestone's start at `limits.parallelMilestones`, and a milestone's approval beside an active milestone without the person's parallel yes.
+- `worktree` refuses the main checkout, any directory with another holder's lock, a cut whose base moved between the read and the add, and a `copyFromBase` path listed in `secrets.neverHandToAgents`.
+- `fixcard` names the files of a fix card's plan that match `fixCardRefusals`; the orchestrator then refiles the card as a milestone.
 - Agents never receive `secrets.neverHandToAgents`; the implementer's prompt lists the files it may touch.
-- `suite` holds its lock for the whole run; `live` is one lock for the machine.
-- A fix round over `limits.fixRounds` stops the card; nothing loops unbounded.
+- `suite` holds its lock for the whole run, and the lock stays held while the suite still runs; `live` is one lock for the machine.
+- A fix round over `limits.fixRounds` is refused and parks the card for the person; nothing loops unbounded.
 
 ## 13. Codex integration
 
 - Implement: `codex exec --cd <worktree> --profile <agents.codex.implement> --sandbox workspace-write` with the task brief on stdin and the output captured to `tasks/<n>/codex.log`. The sandbox and network flags are config because `pnpm install` and generated clients differ by project; `doctor` runs a probe once and records what works.
 - Review: `codex review` on the task's commit range, or the branch, with the review prompt; output to `tasks/<n>/code-review.md`.
-- Profiles: `INSTALL.md` gives the two `[profiles.*]` blocks to add to `~/.codex/config.toml`; the plugin never edits that file.
+- Profiles: `INSTALL.md` gives the two profile files, `~/.codex/implement.config.toml` and `~/.codex/review.config.toml`, selected with `-p`; the plugin never writes them.
 - Rules: `bin/sync-rules.mjs` keeps every file in `rules` identical to the first (so `AGENTS.md` equals `CLAUDE.md`) and refuses to run an agent while they differ.
 
 ## 14. Install
@@ -280,7 +283,7 @@ or, on Claude Code 2.1.275 and later, the one-step `/plugin install sfactory --m
 ```
 npm install -g sfactory        # or: npx sfactory init
 sfactory init                  # writes sfactory.config.json and .gitignore lines
-sfactory install               # copies skills/, agents/ and prompts/ into the project's .claude/ (or ~/.codex/skills for Codex)
+sfactory install --codex       # the Codex skills into ~/.codex/skills (Claude Code takes the plugin; amended 2026-10-28)
 sfactory doctor
 sfactory board
 ```

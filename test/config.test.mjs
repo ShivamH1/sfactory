@@ -117,3 +117,19 @@ test("validateConfig: board.activeMs is a positive integer", () => {
   assert.deepEqual(validateConfig({ ...base, board: { activeMs: 5000 } }), []);
   assert.equal(DEFAULTS.board.activeMs, 120000);
 });
+
+test("config: rules entries with .. or an absolute path are refused", () => {
+  const base = { project: "p", agents: { mode: "claude" }, commands: { suite: "x" } };
+  for (const bad of ["../CLAUDE.md", "a/../../b.md", "/etc/x.md", "C:/x.md", "C:" + String.fromCharCode(92) + "x.md"])
+    assert.ok(validateConfig({ ...base, rules: ["CLAUDE.md", bad] }).some((e) => /^rules/.test(e)), bad);
+  assert.deepEqual(validateConfig({ ...base, rules: ["CLAUDE.md", "docs/AGENTS.md"] }), []);
+});
+
+test("config: record patterns must stay inside the worktree (no absolute path, no ..)", () => {
+  const base = { project: "p", agents: { mode: "claude" }, commands: { suite: "x" } };
+  assert.deepEqual(validateConfig({ ...base, record: { brief: "spec/modules/{n}-{slug}.md", stories: "spec/product/S_*.md" } }), []);
+  for (const [k, v] of [["brief", "/abs/{n}.md"], ["plan", "../plans/{n}.md"], ["log", "C:/logs/{n}.md"], ["stories", "spec/../../x_*.md"], ["carriedForward", String.raw`..\cf.md`]]) {
+    const errs = validateConfig({ ...base, record: { [k]: v } });
+    assert.ok(errs.some((e) => e.startsWith(`record.${k}:`) && /inside the worktree/.test(e)), `${k}=${v}: ${errs}`);
+  }
+});

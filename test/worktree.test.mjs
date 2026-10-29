@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, writeFileSync, readFileSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpRepo, tmpDir, writeConfig, sh } from "./helpers.mjs";
 import { loadConfig } from "../src/config.mjs";
@@ -155,4 +155,354 @@ test("worktree: remove by a job that does not hold the lock is NOT_HOLDER and le
   assert.equal(status(c, "worktree:kept").holder, "m-1");
   remove(c, job);
   assert.equal(existsSync(job.worktree), false);
+});
+
+test("worktree cli: a cut whose job update fails (job vanished) undoes the worktree, branch and lock", async () => {
+  const { root, c } = setup();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { writeJob: raw, withJobLock } = await import("../src/store.mjs");
+  withJobLock(c, "m-1", () => raw(c, newJob({ id: "m-1", kind: "milestone", title: "Vanish" })));
+  const { rmSync } = await import("node:fs");
+  const afterAdd = () => rmSync(join(c.stateDir, "jobs", "m-1"), { recursive: true, force: true });
+  assert.throws(() => cutJob(c, "m-1", { afterAdd }), (e) => e.code === "JOB_NOT_FOUND");
+  assert.equal(existsSync(join(c.worktrees.dir, "vanish")), false);
+  assert.equal(branchExists(root, "feature/vanish"), false);
+  assert.equal(status(c, "worktree:vanish").held, false);
+});
+
+test("worktree cli: an undo that cannot remove everything names what is left on stderr, and still removes the rest", async () => {
+  const { root, c } = setup();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { writeJob: raw, withJobLock } = await import("../src/store.mjs");
+  const { rmSync, readdirSync, unlinkSync } = await import("node:fs");
+  const { acquireSync } = await import("../src/lock.mjs");
+  withJobLock(c, "m-1", () => raw(c, newJob({ id: "m-1", kind: "milestone", title: "Stolen" })));
+  const afterAdd = () => {
+    const dir = join(c.stateDir, "locks");
+    for (const f of readdirSync(dir)) if (f.includes("stolen")) unlinkSync(join(dir, f));
+    acquireSync(c, "worktree:stolen", { holder: "thief", durable: true });
+    rmSync(join(c.stateDir, "jobs", "m-1"), { recursive: true, force: true });
+  };
+  const warned = [];
+  assert.throws(() => cutJob(c, "m-1", { afterAdd, warn: (m) => warned.push(m) }), (e) => e.code === "JOB_NOT_FOUND");
+  assert.equal(existsSync(join(c.worktrees.dir, "stolen")), false);
+  assert.equal(branchExists(root, "feature/stolen"), false);
+  assert.equal(warned.length, 1);
+  assert.match(warned[0], /could not remove: lock worktree:stolen\n$/);
+  assert.equal(status(c, "worktree:stolen").holder, "thief"); // not ours: left alone
+});
+
+test("worktree: a cut whose worktree folder vanished mid-way still deletes its branch (git worktree prune first)", () => {
+  const { root, c } = setup();
+  const dir = join(c.worktrees.dir, "vanish");
+  const afterAdd = () => { rmSync(dir, { recursive: true, force: true }); throw new Error("boom"); };
+  assert.throws(() => cut(c, newJob({ id: "m-1", kind: "milestone", title: "Vanish" }), { afterAdd }), /boom/);
+  assert.equal(branchExists(root, "feature/vanish"), false);
+  assert.equal(worktrees(root).some((w) => w.branch === "feature/vanish"), false);
+});
+
+test("worktree: the cut rollback prunes before deleting the branch, and only when the worktree was added", async () => {
+  const { git } = await import("../src/git.mjs");
+  // 1. The folder vanished and `worktree remove` fails (stubbed): only the prune frees the branch for -D.
+  const { root, c } = setup();
+  const calls = [];
+  const gitRun = (args, opts) => {
+    calls.push(args.slice(0, 2).join(" "));
+    if (args[0] === "worktree" && args[1] === "remove") throw new Error("remove failed (stub)");
+    return git(args, opts);
+  };
+  const dir = join(c.worktrees.dir, "stubbed");
+  const afterAdd = () => { rmSync(dir, { recursive: true, force: true }); throw new Error("boom"); };
+  assert.throws(() => cut(c, newJob({ id: "m-1", kind: "milestone", title: "Stubbed" }), { afterAdd, gitRun }), /boom/);
+  const prune = calls.indexOf("worktree prune"), del = calls.indexOf("branch -D");
+  assert.ok(prune >= 0 && del > prune, `prune before branch -D: ${calls.join(" | ")}`);
+  assert.equal(branchExists(root, "feature/stubbed"), false);
+  // 2. The add itself failed: nothing was added, so nothing is pruned.
+  const s2 = setup();
+  const calls2 = [];
+  const failAdd = (args, opts) => {
+    calls2.push(args.slice(0, 2).join(" "));
+    if (args[0] === "worktree" && args[1] === "add") throw new Error("add failed (stub)");
+    return git(args, opts);
+  };
+  assert.throws(() => cut(s2.c, newJob({ id: "m-2", kind: "milestone", title: "No add" }), { gitRun: failAdd }), /add failed/);
+  assert.equal(calls2.includes("worktree prune"), false, `no prune without an add: ${calls2.join(" | ")}`);
+  assert.equal(status(s2.c, "worktree:no-add").held, false);
+});
+
+test("worktree cli: a cut whose job update fails after its worktree folder vanished still deletes its branch (prune before branch -D)", async () => {
+  const { root, c } = setup();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { writeJob: raw, withJobLock } = await import("../src/store.mjs");
+  withJobLock(c, "m-1", () => raw(c, newJob({ id: "m-1", kind: "milestone", title: "Gone" })));
+  const afterAdd = () => {
+    rmSync(join(c.worktrees.dir, "gone"), { recursive: true, force: true }); // the folder is gone, git still lists the worktree
+    rmSync(join(c.stateDir, "jobs", "m-1"), { recursive: true, force: true });
+  };
+  const warned = [];
+  assert.throws(() => cutJob(c, "m-1", { afterAdd, warn: (m) => warned.push(m) }), (e) => e.code === "JOB_NOT_FOUND");
+  assert.equal(branchExists(root, "feature/gone"), false, "the branch is deleted");
+  assert.ok(!worktrees(root).some((w) => w.branch === "feature/gone"), "the stale worktree entry is pruned");
+  assert.equal(status(c, "worktree:gone").held, false);
+  assert.deepEqual(warned, []);
+});
+
+/** A repo whose record is the spec-tree style, with briefs 1, 7 and a 19.1 carried-forward list committed on main. */
+function specTree() {
+  const root = tmpRepo();
+  for (const d of ["spec/modules", "spec/plans", "spec/decisions"]) mkdirSync(join(root, d), { recursive: true });
+  for (const f of ["spec/modules/1-start.md", "spec/modules/7-wallet.md", "spec/modules/19.1-CARRIED-FORWARD.md", "spec/decisions/7-wallet.md", "spec/decisions/3-a.md", "spec/decisions/3-b.md"]) writeFileSync(join(root, f), "x\n");
+  sh("git", ["add", "spec"], root); sh("git", ["commit", "-q", "-m", "spec"], root);
+  writeConfig(root, { project: "p", agents: { mode: "claude" }, commands: { suite: "x" }, stateDir: tmpDir("sf-st-"), worktrees: { dir: tmpDir("sf-wt-") },
+    record: { style: "spec-tree", brief: "spec/modules/{n}-{slug}.md", plan: "spec/plans/{n}-{slug}.md", log: "spec/decisions/{n}-{slug}.md", stories: "spec/product/STORIES_*.md", numbering: "next-milestone-number" } });
+  return { root, c: loadConfig(root) };
+}
+
+test("worktree cli: the cut resolves job.record - default docs-folder paths by id", async () => {
+  const { c } = setup();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { addJob } = await import("../src/store.mjs");
+  addJob(c, "milestone", "Docs card");
+  const j = cutJob(c, "m-1", { fetch: false });
+  assert.deepEqual(j.record, { brief: "docs/sfactory/m-1/brief.md", plan: "docs/sfactory/m-1/plan.md", log: "docs/sfactory/m-1/log.md", stories: null, n: 1 });
+  remove(c, j, { force: true });
+});
+
+test("worktree cli: spec-tree numbering takes the next number after the briefs and every unmerged card's record", async () => {
+  const { c } = specTree();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { addJob, readJob, writeJob, withJobLock } = await import("../src/store.mjs");
+  addJob(c, "milestone", "Rewards"); addJob(c, "milestone", "Badges");
+  const a = cutJob(c, "m-1", { fetch: false });
+  assert.deepEqual(a.record, { brief: "spec/modules/8-rewards.md", plan: "spec/plans/8-rewards.md", log: "spec/decisions/8-rewards.md", stories: "spec/product/STORIES_*.md", n: 8 });
+  const b = cutJob(c, "m-2", { fetch: false });
+  assert.equal(b.record.n, 9, "m-1's 8 is taken while it is unmerged");
+  assert.equal(b.record.brief, "spec/modules/9-badges.md");
+  // A merged card's number no longer counts beyond the briefs in the tree.
+  withJobLock(c, "m-1", () => writeJob(c, { ...readJob(c, "m-1"), stage: "merged" }));
+  addJob(c, "milestone", "Later");
+  const l = cutJob(c, "m-3", { fetch: false });
+  assert.equal(l.record.n, 10, "m-2's 9 still counts");
+  for (const j of [a, b, l]) remove(c, readJob(c, j.id), { force: true });
+});
+
+test("worktree cli: a fix with --log finds its one log file; none or two is LOG_NOT_FOUND and the cut is undone", async () => {
+  const { root, c } = specTree();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { readJob } = await import("../src/store.mjs");
+  const { actions } = await import("../src/job-actions.mjs");
+  actions.add(c, { kind: "fix", title: "Wallet rounding", logOf: "7" });
+  const f = cutJob(c, "f-1", { fetch: false });
+  assert.equal(f.record.log, "spec/decisions/7-wallet.md");
+  assert.equal(f.record.n, 7);
+  actions.add(c, { kind: "fix", title: "Nothing there", logOf: "5" });
+  assert.throws(() => cutJob(c, "f-2", { fetch: false }), (e) => e.code === "LOG_NOT_FOUND");
+  actions.add(c, { kind: "fix", title: "Two logs", logOf: "3" });
+  assert.throws(() => cutJob(c, "f-3", { fetch: false }), (e) => e.code === "LOG_NOT_FOUND" && /3-a\.md/.test(e.message));
+  for (const [id, slug] of [["f-2", "nothing-there"], ["f-3", "two-logs"]]) {
+    assert.equal(readJob(c, id).worktree, null); assert.equal(branchExists(root, `feature/${slug}`), false);
+  }
+  remove(c, readJob(c, "f-1"), { force: true });
+});
+
+test("worktree cli: cut --base-of cuts from the partner's recorded base, only for an approved parallel card with an active partner", async () => {
+  const { root, c } = setup();
+  const { main } = await import("../src/cli.mjs");
+  const { addJob, readJob, writeJob, withJobLock } = await import("../src/store.mjs");
+  const patch = (id, f) => withJobLock(c, id, () => writeJob(c, { ...readJob(c, id), ...f }));
+  const io = () => { const out = [], err = []; return { o: { cwd: root, stdout: (s) => out.push(s), stderr: (s) => err.push(s) }, out, err }; };
+  addJob(c, "milestone", "Alpha"); addJob(c, "milestone", "Beta"); addJob(c, "milestone", "Gamma");
+  let r = io();
+  assert.equal(await main(["worktree", "cut", "m-1", "--no-fetch"], r.o), 0, r.err.join(""));
+  const a = readJob(c, "m-1");
+  writeFileSync(join(root, "later.txt"), "x\n"); sh("git", ["add", "later.txt"], root); sh("git", ["commit", "-q", "-m", "later"], root);
+  assert.notEqual(sh("git", ["rev-parse", "main"], root), a.base.head, "main moved after the partner's cut");
+  // m-2 is not parallel-approved yet.
+  r = io();
+  assert.equal(await main(["worktree", "cut", "m-2", "--base-of", "m-1", "--no-fetch"], r.o), 2);
+  assert.match(r.err.join(""), /NOT_PARALLEL/);
+  patch("m-2", { parallel: "approved", parallelWith: "m-1", stage: "planning" });
+  r = io();
+  assert.equal(await main(["worktree", "cut", "m-2", "--base-of", "m-3", "--no-fetch"], r.o), 2, "m-2 was approved beside m-1, not m-3");
+  assert.match(r.err.join(""), /NOT_PARTNER/);
+  r = io();
+  assert.equal(await main(["worktree", "cut", "m-2", "--base-of", "m-1", "--no-fetch"], r.o), 0, r.err.join(""));
+  const b = readJob(c, "m-2");
+  assert.deepEqual({ branch: b.base.branch, head: b.base.head }, { branch: a.base.branch, head: a.base.head });
+  assert.equal(sh("git", ["rev-parse", "HEAD"], b.worktree), a.base.head);
+  // A stopped partner, or one with no worktree, is not active.
+  patch("m-3", { parallel: "approved", parallelWith: "m-1" });
+  patch("m-1", { stage: "stopped" });
+  r = io();
+  assert.equal(await main(["worktree", "cut", "m-3", "--base-of", "m-1", "--no-fetch"], r.o), 2);
+  assert.match(r.err.join(""), /PARTNER_NOT_ACTIVE/);
+  r = io();
+  assert.equal(await main(["worktree", "cut", "m-3", "--base-of", "m-3", "--no-fetch"], r.o), 2);
+  assert.match(r.err.join(""), /BAD_ARGS/);
+  assert.equal(readJob(c, "m-3").worktree, null);
+  for (const id of ["m-1", "m-2"]) remove(c, readJob(c, id), { force: true });
+});
+
+test("worktree cli: merge --from merges a pushed parallel partner into a pushing card (no-ff, fixed message, no trailer); its refusals; a conflict aborts and names the files", async () => {
+  const { root, c } = setup();
+  const { main } = await import("../src/cli.mjs");
+  const { addJob, readJob, writeJob, withJobLock } = await import("../src/store.mjs");
+  const patch = (id, f) => withJobLock(c, id, () => writeJob(c, { ...readJob(c, id), ...f }));
+  const run = async (args) => { const out = [], err = []; const code = await main(args, { cwd: root, stdout: (s) => out.push(s), stderr: (s) => err.push(s) }); return { code, out: out.join(""), err: err.join("") }; };
+  const commitIn = (dir, file, text) => { writeFileSync(join(dir, file), text); sh("git", ["add", file], dir); sh("git", ["commit", "-q", "-m", `add ${file}`], dir); };
+  addJob(c, "milestone", "First"); addJob(c, "milestone", "Second");
+  assert.equal((await run(["worktree", "cut", "m-1", "--no-fetch"])).code, 0);
+  patch("m-2", { parallel: "approved", parallelWith: "m-1" });
+  assert.equal((await run(["worktree", "cut", "m-2", "--base-of", "m-1", "--no-fetch"])).code, 0);
+  const a = readJob(c, "m-1"), b = readJob(c, "m-2");
+  commitIn(a.worktree, "a.txt", "a\n"); commitIn(b.worktree, "b.txt", "b\n");
+  let r = await run(["worktree", "merge", "m-2"]);
+  assert.equal(r.code, 2); assert.match(r.err, /BAD_ARGS/);
+  patch("m-1", { stage: "verifying" }); patch("m-2", { stage: "pushing" });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 2); assert.match(r.err, /PARTNER_NOT_PUSHED/);
+  patch("m-1", { stage: "pushed" }); patch("m-2", { stage: "verifying" });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 2); assert.match(r.err, /NOT_PUSHING/);
+  patch("m-2", { stage: "pushing", parallel: null });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 2); assert.match(r.err, /NOT_PARTNER/);
+  patch("m-2", { parallel: "approved", parallelWith: "m-3" });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 2, "approved beside another card"); assert.match(r.err, /NOT_PARTNER/);
+  patch("m-2", { parallelWith: "m-1" });
+  // A stacked pair (one cut from the other's branch) never merges; nor does a pair cut from two base heads.
+  patch("m-2", { base: { ...b.base, branch: a.branch } });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 2); assert.match(r.err, /STACKED_PAIR/);
+  patch("m-2", { base: { ...b.base, head: "0".repeat(40) } });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 2); assert.match(r.err, /NOT_SIDE_BY_SIDE/);
+  patch("m-2", { base: b.base });
+  // The target: the worktree must be on the card's own branch, a branch the factory may write.
+  patch("m-2", { branch: "feature/elsewhere" });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 2); assert.match(r.err, /BRANCH_REFUSED[^\n]*feature\/second/);
+  patch("m-2", { branch: b.branch });
+  const { assertFactoryBranch } = await import("../src/push.mjs");
+  assert.throws(() => assertFactoryBranch(c, root, "merged into"), (e) => e.code === "BRANCH_REFUSED" && /merged into/.test(e.message), "main is never a target");
+  writeFileSync(join(b.worktree, "dirty.txt"), "x\n");
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 2); assert.match(r.err, /DIRTY_TREE/);
+  rmSync(join(b.worktree, "dirty.txt"));
+  patch("m-2", { lockToken: "not-mine" });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 2); assert.match(r.err, /NOT_HOLDER/);
+  patch("m-2", { lockToken: b.lockToken });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 0, r.err);
+  assert.ok(existsSync(join(b.worktree, "a.txt")));
+  assert.equal(sh("git", ["log", "-1", "--format=%s"], b.worktree), "merge: feature/first into feature/second (parallel milestones)");
+  assert.equal(sh("git", ["log", "-1", "--format=%P"], b.worktree).split(" ").length, 2, "a merge commit, never a fast-forward");
+  assert.equal(sh("git", ["log", "-1", "--format=%(trailers)"], b.worktree), "");
+  // A hook that adds a trailer to the merge commit: refused, the merge left in place.
+  const hook = join(root, ".git", "hooks", "commit-msg");
+  commitIn(a.worktree, "hooked.txt", "h\n");
+  // Two newlines: git's merge message file has no final newline, and a trailer is its own paragraph.
+  writeFileSync(hook, "#!/bin/sh\nprintf '\\n\\nSigned-off-by: hook <h@example.com>\\n' >> \"$1\"\n", { mode: 0o755 });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  rmSync(hook);
+  assert.equal(r.code, 2, r.out); assert.match(r.err, /TRAILER_REFUSED[^\n]*Signed-off-by/);
+  assert.ok(existsSync(join(b.worktree, "hooked.txt")), "the merge is left in place");
+  // A merge that never started (the partner's branch is gone): no MERGE_HEAD, so nothing to abort - GIT_FAILED.
+  patch("m-1", { branch: "feature/gone" });
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 2); assert.match(r.err, /GIT_FAILED[^\n]*feature\/gone/); assert.doesNotMatch(r.err, /MERGE_ABORT_FAILED/);
+  patch("m-1", { branch: a.branch });
+  // A conflict: both cards change one file; the merge is aborted and the file named.
+  commitIn(a.worktree, "same.txt", "from a\n"); commitIn(b.worktree, "same.txt", "from b\n");
+  const head = sh("git", ["rev-parse", "HEAD"], b.worktree);
+  r = await run(["worktree", "merge", "m-2", "--from", "m-1"]);
+  assert.equal(r.code, 2); assert.match(r.err, /MERGE_CONFLICT[^\n]*same\.txt/);
+  assert.equal(sh("git", ["rev-parse", "HEAD"], b.worktree), head);
+  assert.equal(sh("git", ["status", "--porcelain"], b.worktree), "", "the merge was aborted");
+  for (const id of ["m-1", "m-2"]) remove(c, readJob(c, id), { force: true });
+});
+
+test("record: a resolved path outside the worktree is refused, whatever the config held", async () => {
+  const { resolveRecord } = await import("../src/record.mjs");
+  const { c } = setup();
+  const job = { id: "m-1", slug: "x" };
+  assert.throws(() => resolveRecord({ ...c, record: { ...c.record, brief: "../{n}.md" } }, job, tmpDir("sf-rr-")), (e) => e.code === "BAD_RECORD_PATH");
+  assert.throws(() => resolveRecord({ ...c, record: { ...c.record, log: "/abs/{id}.md" } }, job, tmpDir("sf-rr-")), (e) => e.code === "BAD_RECORD_PATH");
+  assert.equal(resolveRecord(c, job, tmpDir("sf-rr-")).brief, "docs/sfactory/m-1/brief.md");
+});
+
+test("worktree cli: {n} is resolved under the shared record lock; a held lock makes the cut fail RECORD_BUSY and undo itself", async () => {
+  const { root, c } = setup();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { addJob, readJob } = await import("../src/store.mjs");
+  const { acquireSync } = await import("../src/lock.mjs");
+  addJob(c, "milestone", "Locked out");
+  const held = acquireSync(c, "record", { holder: "another-cut" });
+  assert.throws(() => cutJob(c, "m-1", { fetch: false, recordRetries: 2 }), (e) => e.code === "RECORD_BUSY");
+  assert.equal(readJob(c, "m-1").worktree, null);
+  assert.equal(branchExists(root, "feature/locked-out"), false);
+  held.release();
+  const j = cutJob(c, "m-1", { fetch: false });
+  assert.equal(j.record.n, 1);
+  assert.equal(status(c, "record").held, false, "the record lock is released after the cut");
+  remove(c, j, { force: true });
+});
+
+test("worktree cli: remove clears the record with the other cut fields", async () => {
+  const { c } = setup();
+  const { cutJob, removeJob } = await import("../src/commands/worktree.mjs");
+  const { addJob, readJob } = await import("../src/store.mjs");
+  addJob(c, "milestone", "Cleared");
+  cutJob(c, "m-1", { fetch: false });
+  assert.ok(readJob(c, "m-1").record, "recorded at the cut");
+  removeJob(c, "m-1", { force: true });
+  const after = readJob(c, "m-1");
+  assert.equal("record" in after, false);
+  assert.equal(after.worktree, null);
+});
+
+test("I2: a fix card gets its own record - brief and plan in its job folder, no {n} reserved, its own log unless --log", async () => {
+  const { c } = specTree();
+  const { cutJob } = await import("../src/commands/worktree.mjs");
+  const { readJob, jobDir } = await import("../src/store.mjs");
+  const { actions } = await import("../src/job-actions.mjs");
+  const { resolve: res } = await import("node:path");
+  actions.add(c, { kind: "fix", title: "Small thing" });            // f-1, no --log
+  actions.add(c, { kind: "milestone", title: "Rewards" });           // m-1
+  const f = cutJob(c, "f-1", { fetch: false });
+  const dir = res(jobDir(c, "f-1"));
+  assert.deepEqual(f.record, { brief: join(dir, "plan", "brief.md"), plan: join(dir, "plan", "plan.md"), log: join(dir, "log.md"), stories: "spec/product/STORIES_*.md", n: null });
+  const m = cutJob(c, "m-1", { fetch: false });
+  assert.equal(m.record.n, 8, "the fix reserved no number: the milestone takes the next after the briefs");
+  // record.fix patterns: relative to the worktree, {id} and {slug}.
+  c.record.fix = { brief: "docs/fixes/{id}-{slug}.md", plan: "docs/fixes/{id}-{slug}.plan.md" };
+  actions.add(c, { kind: "fix", title: "Patterned" });
+  const p = cutJob(c, "f-2", { fetch: false });
+  assert.equal(p.record.brief, "docs/fixes/f-2-patterned.md");
+  assert.equal(p.record.plan, "docs/fixes/f-2-patterned.plan.md");
+  assert.equal(p.record.log, join(res(jobDir(c, "f-2")), "log.md"));
+  for (const id of ["f-1", "m-1", "f-2"]) remove(c, readJob(c, id), { force: true });
+});
+
+test("I2: record.fix is validated - an object of brief, plan and log patterns inside the worktree, never {n}", async () => {
+  const { validateConfig } = await import("../src/config.mjs");
+  const base = { project: "p", agents: { mode: "claude" }, commands: { suite: "x" } };
+  assert.deepEqual(validateConfig({ ...base, record: { fix: { brief: "docs/fixes/{id}.md" } } }), []);
+  assert.ok(validateConfig({ ...base, record: { fix: { brief: "spec/{n}-{slug}.md" } } }).some((e) => /record\.fix\.brief.*\{n\}/.test(e)));
+  assert.ok(validateConfig({ ...base, record: { fix: { plan: "../x.md" } } }).some((e) => /record\.fix\.plan.*inside the worktree/.test(e)));
+  assert.ok(validateConfig({ ...base, record: { fix: { stories: "x" } } }).some((e) => /record\.fix\.stories: only brief, plan and log/.test(e)));
+  assert.ok(validateConfig({ ...base, record: { fix: ["x"] } }).some((e) => /record\.fix: an object/.test(e)));
+});
+
+test("minor 9: an afterCut command past worktrees.afterCutTimeoutMs is killed, AFTER_CUT_TIMEOUT, and the cut is undone", async () => {
+  const { root, c } = setup({ afterCut: ["node -e \"setTimeout(()=>{},20000)\""], afterCutTimeoutMs: 700 });
+  const t0 = Date.now();
+  assert.throws(() => cut(c, newJob({ id: "m-1", kind: "milestone", title: "Hung install" }), {}), (e) => e.code === "AFTER_CUT_TIMEOUT" && /700 ms/.test(e.message));
+  assert.ok(Date.now() - t0 < 15000, "the cut did not wait for the command");
+  assert.equal(existsSync(join(c.worktrees.dir, "hung-install")), false);
+  assert.equal(branchExists(root, "feature/hung-install"), false);
+  const { validateConfig } = await import("../src/config.mjs");
+  assert.ok(validateConfig({ project: "p", agents: { mode: "claude" }, commands: { suite: "x" }, worktrees: { afterCutTimeoutMs: 0 } }).some((e) => /afterCutTimeoutMs/.test(e)));
 });
