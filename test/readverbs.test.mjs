@@ -103,3 +103,27 @@ test("bin: sfactory-brief, sfactory-diff and sfactory-tree are committed executa
   for (const m of modes) assert.match(m, /^100755 /, m);
   for (const v of ["brief", "diff", "tree"]) assert.ok(statSync(join(root, "bin", `sfactory-${v}`)).isFile());
 });
+
+test("N2: diff WORKTREE never packages a secret or a verify copy: stat, diff, new files and names all leave them out", async () => {
+  const r = tmpRepo();
+  mkdirSync(join(r, "priv"), { recursive: true });
+  writeFileSync(join(r, "a.txt"), "one\n");
+  writeFileSync(join(r, "priv", "tracked.txt"), "old-secret\n");
+  writeFileSync(join(r, "sfactory.config.json"), JSON.stringify({ project: "p", agents: { mode: "claude" }, commands: { suite: "x" }, stateDir: tmpDir("sf-st-"), worktrees: { copyForVerify: ["verify.env"] }, secrets: { neverHandToAgents: ["priv", "loose.key"] } }));
+  sh("git", ["add", "a.txt", "priv/tracked.txt", "sfactory.config.json"], r);
+  sh("git", ["commit", "-m", "base"], r);
+  writeFileSync(join(r, "a.txt"), "two\n");
+  writeFileSync(join(r, "priv", "tracked.txt"), "new-secret\n");
+  writeFileSync(join(r, "priv", "fresh.txt"), "fresh-secret\n");
+  writeFileSync(join(r, "loose.key"), "loose-secret\n");
+  writeFileSync(join(r, "verify.env"), "verify-secret\n");
+  writeFileSync(join(r, "plain.txt"), "plain\n");
+  const out = join(tmpDir("sf-d-"), "wip.diff");
+  const res = await run(["diff", "--cwd", r, "HEAD", "WORKTREE", "--out", out], r);
+  assert.equal(res.code, 0, res.err);
+  const pkg = readFileSync(out, "utf8");
+  assert.match(pkg, /\+two/); assert.match(pkg, /\+plain/);
+  for (const s of ["secret", "priv/", "loose.key", "verify.env"]) assert.ok(!pkg.includes(s), `the package holds ${s}`);
+  const names = await run(["diff", "--cwd", r, "HEAD", "WORKTREE", "--names"], r);
+  assert.deepEqual(names.out.trim().split("\n").sort(), ["a.txt", "plain.txt"]);
+});

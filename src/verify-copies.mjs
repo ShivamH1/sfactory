@@ -2,6 +2,7 @@ import { existsSync, copyFileSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { jobDir, readJobFile, writeJobFile } from "./store.mjs";
 import { worktreeOfBranch } from "./git.mjs";
+import { fail } from "./errors.mjs";
 
 /**
  * worktrees.copyForVerify: untracked files (an .env, say) a card's services need, copied into its worktree by
@@ -34,10 +35,19 @@ function writeRecord(c, job, copied) {
   else rmSync(join(jobDir(c, job.id), RECORD), { force: true });
 }
 
+/** The verify copies are the verifying stage's own: nothing is copied in another stage, where an agent may be working in the worktree. */
+export function assertVerifying(job) {
+  if (job.stage !== "verifying") fail("NOT_VERIFYING", `${job.id} is ${job.stage}: services and verify copies belong to the verifying stage`);
+}
+
+/** The relative paths this card's verify copies still hold in its worktree (empty when none). */
+export function verifyCopiesLeft(c, job) { return readRecord(c, job); }
+
 /** Copies every copyForVerify entry that is not yet in the worktree. Returns { copied, missing } (relative paths). */
 export function copyForVerify(c, job, { log = () => {} } = {}) {
   const list = c.worktrees?.copyForVerify ?? [];
   const out = { copied: [], missing: [] };
+  assertVerifying(job);
   if (!list.length || !job.worktree) return out;
   const from = sourceDirs(c, job);
   const copied = readRecord(c, job);

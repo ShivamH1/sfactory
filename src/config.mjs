@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from "node:fs";
-import { join, resolve, isAbsolute, dirname, basename } from "node:path";
+import { join, resolve, isAbsolute, dirname, basename, posix } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fail } from "./errors.mjs";
 import { DEFAULT_PRICES } from "./prices.mjs";
@@ -49,6 +49,16 @@ export function findRepoRoot(cwd = process.cwd()) {
     if (basename(dir) === ".git") return dirname(dir);
   }
   return resolve(r.stdout.trim());
+}
+
+/** Do two repo-relative paths name the same file, or one a directory holding the other? Slashes and a leading "./" ignored; case-insensitive on Windows. */
+export function pathsOverlap(a, b) {
+  const norm = (x) => {
+    const n = posix.normalize(String(x).split("\\").join("/")).replace(/\/+$/, "") || ".";
+    return process.platform === "win32" ? n.toLowerCase() : n;
+  };
+  const x = norm(a), y = norm(b);
+  return x === y || x === "." || y === "." || x.startsWith(y + "/") || y.startsWith(x + "/");
 }
 
 export function validateConfig(raw) {
@@ -104,6 +114,13 @@ export function validateConfig(raw) {
   for (const k of ["copyFromBase", "copyForVerify"]) {
     const v = raw.worktrees?.[k];
     if (Array.isArray(v)) for (const p of v) if (typeof p === "string" && outside(p)) errs.push(`worktrees.${k}: "${p}" must be a path inside the repo (no "..", not absolute)`);
+  }
+  // A file in both lists would be copied into the worktree at the cut, where an agent works: copyForVerify is for what must not be.
+  const fromBase = raw.worktrees?.copyFromBase, forVerify = raw.worktrees?.copyForVerify;
+  if (Array.isArray(fromBase) && Array.isArray(forVerify)) {
+    for (const a of fromBase) for (const b of forVerify) {
+      if (typeof a === "string" && typeof b === "string" && pathsOverlap(a, b)) errs.push(`worktrees: "${a}" (copyFromBase) and "${b}" (copyForVerify) name the same file or one holds the other; a file is copied at the cut or for verify, never both`);
+    }
   }
   if (raw.worktrees?.baseRule != null && !BASE_RULES.includes(raw.worktrees.baseRule) && typeof raw.worktrees.baseRule !== "string")
     errs.push("worktrees.baseRule: newest-feature-branch, integration-branch or a branch name");

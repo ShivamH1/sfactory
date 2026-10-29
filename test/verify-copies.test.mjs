@@ -9,8 +9,9 @@ import { cut, remove } from "../src/worktree.mjs";
 import { branchExists } from "../src/git.mjs";
 import { servicesUp, servicesDown } from "../src/services.mjs";
 import { actions } from "../src/job-actions.mjs";
-import { withJobLock, writeJob, readJob } from "../src/store.mjs";
+import { withJobLock, writeJob, readJob, writeJobFile } from "../src/store.mjs";
 import { runDoctor } from "../src/doctor.mjs";
+import { copyForVerify as copyForVerifyOf } from "../src/verify-copies.mjs";
 
 // C1 (Plan C final review): a secret is never copied into a card's worktree at the cut; copyForVerify lands it for
 // the verify stage only, and services down, job stop and worktree remove take it out again.
@@ -104,5 +105,53 @@ test("verify copies: sfactory services copy <id> lands them without starting any
   assert.equal(existsSync(join(c.stateDir, "jobs", "m-1", "verify", "services.json")), false, "no service started");
   const r = await servicesDown(c, job);
   assert.deepEqual(r.copiesRemoved, [".env"]);
+  remove(c, readJob(c, "m-1"), { force: true });
+});
+
+// Final re-review N1/N2.
+test("N1: a file in both copyFromBase and copyForVerify is refused by validateConfig (equal, or one holds the other); doctor warns on any overlap", () => {
+  const base = { project: "p", agents: { mode: "claude" }, commands: { suite: "x" } };
+  for (const [a, b] of [[".env", ".env"], ["./apps/api/.env", "apps/api/.env"], ["apps/api", "apps/api/.env"], ["apps/api/.env", "apps"]]) {
+    const errs = validateConfig({ ...base, worktrees: { copyFromBase: [a], copyForVerify: [b] } });
+    assert.ok(errs.some((e) => /copyFromBase/.test(e) && /copyForVerify/.test(e) && /never both/.test(e)), `${a} / ${b}: ${errs}`);
+  }
+  assert.deepEqual(validateConfig({ ...base, worktrees: { copyFromBase: ["apps/api/.env.example"], copyForVerify: ["apps/api/.env"] } }), []);
+  const { c } = setup({ copyForVerify: ["apps/web/.env"] }, []);
+  c.worktrees.copyFromBase = ["apps/web"];
+  const w = runDoctor(c, { exec: () => ({ status: 0, stdout: "x 1\n" }) }).checks.filter((x) => x.warn);
+  assert.equal(w.length, 1);
+  assert.match(w[0].detail, /overlap/);
+});
+
+test("N2: services copy and up refuse any stage but verifying (nothing copied, nothing started), and job set out of verifying refuses while copies are left", async () => {
+  const { root, c } = setup({ copyForVerify: [".env"] }, [".env"]);
+  writeFileSync(join(root, ".env"), "KEY=1\n");
+  const job = { ...cut(c, newJob({ id: "m-1", kind: "milestone", title: "Stage gate" }), {}), stage: "building" };
+  save(c, job);
+  await assert.rejects(servicesUp(c, job), (e) => e.code === "NOT_VERIFYING");
+  assert.throws(() => copyForVerifyOf(c, job), (e) => e.code === "NOT_VERIFYING");
+  assert.equal(existsSync(join(job.worktree, ".env")), false);
+  const v = { ...job, stage: "verifying" };
+  save(c, v);
+  await servicesUp(c, v);
+  assert.ok(existsSync(join(v.worktree, ".env")));
+  assert.throws(() => actions.set(c, { id: "m-1", to: "pushing" }), (e) => e.code === "VERIFY_COPIES_LEFT" && /services down m-1/.test(e.message));
+  assert.throws(() => actions.set(c, { id: "m-1", to: "fixing" }), (e) => e.code === "VERIFY_COPIES_LEFT");
+  assert.equal(readJob(c, "m-1").stage, "verifying", "nothing written");
+  await servicesDown(c, v);
+  assert.equal(actions.set(c, { id: "m-1", to: "pushing" }).stage, "pushing");
+  remove(c, readJob(c, "m-1"), { force: true });
+});
+
+test("N2: services down removes the copies even when a kill throws", async () => {
+  const { root, c } = setup({ copyForVerify: [".env"] }, [".env"]);
+  writeFileSync(join(root, ".env"), "KEY=1\n");
+  const job = { ...cut(c, newJob({ id: "m-1", kind: "milestone", title: "Throwing kill" }), {}), stage: "verifying" };
+  save(c, job);
+  await servicesUp(c, job);
+  assert.ok(existsSync(join(job.worktree, ".env")));
+  writeJobFile(c, "m-1", "verify/services.json", JSON.stringify({ services: [{ name: "x", pid: process.pid, startedAt: Date.now(), cmd: "x", log: "x" }] }));
+  await assert.rejects(servicesDown(c, job, { startOf: () => 0, kill: () => { throw new Error("kill failed"); } }));
+  assert.equal(existsSync(join(job.worktree, ".env")), false, "the secret did not outlive the failed down");
   remove(c, readJob(c, "m-1"), { force: true });
 });

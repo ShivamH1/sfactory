@@ -1,7 +1,7 @@
 import { readJob, writeJob, addJob, withJobLock, listJobs, writeJobFile, jobFileExists, readJobFile } from "./store.mjs";
 import { transition, park, release, queue, stop, resume, WORKING } from "./job.mjs";
 import { fail } from "./errors.mjs";
-import { removeVerifyCopies } from "./verify-copies.mjs";
+import { removeVerifyCopies, verifyCopiesLeft } from "./verify-copies.mjs";
 import { withRecordLock } from "./record.mjs";
 
 /** The gates as functions: each takes (c, args), runs under the job's lock, re-reads the job there and returns the written job. */
@@ -18,6 +18,23 @@ export function activeMilestones(c, exceptId = null) {
   return listJobs(c).filter((j) => j.id !== exceptId && j.kind === "milestone" && !off.includes(j.stage) && !(j.stage === "decision-needed" && j.returnStage === "backlog"));
 }
 
+/** Is a card resting at `stage` one that counts toward the cap? (the same rule as activeMilestones, for a stage not yet written) */
+const countsAt = (job, stage) => !["backlog", "pushed", "merged", "stopped"].includes(stage) && !(stage === "decision-needed" && job.returnStage === "backlog");
+
+/** Throws CAP_REACHED when starting `id` would exceed limits.parallelMilestones. Call under the record lock. */
+function assertCap(c, id, verb) {
+  const cap = c.limits?.parallelMilestones ?? 2;
+  const act = activeMilestones(c, id);
+  if (act.length >= cap) fail("CAP_REACHED", `${act.length} milestones are active (${act.map((j) => `${j.id} ${j.stage}`).join(", ")}) and limits.parallelMilestones is ${cap}; ${id} ${verb} until one is pushed, merged or stopped`);
+}
+
+/** A milestone built beside another active milestone needs the person's parallel yes: its own, or the other card's, approved beside it. Call under the record lock. */
+function assertParallelAnswered(c, job) {
+  const act = activeMilestones(c, job.id);
+  const paired = job.parallel === "approved" || act.some((o) => o.parallel === "approved" && o.parallelWith === job.id);
+  if (act.length && !paired) fail("PARALLEL_UNANSWERED", `${act.map((j) => j.id).join(", ")} ${act.length > 1 ? "are" : "is"} active and ${job.id} has no approved parallel answer (parallel: ${job.parallel ?? "none"}); ask with "sfactory job park ${job.id} --pending parallel --with <id> --reason ..." and approve once it is answered yes`);
+}
+
 export const actions = {
   add(c, { kind, title, logOf }) {
     if (!kind || !title) fail("BAD_ARGS", 'usage: sfactory job add <milestone|fix> "<title>"');
@@ -29,15 +46,17 @@ export const actions = {
   },
   set(c, { id, to, by = "session", reason = null }) {
     return locked(c, id, (job) => {
+      if (job.stage === "verifying") {
+        const left = verifyCopiesLeft(c, job);
+        if (left.length) fail("VERIFY_COPIES_LEFT", `${id} still holds verify copies in its worktree (${left.join(", ")}); run "sfactory services down ${id}" before leaving verifying`);
+      }
       if (job.stage === "awaiting-approval") fail("APPROVAL_REQUIRED", `${id} leaves awaiting-approval only through "sfactory job approve"`);
       if (to === "building" && ["reviewing", "pushed"].includes(job.stage)) fail("ILLEGAL_TRANSITION", `${id} goes back to building only through "sfactory job rework ${id} --notes <what to change>"`);
       const next = transition(job, to, { by, reason, limits: c.limits });
       if (!(to === "planning" && job.kind === "milestone")) return writeJob(c, next);
       // The cap is read and the start written under the shared record lock, so two starts cannot both pass it.
       return withRecordLock(c, id, () => {
-        const cap = c.limits?.parallelMilestones ?? 2;
-        const act = activeMilestones(c, id);
-        if (act.length >= cap) fail("CAP_REACHED", `${act.length} milestones are active (${act.map((j) => `${j.id} ${j.stage}`).join(", ")}) and limits.parallelMilestones is ${cap}; ${id} stays in backlog until one is pushed, merged or stopped`);
+        assertCap(c, id, "stays in backlog");
         return writeJob(c, next);
       });
     });
@@ -45,15 +64,14 @@ export const actions = {
   approve(c, { id, by = "session" }) {
     return locked(c, id, (job) => {
       if (job.stage !== "awaiting-approval") fail("ILLEGAL_TRANSITION", `${job.id} is ${job.stage}, not awaiting-approval`);
-      // A milestone built beside another active milestone needs the person's parallel yes: its own (parallel approved),
-      // or the other card's, approved beside it (the card that was never asked is a side of the pair too).
-      if (job.kind === "milestone") {
-        const act = activeMilestones(c, id);
-        const paired = job.parallel === "approved" || act.some((o) => o.parallel === "approved" && o.parallelWith === job.id);
-        if (act.length && !paired) fail("PARALLEL_UNANSWERED", `${act.map((j) => j.id).join(", ")} ${act.length > 1 ? "are" : "is"} active and ${id} has no approved parallel answer (parallel: ${job.parallel ?? "none"}); ask with "sfactory job park ${id} --pending parallel --with <id> --reason ..." and approve once it is answered yes`);
-      }
-      writeJobFile(c, job.id, "plan/approval.md", `approved by ${by} at ${new Date().toISOString()}\n`);
-      return writeJob(c, transition(job, "building", { by, reason: "approved" }));
+      const go = () => {
+        writeJobFile(c, job.id, "plan/approval.md", `approved by ${by} at ${new Date().toISOString()}
+`);
+        return writeJob(c, transition(job, "building", { by, reason: "approved" }));
+      };
+      if (job.kind !== "milestone") return go();
+      // The active set is read under the shared record lock, as a start's cap is, so a card started meanwhile is seen.
+      return withRecordLock(c, id, () => { assertParallelAnswered(c, job); return go(); });
     });
   },
   park(c, { id, reason, pending, with: partner, by = "session" }) {
@@ -117,7 +135,18 @@ Write the answer to decisions/${k}-answer.md, then run: sfactory job answer ${jo
       return next;
     });
   },
-  resume(c, { id, by = "session" }) { return locked(c, id, (job) => writeJob(c, resume(job, { by }))); },
+  /** A stopped card re-enters the cap: resuming into an active stage re-checks limits.parallelMilestones and, past approval, the parallel answer. */
+  resume(c, { id, by = "session" }) {
+    return locked(c, id, (job) => {
+      const next = resume(job, { by });
+      if (job.kind !== "milestone" || !countsAt(job, next.stage)) return writeJob(c, next);
+      return withRecordLock(c, id, () => {
+        assertCap(c, id, "stays stopped");
+        if (!["planning", "awaiting-approval"].includes(next.stage)) assertParallelAnswered(c, job);
+        return writeJob(c, next);
+      });
+    });
+  },
   merged(c, { id, by = "session" }) { return locked(c, id, (job) => writeJob(c, transition(job, "merged", { by, reason: "merged" }))); },
   rework(c, { id, notes, by = "session" }) {
     return locked(c, id, (job) => {

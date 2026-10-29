@@ -28,12 +28,12 @@ function newFileDiff(cwd, file, extra = []) {
 }
 
 /** Names of the files that differ between base and head (head WORKTREE: the working tree, new files included). */
-export function diffNames(cwd, base, head, paths = []) {
+export function diffNames(cwd, base, head, paths = [], { skip = () => false } = {}) {
   assertRef(base, "base");
   if (head === WORKTREE) {
     const names = lit(["diff", "--name-only", base, ...sep(paths)], cwd).split(/\r?\n/).filter(Boolean);
     for (const f of untracked(cwd, paths)) if (!names.includes(f)) names.push(f);
-    return names;
+    return names.filter((f) => !skip(f));
   }
   assertRef(head, "head");
   return lit(["diff", "--name-only", `${base}..${head}`, ...sep(paths)], cwd).split(/\r?\n/).filter(Boolean);
@@ -48,17 +48,26 @@ export function diffCommits(cwd, base, head, paths = []) {
 /**
  * A review package (the sdd skill's format): a header, the commits, the stat and the -U10 diff of base..head over
  * paths. With head WORKTREE it is the working tree against base, and every new (untracked, not ignored) file among
- * the paths is added as a whole-file diff, so a triage sees what a red run's task created.
+ * the paths is added as a whole-file diff, so a triage sees what a red run's task created. `skip(file)` names a
+ * file that must never be packaged (a secret, a verify copy): a working-tree package leaves it out of the stat,
+ * the diff and the new-file diffs alike.
  */
-export function reviewPackage(cwd, base, head, paths = []) {
+export function reviewPackage(cwd, base, head, paths = [], { skip = () => false } = {}) {
   assertRef(base, "base");
   const wt = head === WORKTREE;
   if (!wt) assertRef(head, "head");
   const range = wt ? [base] : [`${base}..${head}`];
-  const fresh = wt ? untracked(cwd, paths) : [];
-  const parts = [`# Review package: ${base}..${head}`, "", "## Commits", diffCommits(cwd, base, wt ? "HEAD" : head, paths), "", "## Files changed", lit(["diff", "--stat", ...range, ...sep(paths)], cwd)];
+  const fresh = wt ? untracked(cwd, paths).filter((f) => !skip(f)) : [];
+  let tracked = paths, noTracked = false;
+  if (wt) {
+    // A skipped file cannot be excluded by a pathspec (they are literal), so the tracked files left are named instead.
+    const all = lit(["diff", "--name-only", base, ...sep(paths)], cwd).split(/\r?\n/).filter(Boolean);
+    const kept = all.filter((f) => !skip(f));
+    if (kept.length !== all.length) { tracked = kept; noTracked = kept.length === 0; }
+  }
+  const parts = [`# Review package: ${base}..${head}`, "", "## Commits", diffCommits(cwd, base, wt ? "HEAD" : head, paths), "", "## Files changed", noTracked ? "" : lit(["diff", "--stat", ...range, ...sep(tracked)], cwd)];
   if (fresh.length) parts.push(...fresh.map((f) => ` ${f} (new, untracked)`));
-  parts.push("", "## Diff", lit(["diff", "-U10", ...range, ...sep(paths)], cwd));
+  parts.push("", "## Diff", noTracked ? "" : lit(["diff", "-U10", ...range, ...sep(tracked)], cwd));
   for (const f of fresh) parts.push(newFileDiff(cwd, f, ["-U10"]));
   return parts.join("\n").replace(/\s+$/, "") + "\n";
 }

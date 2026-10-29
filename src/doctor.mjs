@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { codexHomeDir } from "./codex.mjs";
 import { syncRules } from "./rules.mjs";
 import { coveredBySecret } from "./secrets.mjs";
+import { pathsOverlap } from "./config.mjs";
 
 const which = (exec, cmd) => {
   // On Windows an npm-installed shim is a .cmd, which needs a shell; pass one string so no args are concatenated.
@@ -26,6 +27,9 @@ export function runDoctor(c, { exec = spawnSync, codexHome = codexHomeDir() } = 
   // A warning, not a failure: the cut refuses the card (SECRET_PATH) and names the fix; doctor says so first.
   for (const rel of c.worktrees.copyFromBase ?? []) {
     if (coveredBySecret(c, rel, { cwd: c.repoRoot })) checks.push({ name: "copyFromBase", ok: true, warn: true, detail: `${rel} is covered by secrets.neverHandToAgents: every cut will refuse it (SECRET_PATH); move it to worktrees.copyForVerify` });
+  }
+  for (const a of c.worktrees.copyFromBase ?? []) for (const b of c.worktrees.copyForVerify ?? []) {
+    if (pathsOverlap(a, b)) checks.push({ name: "copyForVerify", ok: true, warn: true, detail: `${a} (copyFromBase) and ${b} (copyForVerify) overlap: the cut would copy it into the worktree an agent works in; list it in copyForVerify only` });
   }
   const mode = c.agents.mode;
   if (mode !== "codex") { const v = which(exec, "claude"); add("claude", !!v, v ?? "claude not on PATH (needed for claude and mixed modes)"); }

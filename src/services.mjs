@@ -6,7 +6,7 @@ import { jobDir, readJobFile, writeJobFile } from "./store.mjs";
 import { substitute } from "./ports.mjs";
 import { status as lockStatus, withLock } from "./lock.mjs";
 import { dropNamedSecrets } from "./secrets.mjs";
-import { copyForVerify, removeVerifyCopies } from "./verify-copies.mjs";
+import { copyForVerify, removeVerifyCopies, assertVerifying } from "./verify-copies.mjs";
 
 const RECORD = "verify/services.json";
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -200,6 +200,7 @@ function spawnService(cmd, opts) {
 /** Starts every service detached so it outlives this process; nothing starts unless every entry resolves. */
 export function servicesUp(c, job, { log = () => {}, startOf, startsFn } = {}) {
   return guard(c, job, async () => {
+    assertVerifying(job);
     if (!job.worktree) fail("WORKTREE_REQUIRED", `job ${job.id} has no worktree; run "sfactory worktree cut" first`);
     const entries = resolveEntries(c, job);
     const rec = readRecord(c, job);
@@ -257,22 +258,27 @@ export function servicesDown(c, job, { log = () => {}, startOf, startsFn, kill }
       for (const rel of r.removed) log(`removed ${rel} from the worktree`);
       return r.removed.length || r.left.length ? { copiesRemoved: r.removed, copiesLeft: r.left } : {};
     };
-    if (!rec) return { killed, skipped, ...copies() };
-    const states = judgeAll(rec.services, startOf, startsFn);
-    const keep = [];
-    for (let i = 0; i < rec.services.length; i++) {
-      const r = rec.services[i], st = states[i];
-      if (st === "ours") {
-        const k = await killAndWait(r.pid, { kill });
-        if (k === true) { killed.push(r.name); log(`stopped ${r.name} pid ${r.pid}`); }
-        else { skipped.push({ name: r.name, pid: r.pid, alive: true, reason: k }); keep.push(r); }
-      } else if (st === "foreign") {
-        skipped.push({ name: r.name, pid: r.pid, alive: true, reason: "pid now belongs to another process" }); log(`left pid ${r.pid} alone: not ${r.name}`);
-      } else if (st === "unknown") {
-        skipped.push({ name: r.name, pid: r.pid, alive: true, reason: "alive but its start time cannot be read, so it is not attributed" }); keep.push(r);
-      } else skipped.push({ name: r.name, pid: r.pid, alive: false, reason: "already stopped" });
-    }
-    if (keep.length) writeRecord(c, job, keep); else removeRecord(c, job);
-    return { killed, skipped, ...copies() };
+    // In a finally: a kill that throws must not leave the secret behind.
+    let extra = {};
+    try {
+      if (rec) {
+      const states = judgeAll(rec.services, startOf, startsFn);
+      const keep = [];
+      for (let i = 0; i < rec.services.length; i++) {
+        const r = rec.services[i], st = states[i];
+        if (st === "ours") {
+          const k = await killAndWait(r.pid, { kill });
+          if (k === true) { killed.push(r.name); log(`stopped ${r.name} pid ${r.pid}`); }
+          else { skipped.push({ name: r.name, pid: r.pid, alive: true, reason: k }); keep.push(r); }
+        } else if (st === "foreign") {
+          skipped.push({ name: r.name, pid: r.pid, alive: true, reason: "pid now belongs to another process" }); log(`left pid ${r.pid} alone: not ${r.name}`);
+        } else if (st === "unknown") {
+          skipped.push({ name: r.name, pid: r.pid, alive: true, reason: "alive but its start time cannot be read, so it is not attributed" }); keep.push(r);
+        } else skipped.push({ name: r.name, pid: r.pid, alive: false, reason: "already stopped" });
+      }
+      if (keep.length) writeRecord(c, job, keep); else removeRecord(c, job);
+      }
+    } finally { extra = copies(); }
+    return { killed, skipped, ...extra };
   });
 }
