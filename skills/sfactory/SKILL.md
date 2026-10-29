@@ -87,8 +87,8 @@ A run ends when nothing is left but `pushed`, `merged` and `stopped` cards, or e
 **planning**
 
 1. **A queued card already planned.** If the brief and the plan already exist at the job's `record` paths, skip to step 4.
-2. **The brief.** Touch the card, then invoke the `sfactory:brainstorming` skill (Skill tool). Hand it JOB, kind, title, JOB_DIR, WORKTREE and BRIEF, PLAN and LOG. It works with the person, writes the brief (and the stories, when `record.stories` is set), commits them in WORKTREE, and writes `plan/questionnaire.md` when questions remain.
-3. **The plan.** Its transition to `sfactory:writing-plans` is run by the plan role (section 6):
+2. **The brief.** Touch the card, then invoke the `sfactory:brainstorming` skill (Skill tool). Hand it JOB, kind, title, JOB_DIR, WORKTREE and BRIEF, PLAN and LOG. It works with the person, writes the brief (and the stories, when `record.stories` is set), commits them in WORKTREE, writes `plan/questionnaire.md` when questions remain, and hands back to you. It never invokes writing-plans itself.
+3. **The plan.** When brainstorming hands back, you run `sfactory:writing-plans` through the plan role (section 6):
    - **A Claude subagent** follows `${CLAUDE_PLUGIN_ROOT}/skills/writing-plans/SKILL.md`, with the same inputs.
    - **In `codex` mode**, render a prompt into `<JOB_DIR>/plan/plan-prompt.md`. It names the brief, the plan path and that skill's Task Structure and What the Parser Refuses rules, and says that Codex never commits. Run `sfactory codex exec --cwd <WORKTREE> --profile <agents.codex.implement> --out <JOB_DIR>/plan/codex-plan --job <id> --stage planning < <JOB_DIR>/plan/plan-prompt.md`. Then do the skill's self-review check 4 yourself and commit the plan with `sfactory commit --cwd <WORKTREE> --holder <id> --m "docs: plan for <title>" -- <record.plan>`, unless the plan is in JOB_DIR.
    - **Hold the move back when the parallel check is due.** The check is due for a milestone in any of these cases:
@@ -103,7 +103,7 @@ A run ends when nothing is left but `pushed`, `merged` and `stopped` cards, or e
      - With `parallel` already `approved`, a FAIL row parks it for a decision from `planning`.
    - Then `sfactory job set <id> awaiting-approval --reason "brief and plan written"`, if writing-plans has not already made that move.
 5. **Fix:** run `sfactory fixcard <PLAN>`.
-   - **Exit 0:** writing-plans runs `sfactory job set <id> building`.
+   - **Exit 0:** re-read the card (`sfactory job show <id>`). If it is still in `planning`, move it yourself: `sfactory job set <id> building --reason "fix plan written"` (writing-plans may already have made that move). Do the same when `run` resumes a fix card found in `planning` with its brief and plan written: run `sfactory fixcard <PLAN>`, then this move.
    - **A hit** (exit 1, the matching files printed): refile the card. Run `sfactory job add milestone "<title>"`, then `sfactory job stop <id> --reason "refiled as <new id>: touches <the files>"`, and tell the person. The fix's worktree stays until they remove it.
 
 **awaiting-approval**

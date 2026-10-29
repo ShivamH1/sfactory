@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: "The sfactory planning stage, part one: turns a card into a brief at the card's record.brief path through a dialogue with the person, stories first when the project keeps stories. Used by the sfactory orchestrator for a card in the planning stage; ends by invoking sfactory:writing-plans."
+description: "The sfactory planning stage, part one: turns a card into a brief at the card's record.brief path through a dialogue with the person, stories first when the project keeps stories. Used by the sfactory orchestrator for a card in the planning stage; ends by handing back to the orchestrator, which runs sfactory:writing-plans."
 ---
 
 # Brainstorming Ideas Into Designs
@@ -40,7 +40,7 @@ You MUST create a task for each of these items and complete them in order:
 6. **Write the brief** — save to the card's `record.brief` path and commit it with `sfactory commit`
 7. **Brief self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
 8. **Open questions** — a milestone's open questions go to `plan/questionnaire.md` in the job folder (see Questions That Remain)
-9. **Transition to planning** — invoke the sfactory:writing-plans skill to create the implementation plan
+9. **Hand back** — tell the orchestrator the brief (and any questionnaire) is written; it runs sfactory:writing-plans through its plan role. Never invoke sfactory:writing-plans yourself
 
 ## Process Flow
 
@@ -56,7 +56,7 @@ digraph brainstorming {
     "Brief self-review\n(fix inline)" [shape=box];
     "Questions remain?" [shape=diamond];
     "Write plan/questionnaire.md" [shape=box];
-    "Invoke sfactory:writing-plans" [shape=doublecircle];
+    "Hand back to the orchestrator" [shape=doublecircle];
 
     "Explore project context" -> "Read the stories (record.stories set)";
     "Read the stories (record.stories set)" -> "Ask clarifying questions";
@@ -68,12 +68,12 @@ digraph brainstorming {
     "Write the brief to record.brief, sfactory commit" -> "Brief self-review\n(fix inline)";
     "Brief self-review\n(fix inline)" -> "Questions remain?";
     "Questions remain?" -> "Write plan/questionnaire.md" [label="yes (milestone)"];
-    "Questions remain?" -> "Invoke sfactory:writing-plans" [label="no"];
-    "Write plan/questionnaire.md" -> "Invoke sfactory:writing-plans";
+    "Questions remain?" -> "Hand back to the orchestrator" [label="no"];
+    "Write plan/questionnaire.md" -> "Hand back to the orchestrator";
 }
 ```
 
-**The terminal state is invoking sfactory:writing-plans.** Do NOT invoke frontend-design, mcp-builder, or any other implementation skill. The ONLY skill you invoke after brainstorming is sfactory:writing-plans.
+**The terminal state is handing back to the sfactory orchestrator.** It runs sfactory:writing-plans next, through its plan role (a subagent or Codex, by `agents.mode`), with the paths the plan needs. Do NOT invoke sfactory:writing-plans, frontend-design, mcp-builder, or any other skill yourself.
 
 ## Stories First
 
@@ -161,8 +161,8 @@ A card of kind `fix` takes the light path: a one-page brief at `record.brief` (w
 
 **Implementation:**
 
-- Invoke the sfactory:writing-plans skill to create a detailed implementation plan at the card's `record.plan` path
-- Do NOT invoke any other skill. sfactory:writing-plans is the next step.
+- Hand back to the orchestrator: say that the brief is committed (or, for a fix card's brief in its job folder, written), and whether `plan/questionnaire.md` was written. The orchestrator then has sfactory:writing-plans write the plan at the card's `record.plan` path.
+- Do NOT invoke any skill. The orchestrator's plan role is the next step.
 
 ## Rules of the factory
 

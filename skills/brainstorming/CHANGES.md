@@ -30,3 +30,7 @@ Source: superpowers `skills/brainstorming/` (see ATTRIBUTION.md). Every edit mad
 
 15. **Where this runs** lists WORKTREE as an input: the card's worktree is cut when the card enters `planning`, so the stories and the brief are written and committed in it (`sfactory commit --cwd <WORKTREE> --holder <JOB>`), on the card's branch; the "repository root, else the worktree" choice is removed.
 16. The job is touched with `sfactory job touch <JOB> --note "<start|finish> brainstorming"` when the skill starts, after each wait on the person, and when it hands over, so the board's live pulse is honest.
+
+## Plan C final review (2026-10-28)
+
+17. The terminal state is **handing back to the orchestrator**, never invoking `sfactory:writing-plans`: under `/sfactory` the plan is written by the orchestrator's plan role (a subagent or Codex, by mode), so the skill's checklist item 9, its flow's end node, its terminal-state paragraph and its Implementation section now hand back (supersedes 12). A fix card's brief in its job folder is written and never committed.

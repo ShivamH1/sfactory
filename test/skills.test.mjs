@@ -561,3 +561,15 @@ test("agents/ holds only agent definitions (every .md there loads as an agent)",
   assert.ok(!existsSync(join(root, "agents", "ATTRIBUTION.md")));
   assert.ok(existsSync(join(root, "docs", "attribution", "agents.md")));
 });
+
+test("I5/I6: brainstorming hands back (never invokes writing-plans); the orchestrator moves a fix to building after fixcard exits 0", () => {
+  const b = read(join(skillsRoot, "brainstorming", "SKILL.md"));
+  assert.match(b, /The terminal state is handing back to the sfactory orchestrator/);
+  assert.ok(!/invoke the sfactory:writing-plans skill|"Invoke sfactory:writing-plans"|The ONLY skill you invoke after brainstorming is/.test(b), "brainstorming never invokes writing-plans");
+  assert.match(split(b).fm.description, /handing back to the orchestrator/);
+  const planning = stageSection("planning");
+  assert.match(planning, /hands back to you\. It never invokes writing-plans itself/);
+  assert.ok(planning.includes('`sfactory job set <id> building --reason "fix plan written"`'), "the orchestrator makes the fix's move");
+  assert.match(planning, /still in `planning`/);
+  assert.match(planning, /resumes a fix card found in `planning`/);
+});
