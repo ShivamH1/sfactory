@@ -6,10 +6,18 @@ import { fail } from "./errors.mjs";
 import { killTree, followSignals } from "./suite.mjs";
 import { secretNames } from "./secrets.mjs";
 
-const SECRETISH = /(_SECRET|_TOKEN|_KEY)$/i;
+const SECRETISH = /(_SECRET|_TOKEN|_KEY|_PASSWORD|_CREDENTIALS)$/i;
+/** Credentials by name: a database URL and the libpq password. */
+const SECRET_NAMES = new Set(["DATABASE_URL", "PGPASSWORD"]);
+/** A URL carrying credentials (scheme://user:pass@host, or scheme://token@host). */
+const URL_WITH_CREDENTIALS = /^[a-z][a-z0-9+.-]*:\/\/[^\s/@]+@/i;
 const ALLOWED_PREFIX = /^(CODEX_|OPENAI_)/i;
 
-/** The environment a Codex child gets: nothing named in secrets, and no *_SECRET/*_TOKEN/*_KEY unless CODEX_* or OPENAI_*. */
+/**
+ * The environment a Codex child gets: nothing named in secrets; no *_SECRET, *_TOKEN, *_KEY, *_PASSWORD or
+ * *_CREDENTIALS unless CODEX_* or OPENAI_*; no DATABASE_URL or PGPASSWORD; and no *_URL whose value carries
+ * credentials (scheme://user:pass@). A Claude subagent is not filtered: it inherits the session's environment.
+ */
 export function filterEnv(c, env = process.env) {
   const drop = new Set(secretNames(c).map((s) => s.toUpperCase()));
   const out = {};
@@ -17,6 +25,8 @@ export function filterEnv(c, env = process.env) {
     if (v === undefined) continue;
     if (drop.has(k.toUpperCase())) continue;
     if (SECRETISH.test(k) && !ALLOWED_PREFIX.test(k)) continue;
+    if (SECRET_NAMES.has(k.toUpperCase())) continue;
+    if (/_URL$/i.test(k) && URL_WITH_CREDENTIALS.test(String(v))) continue;
     out[k] = v;
   }
   return out;

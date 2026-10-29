@@ -298,3 +298,9 @@ test("codex: win32 refuses a control character in any argument (a LF would cut t
     await ex({ cwd: String.raw`C:\plain dir` });
   } finally { Object.defineProperty(process, "platform", desc); }
 });
+
+test("filterEnv (minor 1): DATABASE_URL, PGPASSWORD, *_PASSWORD, *_CREDENTIALS and a *_URL with credentials are dropped", () => {
+  const c = cfg();
+  const r = filterEnv(c, { DATABASE_URL: "postgres://h/db", PGPASSWORD: "p", DB_PASSWORD: "p", gcp_credentials: "{}", REDIS_URL: "redis://user:pw@h:6379", HOOK_URL: "https://tok@h/x", API_URL: "https://h/x", PUBLIC_URL: "http://localhost:3000", OPENAI_PASSWORD: "kept: an OPENAI_ name", PATH: "1" });
+  assert.deepEqual(Object.keys(r).sort(), ["API_URL", "OPENAI_PASSWORD", "PATH", "PUBLIC_URL"]);
+});
