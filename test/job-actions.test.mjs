@@ -272,3 +272,28 @@ test("I4: approve refuses a milestone beside an active one without a parallel ye
   actions.set(d, { id: "m-1", to: "planning" }); actions.set(d, { id: "m-1", to: "awaiting-approval" });
   assert.equal(actions.approve(d, { id: "m-1" }).stage, "building");
 });
+
+test("N4: resume re-checks the cap and, past approval, the parallel answer; a card resting before the cap resumes freely", () => {
+  const c = { ...cfg(), limits: { lockStaleMs: 60_000, parallelMilestones: 2 } };
+  for (const t of ["A", "B", "C"]) actions.add(c, { kind: "milestone", title: t });
+  actions.set(c, { id: "m-1", to: "planning" });
+  actions.stop(c, { id: "m-1" });
+  actions.set(c, { id: "m-2", to: "planning" });
+  actions.set(c, { id: "m-3", to: "planning" });
+  throwsCode(() => actions.resume(c, { id: "m-1" }), "CAP_REACHED", /m-2 planning, m-3 planning/);
+  assert.equal(readJob(c, "m-1").stage, "stopped", "nothing written");
+  actions.stop(c, { id: "m-3" });
+  assert.equal(actions.resume(c, { id: "m-1" }).stage, "planning");
+  // past approval the parallel answer is needed beside another active card
+  withJobLock(c, "m-1", () => writeJob(c, { ...readJob(c, "m-1"), stage: "building" }));
+  actions.stop(c, { id: "m-1" });
+  throwsCode(() => actions.resume(c, { id: "m-1" }), "PARALLEL_UNANSWERED", /m-2 is active/);
+  actions.stop(c, { id: "m-2" });
+  assert.equal(actions.resume(c, { id: "m-1" }).stage, "building", "alone, it resumes");
+  // a fix is never capped
+  actions.add(c, { kind: "fix", title: "F" });
+  actions.set(c, { id: "f-1", to: "planning" });
+  actions.stop(c, { id: "f-1" });
+  assert.equal(actions.resume(c, { id: "f-1" }).stage, "planning");
+  unheld(c, "m-1");
+});
