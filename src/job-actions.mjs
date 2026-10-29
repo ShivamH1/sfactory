@@ -2,10 +2,21 @@ import { readJob, writeJob, addJob, withJobLock, listJobs, writeJobFile, jobFile
 import { transition, park, release, queue, stop, resume, WORKING } from "./job.mjs";
 import { fail } from "./errors.mjs";
 import { removeVerifyCopies } from "./verify-copies.mjs";
+import { withRecordLock } from "./record.mjs";
 
 /** The gates as functions: each takes (c, args), runs under the job's lock, re-reads the job there and returns the written job. */
 const nextNo = (c, id, rel) => { let k = 1; while (jobFileExists(c, id, rel(k))) k++; return k; };
 const locked = (c, id, fn) => withJobLock(c, id, () => fn(readJob(c, id)));
+
+/**
+ * The milestones that count toward limits.parallelMilestones: from planning until pushed, merged or stopped. A card
+ * in backlog does not count, a queued one (parallel: queued) included, nor one parked for a parallel proposal from
+ * backlog (it has not started).
+ */
+export function activeMilestones(c, exceptId = null) {
+  const off = ["backlog", "pushed", "merged", "stopped"];
+  return listJobs(c).filter((j) => j.id !== exceptId && j.kind === "milestone" && !off.includes(j.stage) && !(j.stage === "decision-needed" && j.returnStage === "backlog"));
+}
 
 export const actions = {
   add(c, { kind, title, logOf }) {
@@ -20,12 +31,27 @@ export const actions = {
     return locked(c, id, (job) => {
       if (job.stage === "awaiting-approval") fail("APPROVAL_REQUIRED", `${id} leaves awaiting-approval only through "sfactory job approve"`);
       if (to === "building" && ["reviewing", "pushed"].includes(job.stage)) fail("ILLEGAL_TRANSITION", `${id} goes back to building only through "sfactory job rework ${id} --notes <what to change>"`);
-      return writeJob(c, transition(job, to, { by, reason, limits: c.limits }));
+      const next = transition(job, to, { by, reason, limits: c.limits });
+      if (!(to === "planning" && job.kind === "milestone")) return writeJob(c, next);
+      // The cap is read and the start written under the shared record lock, so two starts cannot both pass it.
+      return withRecordLock(c, id, () => {
+        const cap = c.limits?.parallelMilestones ?? 2;
+        const act = activeMilestones(c, id);
+        if (act.length >= cap) fail("CAP_REACHED", `${act.length} milestones are active (${act.map((j) => `${j.id} ${j.stage}`).join(", ")}) and limits.parallelMilestones is ${cap}; ${id} stays in backlog until one is pushed, merged or stopped`);
+        return writeJob(c, next);
+      });
     });
   },
   approve(c, { id, by = "session" }) {
     return locked(c, id, (job) => {
       if (job.stage !== "awaiting-approval") fail("ILLEGAL_TRANSITION", `${job.id} is ${job.stage}, not awaiting-approval`);
+      // A milestone built beside another active milestone needs the person's parallel yes: its own (parallel approved),
+      // or the other card's, approved beside it (the card that was never asked is a side of the pair too).
+      if (job.kind === "milestone") {
+        const act = activeMilestones(c, id);
+        const paired = job.parallel === "approved" || act.some((o) => o.parallel === "approved" && o.parallelWith === job.id);
+        if (act.length && !paired) fail("PARALLEL_UNANSWERED", `${act.map((j) => j.id).join(", ")} ${act.length > 1 ? "are" : "is"} active and ${id} has no approved parallel answer (parallel: ${job.parallel ?? "none"}); ask with "sfactory job park ${id} --pending parallel --with <id> --reason ..." and approve once it is answered yes`);
+      }
       writeJobFile(c, job.id, "plan/approval.md", `approved by ${by} at ${new Date().toISOString()}\n`);
       return writeJob(c, transition(job, "building", { by, reason: "approved" }));
     });

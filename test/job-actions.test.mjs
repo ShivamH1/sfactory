@@ -230,3 +230,45 @@ test("actions: a parallel park names its partner (--with): recorded as parallelW
   assert.deepEqual([j.stage, j.parallel, j.parallelWith], ["backlog", "queued", "m-1"], "a queued card keeps the partner it waits on");
   unheld(c, "m-2"); unheld(c, "m-3");
 });
+
+test("I4: a milestone's start at the cap is CAP_REACHED; queued and stopped cards do not count; fixes are never capped", () => {
+  const c = { ...cfg(), limits: { lockStaleMs: 60_000, parallelMilestones: 2 } };
+  for (const t of ["A", "B", "C", "D"]) actions.add(c, { kind: "milestone", title: t });
+  actions.set(c, { id: "m-1", to: "planning" });
+  actions.set(c, { id: "m-2", to: "planning" });
+  throwsCode(() => actions.set(c, { id: "m-3", to: "planning" }), "CAP_REACHED", /m-1 planning, m-2 planning/);
+  assert.equal(readJob(c, "m-3").stage, "backlog", "nothing written");
+  // a parallel proposal answered no puts m-2 back in backlog (queued): it no longer counts
+  actions.park(c, { id: "m-2", reason: "beside m-1?", pending: "parallel", with: "m-1" });
+  actions.parallel(c, { id: "m-2", yes: false });
+  assert.equal(readJob(c, "m-2").parallel, "queued");
+  actions.set(c, { id: "m-3", to: "planning" });
+  actions.stop(c, { id: "m-3" });
+  actions.set(c, { id: "m-4", to: "planning" }); // m-3 stopped: one active (m-1) + m-4
+  actions.add(c, { kind: "fix", title: "F" });
+  actions.set(c, { id: "f-1", to: "planning" });   // a fix is never capped
+  unheld(c, "m-4");
+});
+
+test("I4: approve refuses a milestone beside an active one without a parallel yes (PARALLEL_UNANSWERED); either side of an approved pair passes", () => {
+  const c = cfg();
+  actions.add(c, { kind: "milestone", title: "A" });
+  actions.add(c, { kind: "milestone", title: "B" });
+  actions.set(c, { id: "m-1", to: "planning" }); actions.set(c, { id: "m-1", to: "awaiting-approval" });
+  actions.set(c, { id: "m-2", to: "planning" }); actions.set(c, { id: "m-2", to: "awaiting-approval" });
+  throwsCode(() => actions.approve(c, { id: "m-2" }), "PARALLEL_UNANSWERED", /m-1 is active/);
+  throwsCode(() => actions.approve(c, { id: "m-1" }), "PARALLEL_UNANSWERED", /m-2 is active/);
+  assert.equal(jobFileExists(c, "m-2", "plan/approval.md"), false, "nothing written");
+  // B asks beside A and the person says yes: both sides approve
+  withJobLock(c, "m-2", () => writeJob(c, { ...readJob(c, "m-2"), stage: "planning" }));
+  actions.park(c, { id: "m-2", reason: "beside m-1?", pending: "parallel", with: "m-1" });
+  actions.parallel(c, { id: "m-2", yes: true });
+  withJobLock(c, "m-2", () => writeJob(c, { ...readJob(c, "m-2"), stage: "awaiting-approval" }));
+  assert.equal(actions.approve(c, { id: "m-1" }).stage, "building", "the side that was never asked");
+  assert.equal(actions.approve(c, { id: "m-2" }).stage, "building");
+  // alone, a milestone approves as before
+  const d = cfg();
+  actions.add(d, { kind: "milestone", title: "Solo" });
+  actions.set(d, { id: "m-1", to: "planning" }); actions.set(d, { id: "m-1", to: "awaiting-approval" });
+  assert.equal(actions.approve(d, { id: "m-1" }).stage, "building");
+});

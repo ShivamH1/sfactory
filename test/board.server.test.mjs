@@ -144,6 +144,8 @@ test("server: by is used when given, blank falls back to board", async () => {
   const c = mk();
   const a = addJob(c, "milestone", "By one"), z = addJob(c, "milestone", "By two");
   toApproval(c, a.id); toApproval(c, z.id);
+  // I4: two milestones beside each other approve only as an approved parallel pair.
+  withJobLock(c, z.id, () => writeJob(c, { ...readJob(c, z.id), parallel: "approved", parallelWith: a.id }));
   await withBoard(c, {}, async (b) => {
     assert.equal((await post(b, `jobs/${a.id}/approve`, { by: " ana " })).status, 200);
     assert.equal(readJob(c, a.id).history.at(-1).by, "ana");

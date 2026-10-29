@@ -21,7 +21,7 @@ Parse `$ARGUMENTS`: the first word is the command. Each row is the CLI line you 
 | `/sfactory add milestone "<title>"` | `sfactory job add milestone "<title>"`. It waits in backlog until `run` starts it. |
 | `/sfactory add fix "<title>" --log <n>` | `sfactory job add fix "<title>" --log <n>`. Without `--log`, `sfactory job add fix "<title>"`. With it, the fix records itself as a dated note in milestone `<n>`'s log, which the cut finds. |
 | `/sfactory run [--resume <id>]` | Orientation (section 3), then `sfactory job list --json` and the run loop (section 4). With `--resume <id>`, first `sfactory job resume <id>`: a `stopped` card is resumed only this way. |
-| `/sfactory approve <id>` | `sfactory job approve <id>`. It writes `plan/approval.md` and moves the card to `building`. |
+| `/sfactory approve <id>` | `sfactory job approve <id>`. It writes `plan/approval.md` and moves the card to `building`. A milestone beside another active milestone is refused `PARALLEL_UNANSWERED` until a parallel proposal between them is answered yes (section 5): ask it, then approve. |
 | `/sfactory answer <id> ["<answer>"]` | Write the person's answer (from the command, or ask for it) to `<JOB_DIR>/decisions/<k>-answer.md`, where `<k>` is the highest `decisions/<k>.md`. Then run `sfactory job answer <id>`. |
 | `/sfactory parallel <id> --yes` or `--no` | `sfactory job parallel <id> --yes` or `sfactory job parallel <id> --no` (section 5). |
 | `/sfactory status` | `sfactory job list`: one line per card. |
@@ -74,8 +74,8 @@ A run ends when nothing is left but `pushed`, `merged` and `stopped` cards, or e
 
 **backlog**
 
-1. **Milestones: the cap and the queue.** A milestone is **active** while it has a worktree and is not `pushed`, `merged` or `stopped`.
-   - Never start a milestone when `limits.parallelMilestones` milestones are already active. It stays in backlog, and nobody is asked.
+1. **Milestones: the cap and the queue.** A milestone is **active** from `planning` until it is `pushed`, `merged` or `stopped`. A card in backlog is not active, a queued one included, so queued cards never count toward the cap.
+   - Never start a milestone when `limits.parallelMilestones` milestones are already active. It stays in backlog, and nobody is asked. The CLI enforces it: `sfactory job set <id> planning` refuses `CAP_REACHED`, writing nothing, and the card simply waits.
    - A queued card (`parallel` is `queued`) waits on its partner: it starts once the card named in its `parallelWith` is no longer active.
 2. **Move and cut.** Run `sfactory job set <id> planning --reason "started"`. Then cut the worktree, unless the job's `worktree` is already set (a resumed or queued card keeps it):
    - **A card whose `parallel` is `approved`**, beside the active partner A that its `parallelWith` names: `sfactory worktree cut <id> --base-of <A>`. It starts from A's recorded base, side by side.
