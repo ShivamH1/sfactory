@@ -1,0 +1,57 @@
+{
+  "id": "f-1",
+  "kind": "fix",
+  "title": "Fix the date shown on the receipt",
+  "stage": "decision-needed",
+  "returnStage": "building",
+  "previousStage": null,
+  "pending": "decision",
+  "branch": "fix/receipt-date",
+  "base": "main",
+  "worktree": null,
+  "ports": null,
+  "record": null,
+  "tasks": {
+    "total": 1,
+    "done": 0,
+    "parallel": []
+  },
+  "round": 0,
+  "rework": 0,
+  "parallel": null,
+  "agents": null,
+  "cost": 0,
+  "started": "2026-01-05T08:40:00.000Z",
+  "updated": "2026-01-05T09:20:00.000Z",
+  "ended": null,
+  "history": [
+    {
+      "at": "2026-01-05T08:40:00.000Z",
+      "from": null,
+      "to": "backlog",
+      "by": "session",
+      "reason": "created"
+    },
+    {
+      "at": "2026-01-05T08:45:00.000Z",
+      "from": "backlog",
+      "to": "planning",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T09:00:00.000Z",
+      "from": "planning",
+      "to": "building",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T09:20:00.000Z",
+      "from": "building",
+      "to": "decision-needed",
+      "by": "session",
+      "reason": "two readings of the bug are possible"
+    }
+  ]
+}

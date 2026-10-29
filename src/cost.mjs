@@ -1,6 +1,7 @@
-import { mkdirSync, writeFileSync, renameSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { jobDir, readJobFile } from "./store.mjs";
+import { jobDir, readJobFile, withJobLock, atomicWrite, HOLDER } from "./store.mjs";
+import { status } from "./lock.mjs";
 import { fail } from "./errors.mjs";
 
 export function priceOf(prices, model, { inputTokens = 0, outputTokens = 0, cacheReadTokens = 0 }) {
@@ -21,12 +22,16 @@ export function readCost(c, id) {
 export function addCost(c, id, { at = new Date().toISOString(), stage, agent, model, inputTokens = 0, outputTokens = 0, cacheReadTokens = 0, usd = null }) {
   const computed = usd ?? priceOf(c.prices, model, { inputTokens, outputTokens, cacheReadTokens });
   const entry = { at, stage, agent, model, inputTokens, outputTokens, cacheReadTokens, usd: computed, priced: computed != null };
-  const all = readCost(c, id);
-  all.entries.push(entry);
-  all.total = totalUsd(all.entries);
-  const dir = jobDir(c, id), f = join(dir, "cost.json"), tmp = f + ".tmp";
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(tmp, JSON.stringify(all, null, 2) + "\n");
-  renameSync(tmp, f);
+  const write = () => {
+    const all = readCost(c, id);
+    all.entries.push(entry);
+    all.total = totalUsd(all.entries);
+    const dir = jobDir(c, id);
+    mkdirSync(dir, { recursive: true });
+    atomicWrite(join(dir, "cost.json"), JSON.stringify(all, null, 2) + "\n");
+  };
+  const s = status(c, `job:${id}`);
+  if (s.held && s.holder === HOLDER) write(); // the caller already holds the job lock: a nested acquire would wait on itself
+  else withJobLock(c, id, write);
   return entry;
 }

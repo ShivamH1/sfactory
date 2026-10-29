@@ -1,0 +1,85 @@
+{
+  "id": "m-2",
+  "kind": "milestone",
+  "title": "Export the orders list as CSV",
+  "stage": "pushed",
+  "returnStage": null,
+  "previousStage": null,
+  "pending": null,
+  "branch": "feature/orders-csv",
+  "base": "main",
+  "worktree": null,
+  "ports": null,
+  "record": null,
+  "tasks": {
+    "total": 4,
+    "done": 4,
+    "parallel": []
+  },
+  "round": 0,
+  "rework": 0,
+  "parallel": null,
+  "agents": null,
+  "cost": 0,
+  "started": "2026-01-05T08:10:00.000Z",
+  "updated": "2026-01-05T12:10:00.000Z",
+  "ended": null,
+  "history": [
+    {
+      "at": "2026-01-05T08:10:00.000Z",
+      "from": null,
+      "to": "backlog",
+      "by": "session",
+      "reason": "created"
+    },
+    {
+      "at": "2026-01-05T08:15:00.000Z",
+      "from": "backlog",
+      "to": "planning",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T08:40:00.000Z",
+      "from": "planning",
+      "to": "awaiting-approval",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T09:10:00.000Z",
+      "from": "awaiting-approval",
+      "to": "building",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T11:10:00.000Z",
+      "from": "building",
+      "to": "reviewing",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T11:40:00.000Z",
+      "from": "reviewing",
+      "to": "verifying",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T11:55:00.000Z",
+      "from": "verifying",
+      "to": "pushing",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T12:10:00.000Z",
+      "from": "pushing",
+      "to": "pushed",
+      "by": "session",
+      "reason": null
+    }
+  ]
+}

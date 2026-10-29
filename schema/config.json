@@ -164,7 +164,8 @@
       "description": "The status board.",
       "properties": {
         "port": { "type": "integer", "description": "Port the board listens on." },
-        "pollMs": { "type": "integer", "minimum": 1, "description": "How often the board refreshes, in milliseconds." }
+        "pollMs": { "type": "integer", "minimum": 1, "description": "How often the board refreshes, in milliseconds." },
+        "activeMs": { "type": "integer", "minimum": 1, "description": "A job in a working stage whose last update is within this many milliseconds shows a live pulse on the board. Default 120000." }
       }
     },
     "prices": {

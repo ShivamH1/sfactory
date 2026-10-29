@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #0f1114; --bg-2: #15181d; --surface: #1b1f25; --surface-2: #22272f; --line: #2c323b;
+    --ink: #e8e6e1; --ink-2: #a6a9ad; --ink-3: #6f747b;
+    --gold: #e0b35a; --gold-ink: #1a1405; --mint: #6fd3a3; --amber: #e9a23b; --red: #e4645c; --you: #c9a4ff;
+    --on-amber: #1a1405; --shadow: rgba(0, 0, 0, .35);
+    --danger: #e4645c; --pulse: rgba(111, 211, 163, .45);
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f6f4ef; --bg-2: #efece5; --surface: #ffffff; --surface-2: #f1eee7; --line: #dcd7cc;
+      --ink: #1b1a17; --ink-2: #4f4d47; --ink-3: #807c73;
+      --gold: #b8842a; --gold-ink: #fff8e8; --mint: #1f9a62; --amber: #c27a12; --red: #c7433b; --you: #7a48c9;
+      --on-amber: #1a1405; --shadow: rgba(0, 0, 0, .15);
+      --danger: #c7433b; --pulse: rgba(31, 154, 98, .4);
+      color-scheme: light;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f6f4ef; --bg-2: #efece5; --surface: #ffffff; --surface-2: #f1eee7; --line: #dcd7cc;
+    --ink: #1b1a17; --ink-2: #4f4d47; --ink-3: #807c73;
+    --gold: #b8842a; --gold-ink: #fff8e8; --mint: #1f9a62; --amber: #c27a12; --red: #c7433b; --you: #7a48c9;
+    --on-amber: #1a1405; --shadow: rgba(0, 0, 0, .15);
+    --danger: #c7433b; --pulse: rgba(31, 154, 98, .4);
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    --danger: #e4645c; --pulse: rgba(111, 211, 163, .45);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.45; }
+  body { min-height: 100vh; display: flex; flex-direction: column; overflow-x: hidden; }
+  button, textarea { font: inherit; color: inherit; }
+
+  header.top { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--bg-2); }
+  header.top h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .01em; }
+  header.top .project { color: var(--ink-2); font-family: var(--mono); font-size: 12px; }
+  header.top .spacer { flex: 1; }
+  .conn { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+  .conn.bad { color: var(--red); }
+  #theme { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
+  #demo { display: none; padding: 8px 16px; background: var(--amber); color: var(--on-amber); font-weight: 600; font-size: 13px; }
+  #demo.on { display: block; }
+
+  #board { flex: 1; display: flex; gap: 12px; padding: 16px; overflow-x: auto; align-items: flex-start; }
+  .col { flex: 0 0 272px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; max-height: calc(100vh - 190px); min-height: 120px; }
+  .col[hidden] { display: none; }
+  .col h2 { margin: 0; padding: 10px 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-2); display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); }
+  .col h2 .n { font-family: var(--mono); color: var(--ink-3); }
+  .col[data-column="Needs you"] h2 { color: var(--you); }
+  .cards { padding: 8px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+  .empty { color: var(--ink-3); font-size: 12px; padding: 6px 4px; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 11px; display: flex; flex-direction: column; gap: 7px; }
+  .card.needs { border-color: var(--you); }
+  .card.stopped { border-color: var(--danger); }
+  .tag.danger { color: var(--danger); border-color: var(--danger); }
+  .card.active { box-shadow: 0 0 0 2px var(--pulse); }
+  @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 var(--pulse); } 50% { box-shadow: 0 0 0 4px var(--pulse); } }
+  @media (prefers-reduced-motion: no-preference) { .card.active { animation: pulse 2s ease-in-out infinite; } }
+  @media (prefers-reduced-motion: reduce) { .card.active { animation: none; box-shadow: 0 0 0 2px var(--pulse); } }
+  .chip { font-family: var(--mono); font-size: 10.5px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); background: none; cursor: pointer; }
+  .chip.good { color: var(--mint); border-color: var(--mint); }
+  .chip.bad { color: var(--red); border-color: var(--red); }
+  .hint { color: var(--ink-3); font-size: 11.5px; }
+  .hint:empty { display: none; }
+  .btn[aria-disabled="true"] { opacity: .5; cursor: default; }
+  .card .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .card .id { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+  .card .title { font-weight: 500; overflow-wrap: anywhere; cursor: pointer; background: none; border: 0; padding: 0; text-align: left; }
+  .card .title:hover { text-decoration: underline; }
+  .tag { font-family: var(--mono); font-size: 10.5px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--ink-2); }
+  .tag.you { color: var(--you); border-color: var(--you); }
+  .meta { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--ink-3); display: flex; gap: 10px; flex-wrap: wrap; }
+  .branch { font-family: var(--mono); font-size: 11px; color: var(--ink-2); overflow-wrap: anywhere; }
+  .q { white-space: pre-wrap; background: var(--surface-2); border-radius: 6px; padding: 8px; font-size: 12.5px; max-height: 180px; overflow: auto; overflow-wrap: anywhere; }
+  .gate { display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed var(--line); padding-top: 7px; }
+  .gate .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  textarea { width: 100%; min-height: 56px; resize: vertical; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12.5px; }
+  textarea:focus-visible, button:focus-visible { outline: 2px solid var(--mint); outline-offset: 1px; }
+  .btn { border: 1px solid var(--line); background: var(--surface-2); border-radius: 6px; padding: 5px 11px; cursor: pointer; font-size: 12.5px; }
+  .btn:hover { border-color: var(--ink-3); }
+  .btn[disabled] { opacity: .5; cursor: default; }
+  .btn.go { background: var(--gold); color: var(--gold-ink); border-color: var(--gold); font-weight: 600; }
+  .btn.stop { color: var(--red); }
+  .err { color: var(--red); font-size: 12px; overflow-wrap: anywhere; }
+  .err:empty { display: none; }
+
+  footer { border-top: 1px solid var(--line); background: var(--bg-2); padding: 10px 16px; display: flex; gap: 20px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
+  footer b { color: var(--ink); font-weight: 500; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  footer .k { color: var(--ink-3); font-family: var(--mono); font-size: 11px; margin-right: 6px; }
+
+  #drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); background: var(--bg-2); border-left: 1px solid var(--line); display: none; flex-direction: column; z-index: 10; box-shadow: -8px 0 24px var(--shadow); }
+  #drawer.open { display: flex; }
+  #drawer header { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  #drawer header .t { flex: 1; font-weight: 600; overflow-wrap: anywhere; }
+  #files { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  #files .btn { font-family: var(--mono); font-size: 11px; padding: 3px 8px; }
+  #files .btn.on { border-color: var(--mint); color: var(--mint); }
+  #verdict { display: none; margin: 10px 16px 0; align-self: flex-start; }
+  #verdict.on { display: inline-block; }
+  #verdict.ok { color: var(--mint); border-color: var(--mint); }
+  #verdict.bad { color: var(--red); border-color: var(--red); }
+  #content { flex: 1; margin: 10px 16px 16px; white-space: pre-wrap; overflow: auto; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
+
+  @media (max-width: 640px) {
+    .col { flex-basis: 84vw; max-height: none; }
+    #board.has-cards .col.is-empty { display: none; }
+    header.top { flex-wrap: wrap; }
+  }
+  @media (prefers-reduced-motion: no-preference) { .card { transition: border-color .15s; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Job board</h1>
+  <span class="project" id="project"></span>
+  <span class="spacer"></span>
+  <span class="conn" id="conn">connecting</span>
+  <button id="theme" type="button" aria-label="Toggle theme">Theme</button>
+</header>
+<div id="demo" role="status">Demo data: nothing here is a real job, and the controls are off.</div>
+
+<main id="board" aria-label="Jobs by stage">
+  <section class="col" data-column="Backlog"><h2>Backlog <span class="n"></span></h2><div class="cards"></div></section>
+  <section class="col" data-column="Plan"><h2>Plan <span class="n"></span></h2><div class="cards"></div></section>
+  <section class="col" data-column="Needs you"><h2>Needs you <span class="n"></span></h2><div class="cards"></div></section>
+  <section class="col" data-column="In process"><h2>In process <span class="n"></span></h2><div class="cards"></div></section>
+  <section class="col" data-column="Review"><h2>Review <span class="n"></span></h2><div class="cards"></div></section>
+  <section class="col" data-column="Fixed"><h2>Fixed <span class="n"></span></h2><div class="cards"></div></section>
+  <section class="col" data-column="Pushed / PR"><h2>Pushed / PR <span class="n"></span></h2><div class="cards"></div></section>
+  <section class="col" data-column="Done"><h2>Done <span class="n"></span></h2><div class="cards"></div></section>
+  <section class="col" data-column="Stopped" hidden><h2>Stopped <span class="n"></span></h2><div class="cards"></div></section>
+</main>
+
+<footer id="footer"></footer>
+
+<aside id="drawer" aria-label="Job files">
+  <header><span class="t" id="dtitle"></span><button class="btn" id="dclose" type="button">Close</button></header>
+  <div id="files"></div>
+  <span class="tag" id="verdict"></span>
+  <pre id="content"></pre>
+</aside>
+
+<script>
+(function () {
+  "use strict";
+  var VERDICT = /✅|❌|\b(?:Approved|Needs fixes|ok|red)\b/i;
+  var cols = {};
+  document.querySelectorAll("[data-column]").forEach(function (el) { cols[el.getAttribute("data-column")] = el; });
+  var cards = {};          // id -> { el, sig }
+  var snap = null, pollTimer = null, pollMs = 2000, drawerJob = null, drawerFile = null;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function h(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = String(text);
+    return e;
+  }
+  function fmtElapsed(ms) {
+    if (!(ms >= 0)) return "";
+    var s = Math.floor(ms / 1000), m = Math.floor(s / 60), hr = Math.floor(m / 60);
+    if (hr >= 48) return Math.floor(hr / 24) + "d " + (hr % 24) + "h";
+    if (hr > 0) return hr + "h " + (m % 60) + "m";
+    if (m > 0) return m + "m " + (s % 60) + "s";
+    return s + "s";
+  }
+  function usd(n) { return "$" + (Number(n) || 0).toFixed(2); }
+
+  // ---- POST helper ----
+  function post(id, action, body) {
+    var headers = { "Content-Type": "application/json" };
+    headers["X-Sfactory-Board"] = "1";
+    return fetch("/jobs/" + encodeURIComponent(id) + "/" + action, { method: "POST", headers: headers, body: JSON.stringify(body || {}) })
+      .then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          if (!r.ok) throw new Error(j.message || j.code || ("request failed (" + r.status + ")"));
+          return j;
+        });
+      });
+  }
+
+  // ---- controls ----
+  function field(card, name) { var t = card.querySelector('textarea[data-field="' + name + '"]'); return t ? t.value : ""; }
+  function required(card, name, what) { var v = field(card, name); if (!v.trim()) throw new Error(what + " needs some text first."); return v; }
+  function textarea(name, placeholder) {
+    var t = h("textarea");
+    t.setAttribute("data-field", name);
+    t.placeholder = placeholder;
+    t.setAttribute("aria-label", placeholder);
+    return t;
+  }
+  function actionButton(card, job, label, cls, action, collect) {
+    var b = h("button", "btn " + cls, label);
+    b.type = "button";
+    b.addEventListener("click", function () {
+      if (b.getAttribute("aria-disabled") === "true") return;
+      var err = card.querySelector(".err");
+      var body;
+      try { body = collect ? collect(card) : {}; } catch (e) { err.textContent = e.message; return; }
+      err.textContent = "";
+      b.disabled = true;
+      post(job.id, action, body).then(function () { return poll(); })
+        .catch(function (e) { err.textContent = e.message; })
+        .then(function () { b.disabled = false; });
+    });
+    return b;
+  }
+
+  function gateFor(card, job) {
+    var g = h("div", "gate");
+    var btns = h("div", "btns");
+    var n = job.needsYou;
+    if (job.stage === "awaiting-approval") {
+      g.appendChild(textarea("notes", "What should change in the plan?"));
+      var ap = actionButton(card, job, "Approve", "go", "approve");
+      ap.setAttribute("data-approve", "1");
+      btns.appendChild(ap);
+      var hint = h("div", "hint");
+      hint.id = "hint-" + job.id;
+      ap.setAttribute("aria-describedby", hint.id);
+      g.appendChild(hint);
+      btns.appendChild(actionButton(card, job, "Request changes", "", "request-changes", function (c) { return { notes: required(c, "notes", "Request changes") }; }));
+    } else if (n && n.action === "answer") {
+      g.appendChild(h("div", "q", n.question || ""));
+      g.appendChild(textarea("text", "Your answer"));
+      btns.appendChild(actionButton(card, job, "Answer", "go", "answer", function (c) { return { text: required(c, "text", "Answer") }; }));
+    } else if (n && n.action === "parallel") {
+      g.appendChild(h("div", "q", n.reason || ""));
+      btns.appendChild(actionButton(card, job, "Run in parallel", "go", "parallel", function () { return { yes: true }; }));
+      btns.appendChild(actionButton(card, job, "Queue it", "", "parallel", function () { return { yes: false }; }));
+    } else if (job.stage === "pushed") {
+      var copy = h("button", "btn", "Copy PR text");
+      copy.type = "button";
+      copy.addEventListener("click", function () {
+        var err = card.querySelector(".err");
+        var text = job.prText || "";
+        if (!text) { err.textContent = "No PR text has been written yet."; return; }
+        err.textContent = "";
+        var done = function () { copy.textContent = "Copied"; setTimeout(function () { copy.textContent = "Copy PR text"; }, 1500); };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, function () { err.textContent = "The browser refused the clipboard."; });
+        else err.textContent = "The clipboard is not available here.";
+      });
+      btns.appendChild(copy);
+      btns.appendChild(actionButton(card, job, "Mark merged", "go", "merged"));
+    }
+    if (job.stage === "reviewing" || job.stage === "pushed") {
+      g.appendChild(textarea("rework", "What should change?"));
+      btns.appendChild(actionButton(card, job, "Rework", "", "rework", function (c) { return { notes: required(c, "rework", "Rework") }; }));
+    }
+    if (["planning", "building", "reviewing", "fixing", "verifying", "pushing"].indexOf(job.stage) >= 0) {
+      btns.appendChild(actionButton(card, job, "Stop", "stop", "stop", function () { return { reason: "stopped from the board" }; }));
+    }
+    if (!btns.childNodes.length && !g.childNodes.length) return null;
+    if (btns.childNodes.length) g.appendChild(btns);
+    g.appendChild(h("div", "err"));
+    return g;
+  }
+
+  // ---- approve only after viewing: page state, never storage ----
+  var viewed = {};         // job id -> { updated, files: { path: true } }
+  function planFiles(job) { return (job.files || []).filter(function (f) { return /^plan\/[^/]+\.md$/.test(f); }); }
+  function unseenPlan(job) {
+    var v = viewed[job.id];
+    return planFiles(job).filter(function (f) { return !(v && v.files[f]); });
+  }
+  function refreshApprove(job) {
+    var c = cards[job.id];
+    var b = c && c.el.querySelector("[data-approve]");
+    if (!b) return;
+    var gated = unseenPlan(job).length > 0;
+    if (gated) b.setAttribute("aria-disabled", "true"); else b.removeAttribute("aria-disabled");
+    var hint = c.el.querySelector(".hint");
+    if (hint) hint.textContent = gated ? "Open the plan files first" : "";
+  }
+  function noteViewed(id, rel, updated) {
+    var job = snap && snap.jobs.filter(function (j) { return j.id === id; })[0];
+    if (!job || job.updated !== updated || !/^plan\/[^/]+\.md$/.test(rel)) return;
+    var v = viewed[id];
+    if (!v || v.updated !== job.updated) v = viewed[id] = { updated: job.updated, files: {} };
+    v.files[rel] = true;
+    refreshApprove(job);
+  }
+
+  // ---- cards ----
+  function tasksText(t) {
+    if (t === null || t === undefined) return "";
+    if (typeof t === "number") return t + " tasks";
+    if (typeof t === "object" && typeof t.total === "number" && t.total > 0) return (typeof t.done === "number" ? t.done : 0) + "/" + t.total + " tasks";
+    return "";
+  }
+  function buildCard(job, demo) {
+    var card = h("article", "card" + (job.needsYou ? " needs" : "") + (job.stage === "stopped" ? " stopped" : "") + (job.active ? " active" : ""));
+    card.setAttribute("data-id", job.id);
+    var top = h("div", "row");
+    top.appendChild(h("span", "id", job.id));
+    top.appendChild(h("span", "tag", job.kind));
+    top.appendChild(h("span", job.stage === "stopped" ? "tag danger" : "tag", job.stage));
+    if (job.needsYou) top.appendChild(h("span", "tag you", "needs you"));
+    else if (job.pending) top.appendChild(h("span", "tag you", job.pending));
+    if (job.parallel) top.appendChild(h("span", "tag", "parallel: " + job.parallel));
+    card.appendChild(top);
+    var title = h("button", "title", job.title);
+    title.type = "button";
+    title.addEventListener("click", function () { openDrawer(job.id); });
+    card.appendChild(title);
+    if (job.branch) card.appendChild(h("div", "branch", job.branch));
+    if (job.reviews && job.reviews.length) {
+      var chips = h("div", "row");
+      job.reviews.forEach(function (r) {
+        var base = r.file.split("/").pop().replace(/\.md$/, "");
+        var ch = h("button", "chip " + (r.verdict === "bad" ? "bad" : "good"), (r.verdict === "bad" ? "✗ " : "✓ ") + base);
+        ch.type = "button";
+        ch.setAttribute("aria-label", "Open review " + base);
+        ch.addEventListener("click", function () { openDrawer(job.id, r.file); });
+        chips.appendChild(ch);
+      });
+      card.appendChild(chips);
+    }
+    var meta = h("div", "meta");
+    var el = h("span", null, fmtElapsed(job.elapsedMs));
+    el.setAttribute("data-elapsed", "1");
+    meta.appendChild(el);
+    var tt = tasksText(job.tasks);
+    if (tt) meta.appendChild(h("span", null, tt));
+    if (job.round) meta.appendChild(h("span", null, "round " + job.round));
+    if (job.rework) meta.appendChild(h("span", null, "rework " + job.rework));
+    if (job.cost && job.cost.usd) meta.appendChild(h("span", null, usd(job.cost.usd)));
+    card.appendChild(meta);
+    if (!demo) { var g = gateFor(card, job); if (g) card.appendChild(g); }
+    return card;
+  }
+  function sigOf(job, demo) {
+    var o = Object.assign({}, job); delete o.elapsedMs; delete o.updated;
+    return JSON.stringify([o, demo]);
+  }
+  function renderCards(s) {
+    var demo = !!s.demo, seen = {}, counts = {};
+    s.jobs.forEach(function (job) {
+      var col = cols[job.column] || cols["Stopped"];
+      var name = col.getAttribute("data-column");
+      seen[job.id] = true;
+      counts[name] = (counts[name] || 0) + 1;
+      var sig = sigOf(job, demo), cur = cards[job.id];
+      if (!cur || cur.sig !== sig) {
+        var fresh = buildCard(job, demo);
+        var focus = null;
+        if (cur) { // keep what the person has typed, and where they were typing
+          var ae = document.activeElement;
+          if (ae && ae.tagName === "TEXTAREA" && cur.el.contains(ae)) focus = { f: ae.getAttribute("data-field"), a: ae.selectionStart, b: ae.selectionEnd };
+          cur.el.querySelectorAll("textarea[data-field]").forEach(function (t) {
+            var n = fresh.querySelector('textarea[data-field="' + t.getAttribute("data-field") + '"]');
+            if (n) n.value = t.value;
+          });
+          if (cur.el.parentNode === col.querySelector(".cards")) cur.el.replaceWith(fresh); else cur.el.remove();
+        }
+        cur = cards[job.id] = { el: fresh, sig: sig };
+        var box0 = col.querySelector(".cards");
+        if (fresh.parentNode !== box0) box0.appendChild(fresh);
+        if (focus) {
+          var nt = fresh.querySelector('textarea[data-field="' + focus.f + '"]');
+          if (nt) { nt.focus(); try { nt.setSelectionRange(focus.a, focus.b); } catch (e) { /* ignore */ } }
+        }
+      }
+      var span = cur.el.querySelector("[data-elapsed]");
+      if (span) span.textContent = fmtElapsed(job.elapsedMs);
+      var box = col.querySelector(".cards");
+      if (cur.el.parentNode !== box) box.appendChild(cur.el);
+    });
+    Object.keys(cards).forEach(function (id) { if (!seen[id]) { cards[id].el.remove(); delete cards[id]; } });
+    s.jobs.forEach(function (job) {
+      var v = viewed[job.id];
+      if (v && v.updated !== job.updated) delete viewed[job.id];
+      refreshApprove(job);
+    });
+    Object.keys(viewed).forEach(function (id) { if (!seen[id]) delete viewed[id]; });
+    $("board").classList.toggle("has-cards", s.jobs.length > 0);
+    Object.keys(cols).forEach(function (name) {
+      var col = cols[name], n = counts[name] || 0, box = col.querySelector(".cards");
+      col.querySelector(".n").textContent = n;
+      var empty = box.querySelector(".empty");
+      if (n === 0 && !empty) box.appendChild(h("div", "empty", "Nothing here"));
+      if (n > 0 && empty) empty.remove();
+      if (name === "Stopped") col.hidden = n === 0;
+      col.classList.toggle("is-empty", n === 0);
+    });
+  }
+
+  // ---- footer ----
+  function portsText(p) {
+    if (Array.isArray(p)) return p.join(", ");
+    if (p && typeof p === "object") return Object.keys(p).filter(function (k) { return k !== "block"; }).map(function (k) { return k + " " + p[k]; }).join(" · ");
+    return String(p);
+  }
+  function renderFooter(s) {
+    var f = $("footer");
+    f.textContent = "";
+    ["live", "suite", "commit"].forEach(function (name) {
+      var l = s.locks && s.locks[name];
+      var d = h("div");
+      d.appendChild(h("span", "k", name + " lock"));
+      d.appendChild(h("b", null, l && l.held ? (l.holder || "held") : "free"));
+      f.appendChild(d);
+    });
+    var pd = h("div");
+    pd.appendChild(h("span", "k", "ports"));
+    var list = (s.ports || []).map(function (p) { return p.id + ": " + portsText(p.ports); });
+    pd.appendChild(h("b", null, list.length ? list.join(" · ") : "none in use"));
+    f.appendChild(pd);
+    var total = 0, unpriced = 0;
+    s.jobs.forEach(function (j) { if (j.cost) { total += Number(j.cost.usd) || 0; unpriced += Number(j.cost.unpriced) || 0; } });
+    if (total > 0 || unpriced > 0) {
+      var cd = h("div");
+      cd.appendChild(h("span", "k", "cost"));
+      if (total > 0) { cd.appendChild(h("b", null, usd(total))); cd.appendChild(h("span", "k", " API-equivalent")); }
+      if (unpriced > 0) cd.appendChild(h("span", "k", (total > 0 ? " · " : "") + unpriced + " unpriced"));
+      f.appendChild(cd);
+    }
+  }
+
+  // ---- drawer ----
+  function openDrawer(id, file) {
+    drawerJob = id; drawerFile = file || null;
+    $("drawer").classList.add("open");
+    renderDrawer();
+    if (file) loadFile(file);
+  }
+  function closeDrawer() { $("drawer").classList.remove("open"); drawerJob = null; drawerFile = null; }
+  function renderDrawer() {
+    if (!drawerJob || !snap) return;
+    var job = snap.jobs.filter(function (j) { return j.id === drawerJob; })[0];
+    if (!job) { closeDrawer(); return; }
+    $("dtitle").textContent = job.id + " · " + job.title;
+    var box = $("files");
+    box.textContent = "";
+    if (!job.files.length) { box.appendChild(h("span", "empty", "No files yet")); $("content").textContent = ""; $("verdict").className = "tag"; return; }
+    job.files.forEach(function (f) {
+      var b = h("button", "btn" + (f === drawerFile ? " on" : ""), f);
+      b.type = "button";
+      b.addEventListener("click", function () { loadFile(f); });
+      box.appendChild(b);
+    });
+    if (!drawerFile) loadFile(job.files[0]);
+  }
+  function loadFile(rel) {
+    drawerFile = rel;
+    var id = drawerJob;
+    var started = snap && snap.jobs.filter(function (j) { return j.id === id; })[0];
+    var updatedAtStart = started ? started.updated : null;
+    document.querySelectorAll("#files .btn").forEach(function (b) { b.classList.toggle("on", b.textContent === rel); });
+    fetch("/jobs/" + encodeURIComponent(id) + "/file?path=" + encodeURIComponent(rel))
+      .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, t: t }; }); })
+      .then(function (res) {
+        if (drawerJob !== id || drawerFile !== rel) return;
+        var v = $("verdict");
+        if (!res.ok) { $("content").textContent = "Could not read this file."; v.className = "tag"; return; }
+        $("content").textContent = res.t;
+        noteViewed(id, rel, updatedAtStart);
+        var first = (res.t.split("\n")[0] || "").trim();
+        var vm = VERDICT.exec(first);
+        if (vm) {
+          v.textContent = first.slice(0, 120);
+          v.className = "tag on " + (/^(?:❌|needs fixes|red)$/i.test(vm[0]) ? "bad" : "ok");
+        } else v.className = "tag";
+      })
+      .catch(function () { if (drawerJob === id) $("content").textContent = "Could not read this file."; });
+  }
+  $("dclose").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !/^(TEXTAREA|INPUT)$/.test((e.target && e.target.tagName) || "")) closeDrawer(); });
+
+  // ---- poll ----
+  function setConn(ok, text) { var c = $("conn"); c.textContent = text; c.className = "conn" + (ok ? "" : " bad"); }
+  function refreshDrawer() {
+    var job = snap.jobs.filter(function (j) { return j.id === drawerJob; })[0];
+    if (!job) { closeDrawer(); return; }
+    var have = [].map.call(document.querySelectorAll("#files .btn"), function (b) { return b.textContent; }).join("\n");
+    if (have !== job.files.join("\n")) renderDrawer();
+  }
+  function poll() {
+    return fetch("/jobs.json", { cache: "no-store" })
+      .then(function (r) { if (!r.ok) return r.json().catch(function () { return {}; }).then(function (b) { var err = new Error("status " + r.status); err.code = b && typeof b.code === "string" ? b.code : null; throw err; }); return r.json(); })
+      .then(function (s) {
+        snap = s;
+        pollMs = (s.board && Number(s.board.pollMs) > 0) ? Number(s.board.pollMs) : 2000;
+        $("project").textContent = s.project || "";
+        $("demo").classList.toggle("on", !!s.demo);
+        renderCards(s);
+        renderFooter(s);
+        if (drawerJob) refreshDrawer();
+        setConn(true, "updated " + new Date(s.generatedAt).toLocaleTimeString());
+      })
+      .catch(function (e) { setConn(false, e && e.code ? "board error " + e.code + ", retrying" : "board unreachable, retrying"); });
+  }
+  function schedule() {
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(function () {
+      if (document.hidden) { schedule(); return; }
+      poll().then(schedule);
+    }, pollMs);
+  }
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) poll(); });
+
+  // ---- theme ----
+  function applyTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
+  try { applyTheme(localStorage.getItem("board-theme")); } catch (e) { /* storage may be blocked */ }
+  $("theme").addEventListener("click", function () {
+    var cur = document.documentElement.getAttribute("data-theme");
+    var light = cur ? cur === "light" : window.matchMedia("(prefers-color-scheme: light)").matches;
+    var next = light ? "dark" : "light";
+    applyTheme(next);
+    try { localStorage.setItem("board-theme", next); } catch (e) { /* ignore */ }
+  });
+
+  poll().then(schedule);
+})();
+</script>
+</body>
+</html>

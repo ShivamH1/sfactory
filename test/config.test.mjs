@@ -110,3 +110,10 @@ test("config: string booleans and untyped lists are INVALID_CONFIG, naming the k
     assert.ok(errs.some((e) => new RegExp(k).test(e)), `${k} not named in ${JSON.stringify(errs)}`);
   assert.deepEqual(validateConfig({ ...base, git: { trailers: true, push: false }, rules: ["CLAUDE.md"], worktrees: { afterCut: [] } }), []);
 });
+
+test("validateConfig: board.activeMs is a positive integer", () => {
+  const base = { project: "p", agents: { mode: "claude" }, commands: { suite: "x" } };
+  for (const bad of [0, -1, "x", 1.5]) assert.ok(validateConfig({ ...base, board: { activeMs: bad } }).some((e) => /board\.activeMs/.test(e)), String(bad));
+  assert.deepEqual(validateConfig({ ...base, board: { activeMs: 5000 } }), []);
+  assert.equal(DEFAULTS.board.activeMs, 120000);
+});

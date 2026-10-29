@@ -3,7 +3,7 @@ import { findRepoRoot, loadConfig } from "../config.mjs";
 // writeJob is called here with the job's ports set, not by job.mjs. This is the one sanctioned
 // exception to "only job.mjs writes": allocating ports changes no stage and appends no history,
 // and the ports field belongs to this command.
-import { readJob, writeJob } from "../store.mjs";
+import { readJob, writeJob, withJobLock } from "../store.mjs";
 import { allocate, isFree } from "../ports.mjs";
 import { fail } from "../errors.mjs";
 
@@ -14,7 +14,7 @@ register("ports", async ({ positional: [verb, arg] }, io) => {
     readJob(c, arg); // fail early on an unknown id, before any bind
     const ports = await allocate(c, arg);
     // re-read after the binds so a stage change made meanwhile is not overwritten
-    writeJob(c, { ...readJob(c, arg), ports });
+    withJobLock(c, arg, () => writeJob(c, { ...readJob(c, arg), ports }));
     io.stdout(`${c.ports.names.map((n) => `${n}=${ports[n]}`).join(" ")}\n`);
     return 0;
   }

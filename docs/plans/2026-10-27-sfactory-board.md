@@ -51,7 +51,7 @@ test/
 - Produces: `withJobLock(c, id, fn)` — acquires `job:<id>` via `acquireSync` with up to 40 retries 50 ms apart (`JOB_BUSY` after), runs `fn()`, releases in `finally`; `writeJob(c, job)` unchanged in signature but refuses to run unless the caller holds the job lock (it checks `status(c, "job:<id>").holder === process-local holder id`, where the holder id is `sfactory:<pid>:<random>` created once per process in `store.mjs`); unique temp name `job.json.<pid>.<random>.tmp` and a rename retried three times on `EPERM`/`EBUSY` 20 ms apart; `createJobFolder(c, id)` with a non-recursive `mkdirSync` (`EEXIST` → `JOB_EXISTS`); `nextId` stays, and `addJob(c, kind, title)` loops `nextId` + `createJobFolder` until one succeeds (bounded to 20 tries).
 - Consumes: `acquireSync`, `release`, `status` from `src/lock.mjs`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```js
 import { test } from "node:test";
@@ -101,9 +101,9 @@ test("store: HOLDER is per process and withJobLock releases on throw", () => {
 });
 ```
 
-- [ ] **Step 2: Run it to see it fail** — `node --test test/store.lock.test.mjs` (named exports missing).
+- [x] **Step 2: Run it to see it fail** — `node --test test/store.lock.test.mjs` (named exports missing).
 
-- [ ] **Step 3: Implement in `src/store.mjs`**
+- [x] **Step 3: Implement in `src/store.mjs`**
 
 ```js
 import { randomUUID } from "node:crypto";
@@ -154,9 +154,9 @@ export function addJob(c, kind, title, { now } = {}) {
 
 `newJob` is imported from `./job.mjs` (no cycle: `job.mjs` imports nothing from the store). `nextId` must also count folders without a `job.json` (a folder created by `createJobFolder` whose write has not landed yet): change it to list every directory under `jobs/` matching the id pattern.
 
-- [ ] **Step 4: Fix every caller of `writeJob`** — `commands/job.mjs`, `commands/worktree.mjs`, `commands/ports.mjs` now wrap their read-modify-write in `withJobLock(c, id, () => …)`; `commands/job.mjs`'s `add` calls `addJob`. The existing suite must stay green: run bare `node --test`.
+- [x] **Step 4: Fix every caller of `writeJob`** — `commands/job.mjs`, `commands/worktree.mjs`, `commands/ports.mjs` now wrap their read-modify-write in `withJobLock(c, id, () => …)`; `commands/job.mjs`'s `add` calls `addJob`. The existing suite must stay green: run bare `node --test`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/store.mjs src/commands/job.mjs src/commands/worktree.mjs src/commands/ports.mjs test/store.lock.test.mjs
@@ -175,13 +175,13 @@ git commit -m "feat(store): per-job lock around every job write, unique temp nam
 - Produces: `actions` object of `(c, args) -> Job` functions, every one running inside `withJobLock` and re-reading the job there: `add({ kind, title })`, `set({ id, to, by, reason })`, `approve({ id, by })`, `park({ id, reason, pending, by })`, `answer({ id, by, text? })` (when `text` is given it writes `decisions/<k>-answer.md` first), `parallel({ id, yes, by })`, `stop({ id, reason, by })`, `resume({ id, by })`, `merged({ id, by })`, `rework({ id, notes, by })`, `requestChanges({ id, notes, by })` (allowed only in `awaiting-approval`: writes `plan/changes-<k>.md`, appends a history entry `{ to: same stage, reason: "changes requested" }`, stage unchanged), `show({ id })`, `list()`. Each refusal is the same `SfactoryError` the CLI threw before; `by` defaults to `"session"`.
 - Consumes: Task 1's `withJobLock`, `addJob`; `src/job.mjs`.
 
-- [ ] **Step 1: Write the failing tests** — port the three command tests of the core's Task 4 to call `actions.*` directly on a temp config (`{ stateDir, limits }`), plus: `answer({ text })` writes the answer file and releases; `requestChanges` on `awaiting-approval` writes `plan/changes-1.md` and keeps the stage, and is `ILLEGAL_TRANSITION` elsewhere; every action leaves `job:<id>` unheld afterwards; `set` from a job held by another holder → `JOB_BUSY`.
+- [x] **Step 1: Write the failing tests** — port the three command tests of the core's Task 4 to call `actions.*` directly on a temp config (`{ stateDir, limits }`), plus: `answer({ text })` writes the answer file and releases; `requestChanges` on `awaiting-approval` writes `plan/changes-1.md` and keeps the stage, and is `ILLEGAL_TRANSITION` elsewhere; every action leaves `job:<id>` unheld afterwards; `set` from a job held by another holder → `JOB_BUSY`.
 
-- [ ] **Step 2: Implement** — move the bodies of the twelve sub-commands into `actions`, replacing `readJob` + `writeJob` pairs with `withJobLock(c, id, () => { const job = readJob(c, id); … return writeJob(c, next); })`; `commands/job.mjs` becomes: parse `positional`/`flags` into the args object, call `actions[name]`, print `${job.id} ${job.stage}` or JSON. Keep the `set` refusal for `awaiting-approval` and the `building`-from-`reviewing/pushed` refusal.
+- [x] **Step 2: Implement** — move the bodies of the twelve sub-commands into `actions`, replacing `readJob` + `writeJob` pairs with `withJobLock(c, id, () => { const job = readJob(c, id); … return writeJob(c, next); })`; `commands/job.mjs` becomes: parse `positional`/`flags` into the args object, call `actions[name]`, print `${job.id} ${job.stage}` or JSON. Keep the `set` refusal for `awaiting-approval` and the `building`-from-`reviewing/pushed` refusal.
 
-- [ ] **Step 3: Run `node --test`** — the old `test/job.test.mjs` command tests must still pass unchanged.
+- [x] **Step 3: Run `node --test`** — the old `test/job.test.mjs` command tests must still pass unchanged.
 
-- [ ] **Step 4: Commit** — `feat(job): gate actions as functions under the job lock; the CLI calls them`.
+- [x] **Step 4: Commit** — `feat(job): gate actions as functions under the job lock; the CLI calls them`.
 
 ---
 
@@ -204,11 +204,11 @@ git commit -m "feat(store): per-job lock around every job write, unique temp nam
   `needsYou` is `{ action: "approve" }` for `awaiting-approval`, `{ action: "answer", question: <decisions/<k>.md text> }` or `{ action: "parallel", reason: <plan/parallel.md> }` for `decision-needed`, `{ action: "merged" }` for `pushed`; `command` is the equivalent CLI line. `files` lists every `.md` and `.log` under the job folder, relative, sorted. **Never** included: `lockToken`, any lock body token, `secrets`, the `.tmp` files.
 - Consumes: `listJobs`, `readJobFile`, `readCost`, `lock.status`, `COLUMNS`.
 
-- [ ] **Step 1: Tests** — on a temp state dir with three jobs (one parked with a question, one awaiting approval, one pushed with `pr.md`): columns mapped per `COLUMNS` (`stopped` → "Stopped"), `needsYou` shapes, `files` sorted and without `.tmp`, `lockToken` absent from every job, `cost.usd` from `cost.json`, `elapsedMs` from `started` to `ended ?? now`.
+- [x] **Step 1: Tests** — on a temp state dir with three jobs (one parked with a question, one awaiting approval, one pushed with `pr.md`): columns mapped per `COLUMNS` (`stopped` → "Stopped"), `needsYou` shapes, `files` sorted and without `.tmp`, `lockToken` absent from every job, `cost.usd` from `cost.json`, `elapsedMs` from `started` to `ended ?? now`.
 
-- [ ] **Step 2: Implement** `buildSnapshot` as pure reads; strip fields with an explicit allow-list (never spread the job).
+- [x] **Step 2: Implement** `buildSnapshot` as pure reads; strip fields with an explicit allow-list (never spread the job).
 
-- [ ] **Step 3: Commit** — `feat(board): the jobs snapshot`.
+- [x] **Step 3: Commit** — `feat(board): the jobs snapshot`.
 
 ---
 
@@ -226,11 +226,11 @@ git commit -m "feat(store): per-job lock around every job write, unique temp nam
   - Anything else → 404 JSON. Bodies over 64 KiB → 413. Requests to a `Host` other than `127.0.0.1:<port>`/`localhost:<port>` → 403.
 - Consumes: Task 2's `actions`, Task 3's `buildSnapshot`.
 
-- [ ] **Step 1: Tests** (with `fetch` against `port: 0`): the page is served; `/jobs.json` lists a job; the file route serves `plan/questionnaire.md` and refuses `../x` and `job.json`; `POST approve` without the header → 403; with it on a `backlog` job → 409 `ILLEGAL_TRANSITION`; on an `awaiting-approval` job → 200 and the job is `building` with `plan/approval.md` written by `board`; `POST answer` with `{ text }` releases a parked job; `POST parallel { yes: false }` → `backlog` with `parallel: "queued"`; demo mode → 403 on POST; `close()` frees the port.
+- [x] **Step 1: Tests** (with `fetch` against `port: 0`): the page is served; `/jobs.json` lists a job; the file route serves `plan/questionnaire.md` and refuses `../x` and `job.json`; `POST approve` without the header → 403; with it on a `backlog` job → 409 `ILLEGAL_TRANSITION`; on an `awaiting-approval` job → 200 and the job is `building` with `plan/approval.md` written by `board`; `POST answer` with `{ text }` releases a parked job; `POST parallel { yes: false }` → `backlog` with `parallel: "queued"`; demo mode → 403 on POST; `close()` frees the port.
 
-- [ ] **Step 2: Implement** with `node:http`; parse JSON bodies by hand (`for await` chunks, size cap); map errors in one `respondError(res, e)`.
+- [x] **Step 2: Implement** with `node:http`; parse JSON bodies by hand (`for await` chunks, size cap); map errors in one `respondError(res, e)`.
 
-- [ ] **Step 3: Commit** — `feat(board): localhost server with the snapshot, file and gate routes`.
+- [x] **Step 3: Commit** — `feat(board): localhost server with the snapshot, file and gate routes`.
 
 ---
 
@@ -243,11 +243,11 @@ git commit -m "feat(store): per-job lock around every job write, unique temp nam
 - The page fetches `/jobs.json` every `pollMs` (read from the snapshot's `project` block as `board.pollMs`, default 2000), pauses polling when `document.hidden`, renders nine columns (Stopped only when non-empty), cards per Task 3's fields, a drawer (`GET /jobs/:id/file`) rendering `.md`/`.log` as preformatted text with the first line as a verdict badge when it matches `✅|❌|Approved|Needs fixes|ok|red`, and the gate controls: *Approve* / *Request changes* (textarea) on `awaiting-approval`; the question text and an *Answer* textarea on a decision; *Run in parallel* / *Queue it* with the reason shown; *Copy PR text* / *Mark merged* on `pushed`; *Stop* on every working card and *Rework* (textarea) on `reviewing`/`pushed`. Each control POSTs with the header and shows the server's `message` on refusal, inline on the card. Footer: running agents is **not** shown (nothing knows it yet) — instead the `live`, `suite` and `commit` lock holders, the ports in use, and the day's cost with "API-equivalent". A `demo` banner when the snapshot carries `demo: true`.
 - Design: tokens and type as the explainer page (`:root` dark-first, light under `prefers-color-scheme: light` and `[data-theme="light"]`, IBM Plex Sans/Mono via Google Fonts with fallbacks); phone width scrolls the board sideways; gutters per the artifact rules; no inline event handlers (CSP-friendly), one `<script>`.
 
-- [ ] **Step 1: The page test** (static checks, since there is no browser runner): the file parses as HTML enough to contain `id="board"`, nine `data-column` headers, `fetch("/jobs.json")`, the `X-Sfactory-Board` header string in the POST helper, no `lockToken` string, no `<script src=`, and both theme blocks.
+- [x] **Step 1: The page test** (static checks, since there is no browser runner): the file parses as HTML enough to contain `id="board"`, nine `data-column` headers, `fetch("/jobs.json")`, the `X-Sfactory-Board` header string in the POST helper, no `lockToken` string, no `<script src=`, and both theme blocks.
 
-- [ ] **Step 2: Write the page.** Keep it under 900 lines; derive every colour from the tokens; copy the artefact's card/column CSS where it fits.
+- [x] **Step 2: Write the page.** Keep it under 900 lines; derive every colour from the tokens; copy the artefact's card/column CSS where it fits.
 
-- [ ] **Step 3: Commit** — `feat(board): the dashboard page`.
+- [x] **Step 3: Commit** — `feat(board): the dashboard page`.
 
 ---
 
@@ -262,9 +262,9 @@ git commit -m "feat(store): per-job lock around every job write, unique temp nam
 - `examples/jobs/`: `m-1` merged, `m-2` pushed with `pr.md`, `m-3` building with tasks and a `cost.json`, `m-4` awaiting-approval with `plan/questionnaire.md`, `f-1` decision-needed with `decisions/1.md`, `f-2` stopped — every `job.json` produced by `job.mjs`'s functions in a generator script committed as `examples/jobs/generate.mjs` (so the fixtures never drift from the schema), with tokens scrubbed.
 - Test: the generator's output equals the committed folders (run it to a temp dir and compare), and `buildSnapshot` over `examples/jobs` lists six jobs across the expected columns.
 
-- [ ] **Step 1: Tests, generator, fixtures, command, shim, README section ("The board": start, demo, what the gates do, that it binds localhost only).**
-- [ ] **Step 2: Headed check (controller).** The controller opens `sfactory board --demo` in a headed `agent-browser` with an isolated profile, screenshots light and dark at desktop and 400 px, clicks a card's drawer, and attempts *Approve* on the demo (expects the 403 banner). Findings go back to the implementer as a fix round; the screenshots go under the plan's workspace, never the repo.
-- [ ] **Step 3: Commit** — `feat(board): board command, demo jobs and README`.
+- [x] **Step 1: Tests, generator, fixtures, command, shim, README section ("The board": start, demo, what the gates do, that it binds localhost only).**
+- [x] **Step 2: Headed check (controller).** The controller opens `sfactory board --demo` in a headed `agent-browser` with an isolated profile, screenshots light and dark at desktop and 400 px, clicks a card's drawer, and attempts *Approve* on the demo (expects the 403 banner). Findings go back to the implementer as a fix round; the screenshots go under the plan's workspace, never the repo.
+- [x] **Step 3: Commit** — `feat(board): board command, demo jobs and README`.
 
 ---
 

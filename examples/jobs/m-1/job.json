@@ -1,0 +1,92 @@
+{
+  "id": "m-1",
+  "kind": "milestone",
+  "title": "Add a search box to the catalogue",
+  "stage": "merged",
+  "returnStage": null,
+  "previousStage": null,
+  "pending": null,
+  "branch": "feature/catalogue-search",
+  "base": "main",
+  "worktree": null,
+  "ports": null,
+  "record": null,
+  "tasks": {
+    "total": 3,
+    "done": 3,
+    "parallel": []
+  },
+  "round": 0,
+  "rework": 0,
+  "parallel": null,
+  "agents": null,
+  "cost": 0,
+  "started": "2026-01-05T08:00:00.000Z",
+  "updated": "2026-01-05T14:00:00.000Z",
+  "ended": "2026-01-05T14:00:00.000Z",
+  "history": [
+    {
+      "at": "2026-01-05T08:00:00.000Z",
+      "from": null,
+      "to": "backlog",
+      "by": "session",
+      "reason": "created"
+    },
+    {
+      "at": "2026-01-05T08:05:00.000Z",
+      "from": "backlog",
+      "to": "planning",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T08:30:00.000Z",
+      "from": "planning",
+      "to": "awaiting-approval",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T09:00:00.000Z",
+      "from": "awaiting-approval",
+      "to": "building",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T11:00:00.000Z",
+      "from": "building",
+      "to": "reviewing",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T11:30:00.000Z",
+      "from": "reviewing",
+      "to": "verifying",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T11:45:00.000Z",
+      "from": "verifying",
+      "to": "pushing",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T12:00:00.000Z",
+      "from": "pushing",
+      "to": "pushed",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T14:00:00.000Z",
+      "from": "pushed",
+      "to": "merged",
+      "by": "session",
+      "reason": null
+    }
+  ]
+}
