@@ -75,7 +75,7 @@ Read-only agents (spec reviewer, code reviewer, judge, triage) have Read, Grep a
 ## Setup
 
 - Read the plan once, note its context and Global Constraints, and create a todo per task.
-- **The ledger.** Conversation memory does not survive compaction; in real sessions, controllers that lost their place have re-dispatched entire completed task sequences — the single most expensive failure observed. Track progress in `<JOB_DIR>/progress.md`, not only in todos. Its first line is `# SDD ledger — job <JOB>, plan: <PLAN>`. If it exists, tasks with a `Task <N>: complete` line are DONE — do not re-dispatch them; resume at the first task without one. A task whose last line is a fix round is mid-loop: resume the loop at the next round. After compaction, trust the ledger, the job folder and `git log` in the worktree over your own recollection.
+- **The ledger.** Conversation memory does not survive compaction; in real sessions, controllers that lost their place have re-dispatched entire completed task sequences — the single most expensive failure observed. Track progress in `<JOB_DIR>/progress.md`, not only in todos. Its first line is `# SDD ledger — job <JOB>, plan: <PLAN>`. If it exists, tasks with a `Task <N>: complete` line are DONE — do not re-dispatch them; resume at the first task without one. A task whose last line is a fix round is mid-loop: resume the loop at the next round. After compaction, trust the ledger, the job folder and the worktree's commits (`sfactory diff --cwd <WORKTREE> <BRANCH_BASE> HEAD --commits`) over your own recollection.
 - **Batches.** Run `sfactory independence tasks <PLAN> --max <limits.parallelTasks>`. It prints the batches as JSON (`[[1],[2,3],[4]]`). Tasks of one batch may run at the same time **only when the plan is declared** — every task carries its own `**Depends on:**` line. When it is not, the command says so on standard error and prints one task per batch; then work one task at a time, in that order. Never batch tasks yourself.
 - **Pre-flight scan.** Before dispatching Task 1, scan the plan once for conflicts: tasks that contradict each other or the plan's Global Constraints; anything the plan explicitly mandates that the review rubric treats as a defect (a test that asserts nothing, verbatim duplication of a logic block). Put everything you find into one decision — each finding beside the plan text that mandates it, asking which governs — with `sfactory job park <JOB> --reason "<the findings>"`, and hand back to the orchestrator, which waits for the answer. If the scan is clean, proceed without comment.
 
@@ -87,9 +87,9 @@ and is re-read on every later turn. Hand artifacts over as files.
 
 ### 1. The task brief
 
-Record BASE (`git -C <WORKTREE> rev-parse HEAD`) before dispatching — the review package and fix-round diffs need it. Then extract the task:
+Record BASE (`sfactory tree <WORKTREE> --head`) before dispatching — the review package and fix-round diffs need it. Then extract the task:
 
-`bash ${CLAUDE_PLUGIN_ROOT}/skills/sdd/scripts/task-brief <PLAN> <n> <JOB_DIR>/tasks/<n>/brief.md`
+`sfactory brief <PLAN> <n> --out <JOB_DIR>/tasks/<n>/brief.md`
 
 FILES is the task's declared files: the backticked paths of its `**Files:**` block, one per line, `Read` lines left out (they touch nothing). The implementer may write FILES and the LOG, nothing else.
 
@@ -121,7 +121,7 @@ Then, below the fields: (1) one line on where this task fits in the card; (2) "r
 
 It prints one JSON line (`ok`, `exitCode`, `usage`, `lastMessagePath`, `timedOut` when it timed out) and records the usage against the job. Codex never commits and runs only focused tests: its final message is its report and ends with the files it changed. Copy that final message (`lastMessagePath`) to `<JOB_DIR>/tasks/<n>/report.md`. Then, yourself:
 
-1. **Files check.** `git -C <WORKTREE> status --porcelain --untracked-files=all`. Every path it lists must be in FILES or be the LOG; trust this, not the list in the report. Anything else is a stop: `sfactory job stop <JOB> --reason "Task <n> wrote outside its declared files: <paths>"`, then hand back.
+1. **Files check.** `sfactory tree <WORKTREE>`: it prints the porcelain lines, untracked files one by one (and exits 1 when it prints any). Every path it lists must be in FILES or be the LOG; trust this, not the list in the report. Anything else is a stop: `sfactory job stop <JOB> --reason "Task <n> wrote outside its declared files: <paths>"`, then hand back.
 2. **Full suite.** `sfactory suite --cwd <WORKTREE> --job <JOB> --log <JOB_DIR>/tasks/<n>/suite-<r>.log` — the suite lock lives in `stateDir`, outside Codex's sandbox, which is why Codex never runs it. Green: add its summary to the task's entry in the LOG as one line, `Full suite (orchestrator): <the line sfactory suite printed>` — Codex leaves the count to you. Red: dispatch `sfactory:triage` with the block below. A known load flake: run the suite once more. A defect: it is a fix round (step 5) with the triage findings, before any commit.
 3. **Commit** the declared paths, code first and the log entry second, each through the factory: `sfactory commit --cwd <WORKTREE> --holder <JOB> --m "<the task's commit message from the plan>" -- <changed declared paths>`, then `sfactory commit --cwd <WORKTREE> --holder <JOB> --m "docs: Task <n> log entry" -- <LOG>` (skipped when LOG is in JOB_DIR). No trailer, ever.
 
@@ -132,14 +132,14 @@ JOB: <JOB>
 RAW: <JOB_DIR>/tasks/<n>/suite-<r>.log
 BASE: <the current HEAD>
 HEAD: <the current HEAD>
-DIFF: <JOB_DIR>/tasks/<n>/wip-<r>.diff   (written first: git -C <WORKTREE> diff -U10 HEAD -- "${P[@]}")
+DIFF: <JOB_DIR>/tasks/<n>/wip-<r>.diff   (written first, new files included: sfactory diff --cwd <WORKTREE> HEAD WORKTREE --out <JOB_DIR>/tasks/<n>/wip-<r>.diff -- <the task's paths>)
 OFF_LIMITS: <the description above>
 REPORT: <JOB_DIR>/tasks/<n>/triage-<r>.md
 ```
 
-Model `agents.claude.triage`'s alias; `P` is the task's paths array (step 4).
+Model `agents.claude.triage`'s alias; the task's paths are those of step 4's package.
 
-**After each task's commits, in every mode:** `git -C <WORKTREE> status --porcelain --untracked-files=all` must print nothing, and `git -C <WORKTREE> diff --name-only <BASE>..HEAD` must name only FILES and the LOG. Anything else is the stop above: "task wrote outside its declared files". (In a parallel batch, run this once every task of the batch has committed, against the union of the batch's declared files, naming the task each stray path came from.) The untracked artefacts a suite leaves in the worktree (coverage output, a test database, logs) count as stray too: the project's `.gitignore` must cover them. When one appears, stop the card naming it rather than deleting or committing it — the person adds the ignore rule.
+**After each task's commits, in every mode:** `sfactory tree <WORKTREE>` must print nothing (exit 0), and `sfactory diff --cwd <WORKTREE> <BASE> HEAD --names` must name only FILES and the LOG. Anything else is the stop above: "task wrote outside its declared files". (In a parallel batch, run this once every task of the batch has committed, against the union of the batch's declared files, naming the task each stray path came from.) The untracked artefacts a suite leaves in the worktree (coverage output, a test database, logs) count as stray too: the project's `.gitignore` must cover them. When one appears, stop the card naming it rather than deleting or committing it — the person adds the ignore rule.
 
 ### 3. Handle the report
 
@@ -171,10 +171,10 @@ Per-task reviews are task-scoped gates. The broad review happens once, at the en
 **The review package.** Write it into the job folder yourself (the reviewers cannot run git), over the task's paths only, from the BASE you recorded — never `HEAD~1`, which silently drops all but the last commit of a multi-commit task:
 
 ```
-P=(<each path of FILES> <LOG>)   # a bash array: one element per path, so a path with a space stays whole
-OUT=<JOB_DIR>/tasks/<n>/diff-<base7>..<head7>.diff
-{ echo "# Review package: <BASE>..<HEAD>"; echo; echo "## Commits"; git -C <WORKTREE> log --oneline <BASE>..<HEAD> -- "${P[@]}"; echo; echo "## Files changed"; git -C <WORKTREE> diff --stat <BASE>..<HEAD> -- "${P[@]}"; echo; echo "## Diff"; git -C <WORKTREE> diff -U10 <BASE>..<HEAD> -- "${P[@]}"; } > "$OUT"
+sfactory diff --cwd <WORKTREE> <BASE> <HEAD> --out <JOB_DIR>/tasks/<n>/diff-<base7>..<head7>.diff -- <each path of FILES> <LOG>
 ```
+
+The task's paths go after `--`, one argument each (quote a path that holds a space); the LOG only when it is inside WORKTREE. The package carries a header, the commits, the stat and the `-U10` diff.
 
 The output never enters your own context. Never dispatch a reviewer without a diff file.
 
@@ -324,7 +324,7 @@ The rendered prompt holds the value of `{{secrets}}` as a description only: no p
 
 When every task is complete, the card leaves `building`: `sfactory job set <JOB> reviewing --reason "all tasks complete"`. The orchestrator then runs this section for the `reviewing` stage. It replaces a final code review: the card is judged against its brief.
 
-1. **The package.** Write the whole branch, BRANCH_BASE..HEAD, with no path filter, to `<JOB_DIR>/review/branch-<base7>..<head7>.diff` (same commands as the task package). Write the ledger's deferred-minor and parked lines to `<JOB_DIR>/review/carried.md`.
+1. **The package.** Write the whole branch, BRANCH_BASE..HEAD, with no path filter, to `<JOB_DIR>/review/branch-<base7>..<head7>.diff`: `sfactory diff --cwd <WORKTREE> <BRANCH_BASE> HEAD --out <JOB_DIR>/review/branch-<base7>..<head7>.diff`. Write the ledger's deferred-minor and parked lines to `<JOB_DIR>/review/carried.md`.
 2. **The bug-hunt.** Claude mode: `sfactory:code-reviewer`, model `agents.claude.review`'s alias:
 
    ```
@@ -396,7 +396,7 @@ You: I'm using sfactory:sdd to build card m-7.
 [sfactory independence tasks <PLAN> --max 4 -> [[1],[2,3]]: declared]
 
 Task 1 (mixed mode)
-[task-brief -> tasks/1/brief.md; render codex-implement -> tasks/1/prompt-0.md]
+[sfactory brief -> tasks/1/brief.md; render codex-implement -> tasks/1/prompt-0.md]
 [job touch: start codex-implementer task 1 <profile>]
 [sfactory codex exec ... --stage building < tasks/1/prompt-0.md -> ok; report.md stored; job touch: finish]
 [porcelain: only declared files; sfactory suite -> ok, its line added to the log entry; two sfactory commit calls; porcelain empty]

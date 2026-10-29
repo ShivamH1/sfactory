@@ -56,3 +56,9 @@ Source: superpowers `skills/subagent-driven-development/` (see ATTRIBUTION.md). 
 36. Branch fix rounds: `<r>` is the job's `round` (`review/round-<r>/`, `suite-<r>.log`, `reviews/<k>-rereview-<r>.md`), and `<k>` has one meaning everywhere, the number of a stored review.
 37. The branch-level scoped re-review: its TASK is the brief and its FINDINGS the round's `review/round-<r>/brief.md`; in `codex` and `mixed` modes the re-reviewer is `sfactory codex review` (`--base` the head the judge last saw, `--stage reviewing`).
 38. The verdict rule names a scoped re-review that leaves a finding NOT ADDRESSED as blocking, like a judge ❌.
+
+## Plan C final review (2026-10-28)
+
+36. `scripts/task-brief` is removed: its reading (exact ids, fences by character and length, CRLF) is ported to `sfactory brief <plan> <n> --out <file>` (src/brief.mjs), so the skill runs no bash. The git reads are sfactory verbs too: BASE from `sfactory tree <WORKTREE> --head`, the files and porcelain checks from `sfactory tree <WORKTREE>` and `sfactory diff ... --names`, every review package from `sfactory diff ... --out` (the triage's wip package with head `WORKTREE`, new files included), so the orchestrator's allowed-tools carry no `Bash(git *)` or `Bash(bash *)`.
+37. Long commands (`sfactory codex exec`, `sfactory codex review`, `sfactory suite`) run with the Bash tool's `run_in_background`; implementers are told the same about TEST_COMMAND.
+38. A fix card's own record: a LOG in the job folder is written and never committed; a fix filed with `--log <n>` writes its entries and close in one dated section under `record.postCloseHeading`.

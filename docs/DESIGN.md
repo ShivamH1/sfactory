@@ -200,7 +200,7 @@ sfactory/
   bin/                          on the Bash tool's PATH while the plugin is enabled; one-line shims into src/
     sfactory-job  sfactory-worktree  sfactory-lock  sfactory-suite  sfactory-commit  sfactory-push
     sfactory-independence  sfactory-ports  sfactory-board  sfactory-sync-rules  sfactory-init
-    sfactory-doctor  sfactory-cost
+    sfactory-doctor  sfactory-cost  sfactory-brief  sfactory-diff  sfactory-tree
   board/dashboard.html
   schema/config.json
   examples/

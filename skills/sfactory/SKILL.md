@@ -1,7 +1,7 @@
 ---
 name: sfactory
 description: "The sfactory orchestrator. Use for any /sfactory command (init, doctor, add, run, approve, answer, parallel, status, board, rework, stop, clean, merged) or when the person asks to run the factory or work its cards. Moves every card through its stages with the sfactory CLI for each state change, and with the sfactory brainstorming, writing-plans and sdd skills and the sfactory agents for the work."
-allowed-tools: Bash(sfactory *), Bash(sfactory-* *), Bash(git *), Bash(bash *), Bash(agent-browser *), Read, Write, Edit, Agent, Skill, Monitor
+allowed-tools: Bash(sfactory *), Bash(sfactory-* *), Bash(agent-browser *), Read, Write, Edit, Agent, Skill, Monitor
 ---
 
 # sfactory — the orchestrator
@@ -142,7 +142,7 @@ A run ends when nothing is left but `pushed`, `merged` and `stopped` cards, or e
    - It moves the card to `reviewing` after the last task.
 4. **Codex never commits.** Its final message is its report. You commit the declared paths with `sfactory commit` and run the full suite with `sfactory suite --cwd <WORKTREE> --job <id>` after each Codex task.
 5. **The porcelain stop** is the sdd skill's exact rule, from its "After each task's commits" paragraph:
-   - `git -C <WORKTREE> status --porcelain --untracked-files=all` must print nothing.
+   - `sfactory tree <WORKTREE>` must print nothing.
    - The task's commits must name only its declared files and the log.
    - Anything else stops the card: `sfactory job stop <id> --reason "task wrote outside its declared files: <paths>"`.
 
@@ -188,7 +188,7 @@ The sdd skill's whole-branch review, run in this order:
    - the review verdicts (the first line of the latest `reviews/*-judge.md` and `reviews/*-bug-hunt.md`);
    - the branch the pull request targets: the card's `base.branch`, which for a card stacked on its partner is the partner's branch, so the two pull requests chain;
    - the pushed head;
-   - **for a parallel card that merged its partner:** the partner's branch and the commits the merge brought in (`git -C <WORKTREE> log --oneline <base.head>..<the partner's branch>`), so the reviewer knows they are not this card's work.
+   - **for a parallel card that merged its partner:** the partner's branch and the commits the merge brought in (`sfactory diff --cwd <WORKTREE> <base.head> <the partner's branch> --commits`), so the reviewer knows they are not this card's work.
 6. **Move the card:** `sfactory job set <id> pushed --reason "pushed <head7>"`.
 
 **pushed, merged and stopped**
@@ -292,7 +292,7 @@ And in this session:
 
 - **Never merge into the integration branch,** and never open or merge a pull request. Push only through `sfactory push`. Merge a partner only through `sfactory worktree merge`.
 - **Never work in the main checkout.** Never write product code yourself.
-- **Never run** `git stash`, `git add -A`, `git add .`, `git commit`, `git merge`, `git push` or `git rebase`. Every commit goes through `sfactory commit` with named paths. Never add a trailer (no co-author line, no "generated with" line) to any message.
+- **Never run git or bash directly.** The reads the skills need are `sfactory tree`, `sfactory diff` and `sfactory brief`; allowed-tools grant nothing else. Never run `git stash`, `git add -A`, `git add .`, `git commit`, `git merge`, `git push` or `git rebase`. Every commit goes through `sfactory commit` with named paths. Never add a trailer (no co-author line, no "generated with" line) to any message.
 - **Never read, print or hand an agent** any path in `secrets.neverHandToAgents`.
 - **Never dispatch a Claude subagent without a model alias.**
 - **Never poll with a shell wait.** At a gate, end your turn. Watch with a bounded Monitor loop only when asked.

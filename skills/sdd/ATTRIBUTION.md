@@ -4,7 +4,7 @@ This skill was adapted from the `subagent-driven-development` skill of superpowe
 
 - Upstream: https://github.com/obra/superpowers, path `skills/subagent-driven-development/`
 - Copied from: the superpowers copy installed at `~/.claude/skills/subagent-driven-development/` on the author's machine, 2026-10-28
-- Files adapted here: SKILL.md and scripts/task-brief
+- Files adapted here: SKILL.md, and scripts/task-brief, since ported into the sfactory CLI as `sfactory brief` (src/brief.mjs)
 - Licence verified against https://raw.githubusercontent.com/obra/superpowers/main/LICENSE on 2026-10-28
 
 Every edit made for sfactory is listed in CHANGES.md beside this file.

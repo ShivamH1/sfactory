@@ -87,6 +87,9 @@ The CLI (npm users run `sfactory <command>`; plugin users also get an `sfactory-
 - `sfactory doctor` — check the environment and config
 - `sfactory codex` — run Codex `exec` and `review` with usage capture
 - `sfactory fixcard` — check a fix card's plan against `fixCardRefusals`
+- `sfactory brief` — extract one task of a plan into its brief (`sfactory brief <plan> <n> --out <file>`)
+- `sfactory diff` — a worktree's review package, changed files or commits between two refs (`--out <file>`, `--names`, `--commits`; head `WORKTREE` is the working tree, new files included)
+- `sfactory tree` — a worktree's porcelain status, exit 1 when anything is listed (`--head` prints HEAD)
 - `sfactory board` — the kanban board (above)
 - `sfactory init` — guess a `sfactory.config.json` for this repo (`--force` replaces one)
 - `sfactory install` — copy the skills, agents and prompts into `.claude/` (`--codex`: into `~/.codex/skills/`; `--dest <dir>`; `--force`)
