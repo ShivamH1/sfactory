@@ -74,7 +74,7 @@ sfactory/
 **Interfaces:**
 - Produces: `SfactoryError(code, message)` with `.code`; `cli.mjs` exporting `main(argv) -> Promise<number>` (exit code) and a `register(name, handler)` table later tasks add to; `test/helpers.mjs` exporting `tmpDir()`, `tmpRepo()`, `writeConfig(repoRoot, obj)`.
 
-- [ ] **Step 1: Write package.json**
+- [x] **Step 1: Write package.json**
 
 ```json
 {
@@ -93,7 +93,7 @@ sfactory/
 }
 ```
 
-- [ ] **Step 2: Write LICENSE (MIT, 2026, Shivam Sanjay), .gitignore**
+- [x] **Step 2: Write LICENSE (MIT, 2026, Shivam Sanjay), .gitignore**
 
 `.gitignore`:
 ```
@@ -102,7 +102,7 @@ node_modules/
 *.log
 ```
 
-- [ ] **Step 3: Write the plugin manifests**
+- [x] **Step 3: Write the plugin manifests**
 
 `.claude-plugin/plugin.json`:
 ```json
@@ -125,7 +125,7 @@ node_modules/
 }
 ```
 
-- [ ] **Step 4: Write src/errors.mjs**
+- [x] **Step 4: Write src/errors.mjs**
 
 ```js
 export class SfactoryError extends Error {
@@ -138,7 +138,7 @@ export class SfactoryError extends Error {
 export function fail(code, message) { throw new SfactoryError(code, message); }
 ```
 
-- [ ] **Step 5: Write the failing CLI test**
+- [x] **Step 5: Write the failing CLI test**
 
 `test/cli.test.mjs`:
 ```js
@@ -161,12 +161,12 @@ test("cli: unknown command exits 2 with an error line", async () => {
 });
 ```
 
-- [ ] **Step 6: Run it to see it fail**
+- [x] **Step 6: Run it to see it fail**
 
 Run: `node --test test/cli.test.mjs`
 Expected: FAIL, `Cannot find module '../src/cli.mjs'`.
 
-- [ ] **Step 7: Write src/cli.mjs**
+- [x] **Step 7: Write src/cli.mjs**
 
 ```js
 #!/usr/bin/env node
@@ -224,7 +224,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
 }
 ```
 
-- [ ] **Step 8: Write test/helpers.mjs**
+- [x] **Step 8: Write test/helpers.mjs**
 
 ```js
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
@@ -258,12 +258,12 @@ export function writeConfig(repoRoot, obj) {
 }
 ```
 
-- [ ] **Step 9: Run the test to see it pass**
+- [x] **Step 9: Run the test to see it pass**
 
 Run: `node --test test/cli.test.mjs`
 Expected: 2 passing.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add package.json LICENSE .gitignore .claude-plugin/plugin.json .claude-plugin/marketplace.json src/errors.mjs src/cli.mjs test/helpers.mjs test/cli.test.mjs
@@ -281,7 +281,7 @@ git commit -m "feat: package scaffold, plugin manifests, CLI dispatcher"
 - Produces: `findRepoRoot(cwd) -> string` (via `git rev-parse --show-toplevel`, throws `NOT_A_REPO`); `loadConfig(repoRoot) -> Config` (reads `sfactory.config.json`, throws `NO_CONFIG` if absent, `INVALID_CONFIG` with every message joined); `resolveConfig(raw, repoRoot) -> Config`; `validateConfig(raw) -> string[]`; `DEFAULTS`.
 - `Config` shape (all paths absolute): `{ repoRoot, project, agents: { mode, claude: {...}, codex: {...} }, stateDir, worktrees: { dir, branchPrefix, baseRule, integrationBranch, afterCut: string[], copyFromBase: string[] }, commands: { suite, suiteSerial, build, typecheck: string[], migrate, services: [] }, ports: { base, step, names: string[] }, record: { style, brief, plan, log, stories, carriedForward, postCloseHeading, numbering }, rules: string[], hotspots: string[], migrations: { dir } | null, fixCardRefusals: string[], stops: string[], limits: { parallelMilestones, parallelTasks, fixRounds, taskRounds, suiteWaitMs, lockStaleMs }, git: { trailers, namedPathsOnly, push, merge }, secrets: { neverHandToAgents: string[] }, board: { port, pollMs }, prices: object }`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `test/config.test.mjs`:
 ```js
@@ -345,11 +345,11 @@ test("config: DEFAULTS is frozen and resolveConfig does not mutate input", () =>
 });
 ```
 
-- [ ] **Step 2: Run to see them fail**
+- [x] **Step 2: Run to see them fail**
 
 Run: `node --test test/config.test.mjs` — Expected: FAIL, module not found.
 
-- [ ] **Step 3: Write src/config.mjs**
+- [x] **Step 3: Write src/config.mjs**
 
 ```js
 import { readFileSync, existsSync } from "node:fs";
@@ -464,15 +464,15 @@ export const DEFAULT_PRICES = Object.freeze({
 });
 ```
 
-- [ ] **Step 4: Write schema/config.json**
+- [x] **Step 4: Write schema/config.json**
 
 A JSON Schema (draft 2020-12) mirroring `validateConfig`: `required: ["project", "agents", "commands"]`, `agents.mode` enum, `commands.suite` string, `limits` integer ranges, `stops` enum items, `git.merge` `const: false`, `record.style` enum, `ports.base`/`step` ranges, every other key typed and described with the sentence from `docs/DESIGN.md` §8. `additionalProperties: false` at the top level.
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `node --test test/config.test.mjs` — Expected: 5 passing.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/config.mjs src/prices.mjs schema/config.json test/config.test.mjs
@@ -489,7 +489,7 @@ git commit -m "feat: config defaults, loading, resolution and validation"
 **Interfaces:**
 - Produces: `slugify(title) -> string` (lowercase, `[a-z0-9-]`, max 40, no leading/trailing `-`); `jobsDir(config)`, `jobDir(config, id)`; `listJobs(config) -> Job[]` (sorted by `started` ascending; unreadable folders skipped with a `warnings` array on the result? No: skipped silently, listed by `listJobIds`); `readJob(config, id)` throws `JOB_NOT_FOUND`; `writeJob(config, job)` atomic (tmp + rename), sets `job.updated`; `nextId(config, kind) -> "m-<n>" | "f-<n>"` (n = 1 + highest existing of that kind); `writeJobFile(config, id, relPath, text)` (creates folders); `readJobFile(config, id, relPath) -> string | null`; `jobFileExists`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```js
 import { test } from "node:test";
@@ -542,9 +542,9 @@ test("store: job files under the job folder", () => {
 });
 ```
 
-- [ ] **Step 2: Run to see them fail** — `node --test test/store.test.mjs`, module not found.
+- [x] **Step 2: Run to see them fail** — `node --test test/store.test.mjs`, module not found.
 
-- [ ] **Step 3: Write src/store.mjs**
+- [x] **Step 3: Write src/store.mjs**
 
 ```js
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, renameSync, existsSync, statSync } from "node:fs";
@@ -599,9 +599,9 @@ export function readJobFile(c, id, rel) {
 export const jobFileExists = (c, id, rel) => existsSync(join(jobDir(c, id), rel));
 ```
 
-- [ ] **Step 4: Run the tests** — Expected: 5 passing.
+- [x] **Step 4: Run the tests** — Expected: 5 passing.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/store.mjs test/store.test.mjs
@@ -621,7 +621,7 @@ git commit -m "feat: job store with atomic writes and per-kind ids"
 - `Job`: `{ id, kind, title, stage, returnStage, previousStage, pending, branch, base, worktree, ports, record, tasks: { total, done, parallel: [] }, round, rework, parallel, agents, cost, started, updated, ended, history: [] }`.
 - Produces (effects, in `src/commands/job.mjs`): the `sfactory job …` sub-commands: `add <milestone|fix> "<title>"`, `set <id> <stage> [--reason]`, `park <id> --reason "<r>" [--pending parallel]`, `answer <id>`, `approve <id> [--by]`, `parallel <id> --yes|--no`, `stop <id> [--reason]`, `resume <id>`, `merged <id>`, `rework <id> --notes "<n>"`, `show <id>`, `list [--json]`. Each prints the job id and new stage; `--json` prints the job.
 
-- [ ] **Step 1: Write the failing tests for the pure machine**
+- [x] **Step 1: Write the failing tests for the pure machine**
 
 ```js
 import { test } from "node:test";
@@ -701,9 +701,9 @@ test("job: stop remembers where it was; resume returns there; merged cannot stop
 });
 ```
 
-- [ ] **Step 2: Run to see them fail** — `node --test test/job.test.mjs`.
+- [x] **Step 2: Run to see them fail** — `node --test test/job.test.mjs`.
 
-- [ ] **Step 3: Write src/job.mjs**
+- [x] **Step 3: Write src/job.mjs**
 
 ```js
 import { fail } from "./errors.mjs";
@@ -788,9 +788,9 @@ export function resume(job, { by = "session", now } = {}) {
 }
 ```
 
-- [ ] **Step 4: Run the pure tests** — Expected: 7 passing.
+- [x] **Step 4: Run the pure tests** — Expected: 7 passing.
 
-- [ ] **Step 5: Write the failing command tests (append to test/job.test.mjs)**
+- [x] **Step 5: Write the failing command tests (append to test/job.test.mjs)**
 
 ```js
 import { tmpDir, writeConfig } from "./helpers.mjs";
@@ -859,10 +859,10 @@ test("job cmd: stop/resume, merged, rework writes notes, list and show", async (
 });
 ```
 
-- [ ] **Step 6: Write src/commands/job.mjs**
+- [x] **Step 6: Write src/commands/job.mjs**
 
 ```js
-import { register } from "../cli.mjs";
+import { register } from "../registry.mjs";
 import { findRepoRoot, loadConfig } from "../config.mjs";
 import { readJob, writeJob, nextId, listJobs, writeJobFile, jobFileExists, readJobFile } from "../store.mjs";
 import { newJob, transition, park, release, stop, resume } from "../job.mjs";
@@ -950,9 +950,9 @@ register("job", async ({ positional, flags }, io) => {
 
 In `src/cli.mjs`, replace the commented import with `import("./commands/job.mjs"),`.
 
-- [ ] **Step 7: Run every test** — `node --test test/` — Expected: all passing (cli 2, config 5, store 5, job 10).
+- [x] **Step 7: Run every test** — `node --test test/` — Expected: all passing (cli 2, config 5, store 5, job 10).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/job.mjs src/commands/job.mjs src/cli.mjs test/job.test.mjs
@@ -971,7 +971,7 @@ git commit -m "feat: job state machine with park, stop and the job command"
 - Produces: `acquire(config, name, { holder, waitMs = 0, pollMs = 500, staleMs = config.limits.lockStaleMs }) -> Promise<Lock>` where `Lock = { name, path, holder, pid, since, release() }`; throws `LOCK_HELD` with the holder's name after `waitMs`; a lock whose `pid` is not alive, or older than `staleMs`, is taken over and the takeover written to the new lock as `tookOverFrom`. `release(config, name, { holder })` (refuses another holder's lock: `NOT_HOLDER`). `status(config, name) -> { held, holder, pid, since } `. `withLock(config, name, opts, fn)`. Lock files: `<stateDir>/locks/<name>.lock` (names sanitised like slugs), JSON body.
 - CLI: `sfactory lock acquire <name> --holder <id> [--wait ms]`, `sfactory lock release <name> --holder <id>`, `sfactory lock status <name>`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```js
 import { test } from "node:test";
@@ -1021,9 +1021,9 @@ test("lock: release by a non-holder is NOT_HOLDER; withLock releases on throw", 
 });
 ```
 
-- [ ] **Step 2: Run to see them fail.**
+- [x] **Step 2: Run to see them fail.**
 
-- [ ] **Step 3: Write src/lock.mjs**
+- [x] **Step 3: Write src/lock.mjs**
 
 ```js
 import { mkdirSync, openSync, writeSync, closeSync, readFileSync, unlinkSync, existsSync } from "node:fs";
@@ -1081,10 +1081,10 @@ export async function withLock(c, name, opts, fn) {
 }
 ```
 
-- [ ] **Step 4: Write src/commands/lock.mjs**
+- [x] **Step 4: Write src/commands/lock.mjs**
 
 ```js
-import { register } from "../cli.mjs";
+import { register } from "../registry.mjs";
 import { findRepoRoot, loadConfig } from "../config.mjs";
 import { acquire, release, status } from "../lock.mjs";
 import { fail } from "../errors.mjs";
@@ -1101,16 +1101,60 @@ register("lock", async ({ positional: [verb, name], flags }, io) => {
 
 Add `import("./commands/lock.mjs"),` to `src/cli.mjs`.
 
-- [ ] **Step 5: Run every test** — all passing.
+- [x] **Step 5: Run every test** — all passing.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/lock.mjs src/commands/lock.mjs src/cli.mjs test/lock.test.mjs
 git commit -m "feat: file locks with stale takeover and the lock command"
 ```
 
+#### Revision after review (controller, 2026-10-27) — this block supersedes the code above where they differ
+
+The task review probed the brief's lock with concurrent processes and found two Critical holes, both in the design: a lock acquired through the CLI records the short-lived CLI process's pid, so the next acquirer judges it dead and takes it over at once; and the stale takeover (unlink, then create) lets every waiter that read the stale file win together (5 to 8 holders in every probe round). Three Important gaps followed: an empty or half-written lock file reads as free but can never be taken, a non-numeric `--wait` waits for ever, and `release` matches on the holder's name alone. The revised design:
+
+**Lock body** `{ name, holder, token, pid, since }`. `token` is `crypto.randomUUID()` per acquire and is what proves ownership. `pid` is the owner process's pid **only when the owner outlives the lock**: library callers pass nothing and get `process.pid`; the CLI records `pid: null` unless `--pid <n>` names a long-lived owner. A lock with `pid: null` is judged stale by age alone.
+
+**Staleness** (`isStale(body, now, staleMs)`): `pid` not null and not alive (`process.kill(pid, 0)` throws anything but `EPERM`), or `now - Date.parse(since) > staleMs`. An unparseable or empty file whose mtime is older than `GRACE_MS = 5000` is stale too (a crashed writer); younger, it is "being written" and counts as held by `unknown`.
+
+**Atomic takeover**: never unlink-then-create. To take a stale lock, `renameSync(path, path + ".stale-" + randomUUID())`; only one process's rename succeeds (the others get `ENOENT` and loop); read the moved file, confirm it is still the body you judged stale (same `since` and `token`, or unparseable) — if it is not, rename it back and loop; `unlinkSync` the moved file; then `wx`-create as usual. If the create loses to another creator, loop. Record `tookOverFrom` from the moved body's holder.
+
+**Create**: `openSync(path, "wx")` then `writeSync` the whole body in one call then `closeSync` (the half-written window is covered by `GRACE_MS`).
+
+**Release** `release(c, name, { holder, token })`: `renameSync(path, path + ".rel-" + randomUUID())`; read it; if `holder` and `token` both match, unlink it and return `true`; otherwise rename it back and `fail("NOT_HOLDER", …)` naming the actual holder. A missing file returns `false`. The `Lock` object's `release()` carries its own token.
+
+**withLock**: releases in `finally`; if `fn` succeeded and the release throws, the release error propagates; if `fn` threw, the release error is logged to `console.error` and `fn`'s error propagates.
+
+**waitMs guard**: `acquire` fails `BAD_ARGS` unless `waitMs` is a finite integer ≥ 0; the CLI validates `--wait` the same way before calling (a bare `--wait` is `true` and is refused), and accepts `--pid <n>` (integer ≥ 1) and `--stale-ms <n>`.
+
+**status** answers `{ held: true, holder, pid, since, token: undefined, stale: boolean }` (the token is never printed), `{ held: true, holder: "unknown", corrupt: true, stale }` for an unparseable file, or `{ held: false }`.
+
+**CLI** `sfactory lock acquire <name> --holder <id> [--wait ms] [--pid n] [--stale-ms n]` prints `<name> acquired by <holder> token <token>[ (took over from X)]`; `sfactory lock release <name> --holder <id> --token <t>`; `sfactory lock status <name>`.
+
+**Tests to add** (keep the brief's four, adapted to the token API): (a) a two-process takeover test — write a dead-pid lock, spawn 6 child `node` processes (a small inline script via `-e` or a helper under `test/fixtures/`) that each call `acquire` with `waitMs: 0` and print `GOT` or `HELD`, wait for all, assert exactly one `GOT`; bounded by a 10 s timeout, children confirmed exited; (b) `release` with the right holder but wrong token → `NOT_HOLDER` and the file stays; (c) an empty lock file older than `GRACE_MS` (set its mtime back with `utimesSync`) is taken over; a fresh empty file makes `acquire` fail `LOCK_HELD` naming `unknown`; (d) `acquire(c, "x", { holder: "a", waitMs: "abc" })` → `BAD_ARGS`; (e) the waiting test asserts it waited at least 250 ms; (f) a CLI-acquired lock (`pid: null`) is not taken over by a second acquire within `staleMs`, proving the pid-null path is age-based; (g) `withLock` rethrows a release failure after `fn` succeeded.
+
+Deferred as recorded in the ledger: age-based takeover of a live holder past `lockStaleMs`; `slugify` collisions on long lock names; the pid-reuse window on Windows.
 ---
+
+**Addendum (same day, from the Task 6 review):** `acquire`/`acquireSync` accept `durable: true` — the body carries `durable: true` and `pid: null`, `isStale` is always false for it, and only `release` with the matching holder and token clears it (`status` reports `durable`; the CLI takes `--durable`). `acquireSync(c, name, { holder, durable, pid, staleMs })` is one attempt of the same algorithm (`tryAcquireOnce`), which `acquire` loops over. Task 6 then replaces `takeLockSync` with `acquireSync(..., { durable: true })`, stores the token on the job as `lockToken`, and releases with it. Tests (h) a durable lock from a dead pid a year old is not taken over; (i) `acquireSync` free / held / stale-takeover.
+#### Revision 2 after the fix-round re-review (controller, 2026-10-27) — supersedes the takeover and release steps of Revision 1
+
+The re-review raced the Revision 1 code with aligned processes and worker threads: the "rename back on mismatch" step overwrites a lock a third process has just `wx`-created (POSIX and Windows both replace on rename), and a non-holder's `release` renamed the live lock aside before checking it, so a wrong-token release handed the lock to a second holder. Rule for this revision: **nothing ever renames onto `path`, and nothing moves a lock it has not first matched.**
+
+**Takeover is serialised through a guard file** `path + ".takeover"`:
+1. `tryAcquireOnce` reads the lock (`inspect`). Absent → `wx`-create our body (fast path; EEXIST → loop). Held and not stale → `LOCK_HELD`.
+2. Stale → `wx`-create the guard with body `{ by: holder, token, since }`. EEXIST on the guard: if the existing guard's mtime is younger than `GRACE_MS`, another taker is mid-takeover → return "busy" (the caller loops / `LOCK_HELD`); if older, the taker crashed → `renameSync(guard, guard + "." + randomUUID())` then `unlinkSync` the moved file (ENOENT from losing the rename → loop) and retry step 2 once.
+3. Under the guard, `inspect` the lock **again**. Only if it is still stale (same `since` and `token` as judged, or corrupt with mtime older than `GRACE_MS`) `unlinkSync(path)`; if it is now a different, live body, remove the guard and return "busy".
+4. `wx`-create our body (EEXIST → someone created between our unlink and our create: remove the guard, loop; they hold it). Record `tookOverFrom` in our body as well as on the `Lock`.
+5. `unlinkSync` the guard. The guard is removed in a `finally` so a throw never leaves a fresh guard behind.
+Every other code path (`status`, the fast-path create) treats a guard younger than `GRACE_MS` as "held by a taker": `status` reports `{ held: true, holder: "<taking over>", takeover: true }`, and the fast path refuses to `wx`-create while a fresh guard exists (it checks the guard first; the create is still `wx`, so a lost race is just EEXIST).
+
+**Release reads before it moves.** `release(c, name, { holder, token })`: `inspect` the lock; if absent → `false`; if the body's `holder`/`token` do not match → `fail("NOT_HOLDER")` **without touching the file**; if they match → `renameSync(path, path + ".rel-" + randomUUID())` (ENOENT → someone took it over as stale between our read and our rename; return `false`), read the moved file, and if it is ours `unlinkSync` it and return `true`; if it is not ours (a takeover happened between our read and our rename and a new owner created in the gap, so we moved *their* lock) put it back with `linkSync(moved, path)` — which fails with EEXIST instead of overwriting — then `unlinkSync(moved)`; on EEXIST leave the moved file in place, log one line, and return `false`. A token-less legacy body matches on holder alone, as before.
+
+**Rename errors other than ENOENT** (EPERM/EBUSY on Windows) inside `tryAcquireOnce` count as "busy" for this attempt (loop or `LOCK_HELD`), never a raw throw.
+
+**Test (a) is strengthened**: the children synchronise on a start timestamp passed as an argument (each sleeps until `Date.now() >= start`), acquire with their own `process.pid`, hold the lock for 300 ms while alive, then print `GOT`/`HELD` and exit; the parent starts eight and asserts exactly one `GOT`; run the whole thing three times in the test. Add test (j): a `release` with the wrong token while four other processes acquire in a loop never yields two holders (reuse the child with a mode argument), and test (k): a fresh guard file makes `acquireSync` answer `LOCK_HELD` and `status` report `takeover: true`; an old guard is cleared and the lock taken.
 
 ### Task 6: Git helpers and worktree cut/remove
 
@@ -1123,7 +1167,7 @@ git commit -m "feat: file locks with stale takeover and the lock command"
 - `src/worktree.mjs`: `resolveBase(config) -> { branch, head }` by `baseRule` (`newest-feature-branch` → newest `branchPrefix*` else integration; `integration-branch` → `integrationBranch` or the first of `development`, `develop`, `main`, `master` that exists; any other string → that branch); `cut(config, job, { slug }) -> Job` (refuses `WORKTREE_IS_MAIN_CHECKOUT`, `WORKTREE_LOCKED` by a foreign holder, `BASE_MOVED` if head differs after the add; creates `<worktrees.dir>/<slug>`, branch `<branchPrefix><slug>`, runs `afterCut` commands with `shell: true`, copies `copyFromBase` files from the base branch's worktree when it has one, acquires lock `worktree:<slug>` with holder `job.id`, returns the job with `branch`, `base: { branch, head }`, `worktree`); `remove(config, job)` (releases the lock, `git worktree remove`, keeps the branch).
 - CLI: `sfactory worktree cut <id> [--slug s]`, `sfactory worktree remove <id>`, `sfactory worktree base` (prints the resolved base).
 
-- [ ] **Step 1: Write the failing git tests**
+- [x] **Step 1: Write the failing git tests**
 
 ```js
 import { test } from "node:test";
@@ -1166,7 +1210,7 @@ import { resolve as require_resolve } from "node:path";
 
 (The `newestBranch` test sets `GIT_COMMITTER_DATE` for the old commit; add `env: { ...process.env, GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z" }` to that one `sh` call by giving `sh` an optional fourth `env` argument in `test/helpers.mjs`.)
 
-- [ ] **Step 2: Write src/git.mjs**
+- [x] **Step 2: Write src/git.mjs**
 
 ```js
 import { spawnSync } from "node:child_process";
@@ -1206,9 +1250,9 @@ export function remoteHead(cwd, branch, remote = "origin") {
 }
 ```
 
-- [ ] **Step 3: Run the git tests** — passing.
+- [x] **Step 3: Run the git tests** — passing.
 
-- [ ] **Step 4: Write the failing worktree tests**
+- [x] **Step 4: Write the failing worktree tests**
 
 ```js
 import { test } from "node:test";
@@ -1268,7 +1312,7 @@ test("worktree: refuses the main checkout and a foreign lock", async () => {
 });
 ```
 
-- [ ] **Step 5: Write src/worktree.mjs**
+- [x] **Step 5: Write src/worktree.mjs**
 
 ```js
 import { existsSync, copyFileSync, mkdirSync } from "node:fs";
@@ -1340,10 +1384,10 @@ export function remove(c, job) {
 }
 ```
 
-- [ ] **Step 6: Write src/commands/worktree.mjs**
+- [x] **Step 6: Write src/commands/worktree.mjs**
 
 ```js
-import { register } from "../cli.mjs";
+import { register } from "../registry.mjs";
 import { findRepoRoot, loadConfig } from "../config.mjs";
 import { readJob, writeJob } from "../store.mjs";
 import { cut, remove, resolveBase } from "../worktree.mjs";
@@ -1364,9 +1408,9 @@ Note: `writeJob` is called here with a job produced by `cut`, not by `job.mjs`. 
 
 Add the import to `src/cli.mjs`.
 
-- [ ] **Step 7: Run all tests** — passing. On Windows the `remove` test needs the worktree dir not to be the process cwd; the tests never `chdir`, so it is fine.
+- [x] **Step 7: Run all tests** — passing. On Windows the `remove` test needs the worktree dir not to be the process cwd; the tests never `chdir`, so it is fine.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/git.mjs src/worktree.mjs src/commands/worktree.mjs src/cli.mjs test/helpers.mjs test/git.test.mjs test/worktree.test.mjs
@@ -1385,7 +1429,7 @@ git commit -m "feat: git helpers, worktree cut and remove with base resolution a
 - `isFree(port) -> Promise<boolean>` (tries `net.createServer().listen(port, "127.0.0.1")`); `allocate(config, jobId) -> Promise<{ block, ...names }>`: the first block `base + k*step` (k ≥ 0, k < 100) whose base is not held by another job in `listJobs` and whose every named port is free; throws `NO_PORTS`. The job's `ports` field is set by the caller (`commands/ports.mjs` writes it, same exception as worktree). `substitute(template, ports)` replaces `{port.<name>}` in strings (used by Plan C's services).
 - CLI: `sfactory ports allocate <id>` prints `api=4100 web=4101`; `sfactory ports free <port>` exits 0/1.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```js
 import { test } from "node:test";
@@ -1413,7 +1457,7 @@ test("ports: isFree and substitute", async () => {
 });
 ```
 
-- [ ] **Step 2: Write src/ports.mjs**
+- [x] **Step 2: Write src/ports.mjs**
 
 ```js
 import { createServer } from "node:net";
@@ -1443,9 +1487,9 @@ export async function allocate(c, jobId) {
 export const substitute = (s, ports) => String(s).replace(/\{port\.([a-z0-9_-]+)\}/gi, (_, n) => (ports[n] != null ? String(ports[n]) : `{port.${n}}`));
 ```
 
-- [ ] **Step 3: Write src/commands/ports.mjs** (allocate writes `job.ports`; free prints and exits 0/1). Add the import to `cli.mjs`.
+- [x] **Step 3: Write src/commands/ports.mjs** (allocate writes `job.ports`; free prints and exits 0/1). Add the import to `cli.mjs`.
 
-- [ ] **Step 4: Run tests; commit**
+- [x] **Step 4: Run tests; commit**
 
 ```bash
 git add src/ports.mjs src/commands/ports.mjs src/cli.mjs test/ports.test.mjs
@@ -1465,7 +1509,7 @@ git commit -m "feat: per-card port blocks"
 - `push(config, { cwd, holder }) -> { branch, remoteHead }`: refuses `git.push === false` (`PUSH_DISABLED`), a branch not starting with `branchPrefix` (`BRANCH_REFUSED`), a dirty tree (`DIRTY_TREE`); runs `git push -u origin <branch>`, then `fetch` and returns `remoteHead` read from `origin/<branch>`, failing `PUSH_UNVERIFIED` if it does not equal the local head.
 - CLI: `sfactory commit --cwd <dir> --holder <id> -m "<msg>" -- <path...>` (paths after `--`; extend `parseArgs` to collect everything after `--` into `flags.rest`); `sfactory push --cwd <dir> --holder <id>`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `test/commit.test.mjs`:
 ```js
@@ -1539,7 +1583,7 @@ test("push: refusals", () => {
 });
 ```
 
-- [ ] **Step 2: Write src/commit.mjs**
+- [x] **Step 2: Write src/commit.mjs**
 
 ```js
 import { fail } from "./errors.mjs";
@@ -1570,7 +1614,7 @@ export async function commit(c, { cwd, paths, message, holder }) {
 }
 ```
 
-- [ ] **Step 3: Write src/push.mjs**
+- [x] **Step 3: Write src/push.mjs**
 
 ```js
 import { fail } from "./errors.mjs";
@@ -1590,7 +1634,7 @@ export function push(c, { cwd, remote = "origin" }) {
 }
 ```
 
-- [ ] **Step 4: Extend parseArgs for `--`** in `src/cli.mjs`: when `a === "--"`, put every remaining arg into `flags.rest` and stop. Add the test to `test/cli.test.mjs`:
+- [x] **Step 4: Extend parseArgs for `--`** in `src/cli.mjs`: when `a === "--"`, put every remaining arg into `flags.rest` and stop. Add the test to `test/cli.test.mjs`:
 
 ```js
 test("cli: parseArgs collects paths after --", () => {
@@ -1599,9 +1643,9 @@ test("cli: parseArgs collects paths after --", () => {
 });
 ```
 
-- [ ] **Step 5: Write the two command modules** (`commit`: reads `--cwd` (default `io.cwd`), `--holder`, `-m`/`--m`/`--message`, paths from `flags.rest`; prints the sha. `push`: prints `branch remoteHead`). Add both imports to `cli.mjs`.
+- [x] **Step 5: Write the two command modules** (`commit`: reads `--cwd` (default `io.cwd`), `--holder`, `-m`/`--m`/`--message`, paths from `flags.rest`; prints the sha. `push`: prints `branch remoteHead`). Add both imports to `cli.mjs`.
 
-- [ ] **Step 6: Run all tests; commit**
+- [x] **Step 6: Run all tests; commit**
 
 ```bash
 git add src/commit.mjs src/push.mjs src/commands/commit.mjs src/commands/push.mjs src/cli.mjs test/cli.test.mjs test/commit.test.mjs test/push.test.mjs
@@ -1620,7 +1664,7 @@ git commit -m "feat: commit and push with named-path, trailer, branch and clean-
 - `runSuite(config, { cwd, jobId, logPath, command = config.commands.suite }) -> Promise<{ ok, code, durationMs, tail }>`: holds the `suite` lock when `commands.suiteSerial` (waits up to `limits.suiteWaitMs`), spawns the command with `shell: true`, streams stdout and stderr into `logPath` (appending a header line `=== <iso> <command> ===`), resolves with the exit code and the last 40 lines. Never throws for a red suite; throws `LOCK_HELD` if the wait expires.
 - CLI: `sfactory suite --cwd <dir> --job <id> [--log path]` (default log `<jobDir>/verify/suite-<timestamp>.log`); exit code = the suite's.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```js
 import { test } from "node:test";
@@ -1655,7 +1699,7 @@ test("suite: waits for the lock and gives up with LOCK_HELD", async () => {
 });
 ```
 
-- [ ] **Step 2: Write src/suite.mjs**
+- [x] **Step 2: Write src/suite.mjs**
 
 ```js
 import { spawn } from "node:child_process";
@@ -1685,9 +1729,9 @@ export async function runSuite(c, { cwd, jobId, logPath, command = c.commands.su
 }
 ```
 
-- [ ] **Step 3: Write src/commands/suite.mjs** (resolves the default log path under the job folder with `jobDir`; prints `ok`/`red` and the tail; returns the code). Add the import.
+- [x] **Step 3: Write src/commands/suite.mjs** (resolves the default log path under the job folder with `jobDir`; prints `ok`/`red` and the tail; returns the code). Add the import.
 
-- [ ] **Step 4: Run tests; commit**
+- [x] **Step 4: Run tests; commit**
 
 ```bash
 git add src/suite.mjs src/commands/suite.mjs src/cli.mjs test/suite.test.mjs
@@ -1708,7 +1752,7 @@ git commit -m "feat: serialised suite runner that logs to the job folder"
 - `taskBatches(plan, max) -> number[][]`: greedy batches in task order; a task joins the current batch if all its `dependsOn` are in earlier batches, its files are disjoint from every task in the batch, and the batch has fewer than `max`; a task whose dependencies are unmet starts a new batch.
 - CLI: `sfactory independence milestones <planA> <planB>` (prints the table, exits 0/1) and `sfactory independence tasks <plan> [--max 4]` (prints batches as JSON).
 
-- [ ] **Step 1: Write the fixtures**
+- [x] **Step 1: Write the fixtures**
 
 `test/fixtures/plans/a.md`:
 ```markdown
@@ -1740,7 +1784,7 @@ git commit -m "feat: serialised suite runner that logs to the job folder"
 
 `test/fixtures/plans/overlap.md`: Task 1 modifies `apps/api/src/modules/alpha/alpha.service.ts` and creates `apps/api/prisma/migrations/20261028_o/migration.sql`; Task 2 modifies `apps/api/src/app.ts` and `spec/modules/19.1-CARRIED-FORWARD.md`.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 `test/plan.test.mjs`:
 ```js
@@ -1802,7 +1846,7 @@ test("independence: task batches respect dependencies, disjointness and the cap"
 });
 ```
 
-- [ ] **Step 3: Write src/plan.mjs**
+- [x] **Step 3: Write src/plan.mjs**
 
 ```js
 const norm = (p) => p.trim().replace(/^`|`$/g, "").replace(/\\/g, "/").replace(/:\d+(-\d+)?$/, "").replace(/^\.\//, "");
@@ -1827,7 +1871,7 @@ export function parsePlan(md) {
 }
 ```
 
-- [ ] **Step 4: Write src/independence.mjs**
+- [x] **Step 4: Write src/independence.mjs**
 
 ```js
 import { relative, isAbsolute } from "node:path";
@@ -1879,9 +1923,9 @@ export function taskBatches(plan, max = 4) {
 }
 ```
 
-- [ ] **Step 5: Write src/commands/independence.mjs** (reads the plan files, prints `name  ok/FAIL  detail` rows or the batches JSON; exit 1 when `ok` is false). Add the import.
+- [x] **Step 5: Write src/commands/independence.mjs** (reads the plan files, prints `name  ok/FAIL  detail` rows or the batches JSON; exit 1 when `ok` is false). Add the import.
 
-- [ ] **Step 6: Run tests; commit**
+- [x] **Step 6: Run tests; commit**
 
 ```bash
 git add src/plan.mjs src/independence.mjs src/commands/independence.mjs src/cli.mjs test/plan.test.mjs test/independence.test.mjs test/fixtures/plans/a.md test/fixtures/plans/b.md test/fixtures/plans/overlap.md
@@ -1900,7 +1944,7 @@ git commit -m "feat: plan parsing, milestone independence checks and task batchi
 - `addCost(config, jobId, { at, stage, agent: "claude"|"codex", model, inputTokens, outputTokens, cacheReadTokens = 0, usd = null }) -> entry` appends to `<jobDir>/cost.json` (`{ entries: [] }`), computing `usd` from `config.prices[model]` when null (unknown model → `usd: null, priced: false`), and writes the running `total` back; `readCost(config, jobId)`; `totalUsd(entries) -> number` (unpriced entries count 0 and the result carries `unpriced: n`).
 - CLI: `sfactory cost add <id> --stage building --agent codex --model gpt-6.1-sol --in 12000 --out 3000`; `sfactory cost show <id>`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```js
 import { test } from "node:test";
@@ -1924,7 +1968,7 @@ test("cost: priced and unpriced entries, running total", () => {
 });
 ```
 
-- [ ] **Step 2: Write src/cost.mjs**
+- [x] **Step 2: Write src/cost.mjs**
 
 ```js
 import { readJobFile, writeJobFile } from "./store.mjs";
@@ -1951,7 +1995,7 @@ export function addCost(c, id, { at = new Date().toISOString(), stage, agent, mo
 }
 ```
 
-- [ ] **Step 3: Write src/commands/cost.mjs**, add the import, run tests, commit**
+- [x] **Step 3: Write src/commands/cost.mjs**, add the import, run tests, commit**
 
 ```bash
 git add src/cost.mjs src/commands/cost.mjs src/cli.mjs test/cost.test.mjs
@@ -1970,7 +2014,7 @@ git commit -m "feat: per-job cost recording with a price table"
 - `runDoctor(config | null, { cwd, exec = spawnSync }) -> { ok, checks: [{ name, ok, detail }] }`: `node>=20`, `git` runnable, config present and valid (when null, the check fails and the rest that need config are skipped), `stateDir` writable (creates it), `worktrees.dir` creatable and not the repo root, `claude` on PATH when mode is `claude`/`mixed`, `codex` on PATH when `codex`/`mixed`, Codex profiles present in `~/.codex/config.toml` when `codex`/`mixed` (reads the file, looks for `[profiles.<name>]`), `ports.base` block free, `rules` files identical when more than one, `commands.suite` non-empty. `exec` is injectable so the test can fake `codex`/`claude` absent or present.
 - Each shim is three lines: shebang, `import { main } from "../src/cli.mjs"`, `process.exitCode = await main(["job", ...process.argv.slice(2)])` (with its own command name). No `.mjs` extension on the shim filename, `#!/usr/bin/env node`, executable bit set in git (`git update-index --chmod=+x`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```js
 import { test } from "node:test";
@@ -2008,7 +2052,7 @@ test("doctor: no config reports NO_CONFIG and skips the dependent checks", () =>
 });
 ```
 
-- [ ] **Step 2: Write src/doctor.mjs**
+- [x] **Step 2: Write src/doctor.mjs**
 
 ```js
 import { spawnSync } from "node:child_process";
@@ -2048,15 +2092,15 @@ export function runDoctor(c, { cwd, exec = spawnSync, codexConfigPath = join(hom
 
 Port freeness is async; `commands/doctor.mjs` runs `isFree(config.ports.base)` after `runDoctor` and appends a `ports.base` check before printing.
 
-- [ ] **Step 3: Write src/commands/doctor.mjs** (loads config in a try/catch so a missing config still produces the report; prints `ok`/`FAIL` rows; exit 1 on any failure), the ten shims, and README.md. Add the import to `cli.mjs`.
+- [x] **Step 3: Write src/commands/doctor.mjs** (loads config in a try/catch so a missing config still produces the report; prints `ok`/`FAIL` rows; exit 1 on any failure), the ten shims, and README.md. Add the import to `cli.mjs`.
 
-- [ ] **Step 4: Mark the shims executable and check the package**
+- [x] **Step 4: Mark the shims executable and check the package**
 
 Run: `git add bin && git update-index --chmod=+x bin/*` then `npm pack --dry-run` — Expected: the file list contains `bin/`, `src/`, `schema/`, `LICENSE`, `README.md`, `docs/DESIGN.md`, and nothing from `test/` or `.sfactory`.
 
-- [ ] **Step 5: Run every test** — `npm test` — Expected: all green; note the count in the commit body.
+- [x] **Step 5: Run every test** — `npm test` — Expected: all green; note the count in the commit body.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/doctor.mjs src/commands/doctor.mjs src/cli.mjs bin README.md test/doctor.test.mjs
@@ -2075,7 +2119,7 @@ git commit -m "feat: doctor, plugin bin shims and README"
 - Consumes: everything above through the CLI.
 - Produces: the three example configs the design names, each valid under `validateConfig` (a test asserts it).
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 `test/examples.test.mjs`:
 ```js
@@ -2088,9 +2132,9 @@ for (const f of readdirSync(dir).filter((n) => n.endsWith(".config.json")))
   test(`examples: ${f} is valid`, () => assert.deepEqual(validateConfig(JSON.parse(readFileSync(new URL(f, dir), "utf8"))), []));
 ```
 
-- [ ] **Step 2: Write the three configs.** `thrive-rewards.config.json` is the block in `docs/DESIGN.md` §8 with the comments removed and `$schema` pointing at `https://raw.githubusercontent.com/ShivamH1/sfactory/main/schema/config.json`; `minimal-node.config.json` is the three-line config in §8; `python-uv.config.json` has `"commands": { "suite": "uv run pytest" }` and mode `claude`.
+- [x] **Step 2: Write the three configs.** `thrive-rewards.config.json` is the block in `docs/DESIGN.md` §8 with the comments removed and `$schema` pointing at `https://raw.githubusercontent.com/ShivamH1/sfactory/main/schema/config.json`; `minimal-node.config.json` is the three-line config in §8; `python-uv.config.json` has `"commands": { "suite": "uv run pytest" }` and mode `claude`.
 
-- [ ] **Step 3: Dry run on a throwaway clone (not the real project)**
+- [x] **Step 3: Dry run on a throwaway clone (not the real project)**
 
 Clone the Thrive repo into a temp directory outside OneDrive (`git clone --depth 50 <path-to-main-checkout> C:/tmp/sf-dry/thrive`), copy `examples/thrive-rewards.config.json` to its root as `sfactory.config.json` with `worktrees.dir` and `stateDir` pointed at `C:/tmp/sf-dry/wt` and `C:/tmp/sf-dry/state`, then from that clone:
 
@@ -2107,7 +2151,7 @@ node <sfactory>/src/cli.mjs worktree remove f-1
 
 Expected: doctor reports `claude` and `codex` present and the two Codex profiles missing (they are added in Plan C's INSTALL step); the cut lands under `C:/tmp/sf-dry/wt/dry-run` on `feature/dry-run` with `.env` files copied if the clone has them; `job show` has `branch`, `base`, `worktree`, `ports`. `afterCut` (`pnpm install`) is expected to take minutes; set it to `[]` in the dry-run config if the machine is busy. Delete `C:/tmp/sf-dry` afterwards. Record the outcome in the commit body.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add examples/thrive-rewards.config.json examples/minimal-node.config.json examples/python-uv.config.json test/examples.test.mjs package.json

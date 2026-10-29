@@ -1,0 +1,20 @@
+# Real-format plan
+
+## Task 1: Service (after Task 6a)
+
+**Files:**
+- Modify `apps/x.ts`
+- Create: `apps/y.ts:10-20`, `apps/z.ts`
+- Test `apps/x.test.ts`
+
+The retry depends on the clock: 5 minutes of waiting.
+
+```md
+### Task 9: A fake heading inside a fence
+- Create: `fenced.ts`
+```
+
+## Task 6a: Prep
+**Files:**
+- Create: src/a.ts, src/b.ts
+- **Depends on:** Task 1

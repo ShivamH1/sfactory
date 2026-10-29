@@ -1,0 +1,4 @@
+node_modules/
+.sfactory/
+*.log
+.superpowers/

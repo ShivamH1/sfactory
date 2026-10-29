@@ -1,0 +1,6 @@
+{
+  "name": "sfactory",
+  "version": "0.1.0",
+  "description": "Software factory: backlog → plan → build → review → verify → pushed, with a kanban board. Claude, Codex or both.",
+  "author": { "name": "Shivam Sanjay", "url": "https://github.com/ShivamH1" }
+}
