@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { STAGES, TRANSITIONS, COLUMNS, WORKING, newJob, transition, park, release, stop, resume } from "../src/job.mjs";
+import { STAGES, TRANSITIONS, COLUMNS, WORKING, NUMBER_RE, newJob, transition, park, release, stop, resume } from "../src/job.mjs";
 
 const now = "2026-10-27T10:00:00.000Z";
 
@@ -320,4 +320,9 @@ test("job: roadmap -> backlog -> planning, roadmap -> external -> merged; extern
   assert.throws(() => transition(r, "planning"), (e) => e.code === "ILLEGAL_TRANSITION");
   assert.equal(stop(r).stage, "stopped");
   assert.equal(stop(ext).stage, "stopped");
+});
+
+test("job: NUMBER_RE accepts a whole or one-decimal milestone number and nothing else", () => {
+  for (const ok of ["57", "0", "29.1"]) assert.equal(NUMBER_RE.test(ok), true, ok);
+  for (const bad of ["d", "ddd", "1.2.3", "1.", ".5", "M14", ""]) assert.equal(NUMBER_RE.test(bad), false, bad);
 });

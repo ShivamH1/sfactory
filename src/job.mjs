@@ -26,7 +26,7 @@ export const TRANSITIONS = {
   stopped: [],             // only resume()
 };
 /** A milestone number: a whole number or one with a single decimal part ("57", "29.1"). */
-export const NUMBER_RE = /^d+(.d+)?$/;
+export const NUMBER_RE = /^\d+(\.\d+)?$/;
 
 export function newJob({ id, kind, title, now = new Date().toISOString(), stage = "backlog", number, after }) {
   if (!["milestone", "fix"].includes(kind)) fail("BAD_KIND", `kind must be milestone or fix, got ${kind}`);
