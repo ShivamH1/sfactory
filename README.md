@@ -27,7 +27,7 @@ What you see on the board (http://127.0.0.1:4317), left to right: Backlog, Plan,
 
 `/sfactory run` is idempotent: run it again after any stop and it carries on from the saved state.
 
-To try the board with no repo and no config: `sfactory board --demo` (read-only, six sample cards).
+To try the board with no repo and no config: `sfactory board --demo` (read-only, eight sample cards).
 
 ## The board
 

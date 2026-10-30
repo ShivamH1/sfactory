@@ -1,13 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { VERDICT, BAD } from "../src/board/snapshot.mjs";
+import { VERDICT, BAD, BOARD_COLUMNS } from "../src/board/snapshot.mjs";
 
 const html = readFileSync(new URL("../board/dashboard.html", import.meta.url), "utf8");
 
-test("page: structure, nine columns, wiring", () => {
+test("page: structure, eleven columns, wiring", () => {
   assert.match(html, /id="board"/);
-  assert.equal((html.match(/<section class="col" data-column="/g) ?? []).length, 9);
+  assert.equal((html.match(/<section class="col" data-column="/g) ?? []).length, 11);
   assert.ok(html.includes('fetch("/jobs.json"'));
   assert.ok(html.includes("X-Sfactory-Board"));
   assert.equal((html.match(/<script/g) ?? []).length, 1);
@@ -90,4 +90,13 @@ test("page: the verdict regex matches whole words and colours them", () => {
   const bad = (s) => /^(?:❌|needs fixes|red)$/i.test(re.exec(s)[0]);
   assert.equal(bad("✅ all covered"), false);
   assert.equal(bad("Needs fixes"), true);
+});
+
+test("page: a section per board column, the start gate and the number pill", () => {
+  for (const col of BOARD_COLUMNS) assert.ok(html.includes(`data-column="${col}"`), col);
+  assert.ok(html.indexOf('data-column="Milestones"') < html.indexOf('data-column="Backlog"'));
+  assert.ok(html.indexOf('data-column="External running"') < html.indexOf('data-column="Done"'));
+  assert.match(html, /"start"/);
+  assert.match(html, /Starts on the next \/sfactory run/);
+  assert.match(html, /"M" \+ job\.number/);
 });

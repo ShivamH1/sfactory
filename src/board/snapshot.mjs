@@ -83,6 +83,7 @@ export function jobView(c, j, now = new Date().toISOString()) {
     id: j.id, kind: j.kind, title: j.title, stage: j.stage, column: COLUMNS[j.stage] ?? null,
     pending: j.pending ?? null, returnStage: j.returnStage ?? null, branch: j.branch ?? null, base: j.base ?? null,
     worktree: j.worktree ?? null, ports: j.ports ?? null, slug: j.slug ?? null,
+    number: j.number ?? null, after: j.after ?? null, externalNote: j.externalNote ?? null, pr: j.pr ?? null, prUrl: j.prUrl ?? null,
     tasks: j.tasks ?? null, round: j.round ?? 0, rework: j.rework ?? 0, parallel: j.parallel ?? null,
     started: j.started ?? null, updated: j.updated ?? null, ended: j.ended ?? null,
     elapsedMs: Date.parse(j.ended ?? now) - Date.parse(j.started),

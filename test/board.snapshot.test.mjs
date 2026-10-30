@@ -8,6 +8,7 @@ import { park, transition } from "../src/job.mjs";
 import { addCost } from "../src/cost.mjs";
 import { buildSnapshot, VERDICT, BAD, BOARD_COLUMNS } from "../src/board/snapshot.mjs";
 import { acquireSync } from "../src/lock.mjs";
+import { importCards } from "../src/import.mjs";
 
 const COLS = ["Milestones", "Backlog", "Plan", "Needs you", "In process", "Review", "Fixed", "Pushed / PR", "External running", "Done", "Stopped"];
 
@@ -181,4 +182,17 @@ test("snapshot: a touch's activity is shown only while the card is in a working 
   actions.set(c, { id: a.id, to: "awaiting-approval" });
   const j = buildSnapshot(c).jobs.find((x) => x.id === a.id);
   assert.equal("activity" in j, false, "a parked card shows no stale activity");
+});
+
+test("snapshot: number, after, externalNote, pr and prUrl are allow-listed", () => {
+  const c = { stateDir: tmpDir("sf-snap-"), limits: { lockStaleMs: 60_000 } };
+  importCards(c, { cards: [
+    { number: "14", kind: "milestone", title: "Audit log", stage: "roadmap", after: "M13" },
+    { number: "13", kind: "milestone", title: "CSV export", stage: "external", externalNote: "pairing session", pr: 34, prUrl: "https://example.com/pr/34" },
+  ] });
+  const jobs = buildSnapshot(c).jobs;
+  const r = jobs.find((j) => j.id === "m-1"), e = jobs.find((j) => j.id === "m-2");
+  assert.equal(r.column, "Milestones"); assert.equal(r.number, "14"); assert.equal(r.after, "M13"); assert.equal(r.externalNote, null);
+  assert.equal(e.column, "External running"); assert.equal(e.externalNote, "pairing session"); assert.equal(e.pr, 34); assert.equal(e.prUrl, "https://example.com/pr/34");
+  assert.equal(r.needsYou, null); assert.equal(e.needsYou, null);
 });

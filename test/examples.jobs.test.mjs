@@ -9,7 +9,7 @@ import { buildSnapshot } from "../src/board/snapshot.mjs";
 
 const examples = fileURLToPath(new URL("../examples/", import.meta.url));
 const committed = join(examples, "jobs");
-const IDS = ["f-1", "f-2", "m-1", "m-2", "m-3", "m-4"];
+const IDS = ["f-1", "f-2", "m-1", "m-2", "m-3", "m-4", "m-5", "m-6"];
 const norm = (f) => readFileSync(f, "utf8").replace(/\r\n/g, "\n");
 function files(root, prefix = "") {
   return readdirSync(root).flatMap((n) => {
@@ -31,11 +31,11 @@ test("generator output equals the committed demo folders", () => {
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test("the snapshot over the demo jobs lists six jobs in the expected columns", () => {
+test("the snapshot over the demo jobs lists eight jobs in the expected columns", () => {
   const s = buildSnapshot({ stateDir: examples, board: { pollMs: 2000 } }, { now: "2026-01-06T00:00:00.000Z", demo: true });
   const col = Object.fromEntries(s.jobs.map((j) => [j.id, j.column]));
-  assert.equal(s.jobs.length, 6);
-  assert.deepEqual(col, { "m-1": "Done", "m-2": "Pushed / PR", "m-3": "In process", "m-4": "Needs you", "f-1": "Needs you", "f-2": "Stopped" });
+  assert.equal(s.jobs.length, 8);
+  assert.deepEqual(col, { "m-5": "Milestones", "m-6": "External running", "m-1": "Done", "m-2": "Pushed / PR", "m-3": "In process", "m-4": "Needs you", "f-1": "Needs you", "f-2": "Stopped" });
   assert.ok(s.jobs.find((j) => j.id === "m-2").prText);
   assert.ok(s.jobs.find((j) => j.id === "m-3").cost.usd > 0);
   assert.equal(s.jobs.find((j) => j.id === "m-4").needsYou.action, "approve");

@@ -66,6 +66,7 @@
   .card.needs { border-color: var(--you); }
   .card.stopped { border-color: var(--danger); }
   .tag.danger { color: var(--danger); border-color: var(--danger); }
+  .tag.ext { color: var(--gold); border-color: var(--gold); border-style: dashed; }
   .card.active { box-shadow: 0 0 0 2px var(--pulse); }
   @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 var(--pulse); } 50% { box-shadow: 0 0 0 4px var(--pulse); } }
   @media (prefers-reduced-motion: no-preference) { .card.active { animation: pulse 2s ease-in-out infinite; } }
@@ -133,6 +134,7 @@
 <div id="demo" role="status">Demo data: nothing here is a real job, and the controls are off.</div>
 
 <main id="board" aria-label="Jobs by stage">
+  <section class="col" data-column="Milestones"><h2>Milestones <span class="n"></span></h2><div class="cards"></div></section>
   <section class="col" data-column="Backlog"><h2>Backlog <span class="n"></span></h2><div class="cards"></div></section>
   <section class="col" data-column="Plan"><h2>Plan <span class="n"></span></h2><div class="cards"></div></section>
   <section class="col" data-column="Needs you"><h2>Needs you <span class="n"></span></h2><div class="cards"></div></section>
@@ -140,6 +142,7 @@
   <section class="col" data-column="Review"><h2>Review <span class="n"></span></h2><div class="cards"></div></section>
   <section class="col" data-column="Fixed"><h2>Fixed <span class="n"></span></h2><div class="cards"></div></section>
   <section class="col" data-column="Pushed / PR"><h2>Pushed / PR <span class="n"></span></h2><div class="cards"></div></section>
+  <section class="col" data-column="External running"><h2>External running <span class="n"></span></h2><div class="cards"></div></section>
   <section class="col" data-column="Done"><h2>Done <span class="n"></span></h2><div class="cards"></div></section>
   <section class="col" data-column="Stopped" hidden><h2>Stopped <span class="n"></span></h2><div class="cards"></div></section>
 </main>
@@ -255,6 +258,11 @@
       });
       btns.appendChild(copy);
       btns.appendChild(actionButton(card, job, "Mark merged", "go", "merged"));
+    } else if (job.stage === "roadmap") {
+      btns.appendChild(actionButton(card, job, "Start", "go", "start"));
+      g.appendChild(h("div", "hint", "Starts on the next /sfactory run"));
+    } else if (job.stage === "external") {
+      btns.appendChild(actionButton(card, job, "Mark merged", "go", "merged"));
     }
     if (job.stage === "reviewing" || job.stage === "pushed") {
       g.appendChild(textarea("rework", "What should change?"));
@@ -305,7 +313,9 @@
     var card = h("article", "card" + (job.needsYou ? " needs" : "") + (job.stage === "stopped" ? " stopped" : "") + (job.active ? " active" : ""));
     card.setAttribute("data-id", job.id);
     var top = h("div", "row");
-    top.appendChild(h("span", "id", job.id));
+    var idEl = h("span", "id", job.number ? "M" + job.number : job.id);
+    if (job.number) idEl.title = job.id;
+    top.appendChild(idEl);
     top.appendChild(h("span", "tag", job.kind));
     top.appendChild(h("span", job.stage === "stopped" ? "tag danger" : "tag", job.stage));
     if (job.needsYou) top.appendChild(h("span", "tag you", "needs you"));
@@ -316,7 +326,9 @@
     title.type = "button";
     title.addEventListener("click", function () { openDrawer(job.id); });
     card.appendChild(title);
-    if (job.activity && job.activity.note) card.appendChild(h("div", "branch", job.activity.note));
+    if (job.after) card.appendChild(h("div", "hint", "after " + job.after));
+    if (job.externalNote) card.appendChild(h("span", "tag ext", job.externalNote + (job.pr ? " · PR #" + job.pr : "")));
+    if (job.activity &&job.activity.note) card.appendChild(h("div", "branch", job.activity.note));
     if (job.branch) card.appendChild(h("div", "branch", job.branch));
     if (job.reviews && job.reviews.length) {
       var chips = h("div", "row");
