@@ -311,3 +311,15 @@ test("actions: roadmap and external milestones never count toward the cap", () =
   actions.add(c, { kind: "milestone", title: "now" });
   assert.equal(actions.set(c, { id: "m-3", to: "planning" }).stage, "planning");
 });
+
+test("actions: add with a number, in roadmap, with an after line", () => {
+  const c = cfg();
+  const j = actions.add(c, { kind: "milestone", title: "Audit log", number: "14", roadmap: true, after: "M13" });
+  assert.equal(j.stage, "roadmap"); assert.equal(j.number, "14"); assert.equal(j.after, "M13");
+  throwsCode(() => actions.add(c, { kind: "milestone", title: "again", number: "14" }), "NUMBER_TAKEN", /M14 is m-1/);
+  throwsCode(() => actions.add(c, { kind: "milestone", title: "bad", number: "1.2.3" }), "BAD_NUMBER");
+  throwsCode(() => actions.add(c, { kind: "fix", title: "f", number: "3" }), "BAD_ARGS");
+  throwsCode(() => actions.add(c, { kind: "fix", title: "f", roadmap: true }), "BAD_ARGS");
+  throwsCode(() => actions.add(c, { kind: "milestone", title: "long", after: "x".repeat(81) }), "BAD_ARGS");
+  assert.equal(actions.add(c, { kind: "milestone", title: "plain" }).stage, "backlog");
+});

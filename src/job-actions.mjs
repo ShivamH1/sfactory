@@ -1,5 +1,5 @@
 import { readJob, writeJob, addJob, withJobLock, listJobs, writeJobFile, jobFileExists, readJobFile } from "./store.mjs";
-import { transition, park, release, queue, stop, resume, WORKING } from "./job.mjs";
+import { transition, park, release, queue, stop, resume, WORKING, NUMBER_RE } from "./job.mjs";
 import { fail } from "./errors.mjs";
 import { removeVerifyCopies, verifyCopiesLeft } from "./verify-copies.mjs";
 import { withRecordLock } from "./record.mjs";
@@ -38,13 +38,25 @@ function assertParallelAnswered(c, job) {
 }
 
 export const actions = {
-  add(c, { kind, title, logOf }) {
+  add(c, { kind, title, logOf, number, roadmap, after }) {
     if (!kind || !title) fail("BAD_ARGS", 'usage: sfactory job add <milestone|fix> "<title>"');
     if (kind !== "milestone" && kind !== "fix") fail("BAD_ARGS", 'kind must be "milestone" or "fix"');
-    if (logOf === undefined) return addJob(c, kind, title);
-    if (kind !== "fix") fail("BAD_ARGS", "--log is for a fix card: the milestone whose log takes the fix's dated note");
-    if (!/^[1-9]\d*$/.test(String(logOf))) fail("BAD_ARGS", "--log needs a positive whole number");
-    return addJob(c, kind, title, { logOf: Number(logOf) });
+    if (kind === "fix" && (number !== undefined || roadmap || after !== undefined)) fail("BAD_ARGS", "--number, --roadmap and --after are for a milestone card");
+    if (after !== undefined && (typeof after !== "string" || !after.trim() || after.length > 80)) fail("BAD_ARGS", "--after needs text of at most 80 characters");
+    if (number !== undefined && !NUMBER_RE.test(String(number))) fail("BAD_NUMBER", `"${number}" is not a milestone number (a whole number, or one like 29.1)`);
+    if (logOf !== undefined) {
+      if (kind !== "fix") fail("BAD_ARGS", "--log is for a fix card: the milestone whose log takes the fix's dated note");
+      if (!/^[1-9]\d*$/.test(String(logOf))) fail("BAD_ARGS", "--log needs a positive whole number");
+      return addJob(c, kind, title, { logOf: Number(logOf) });
+    }
+    const opts = { ...(roadmap ? { stage: "roadmap" } : {}), ...(number !== undefined ? { number: String(number) } : {}), ...(after !== undefined ? { after } : {}) };
+    if (number === undefined) return addJob(c, kind, title, opts);
+    // The duplicate check and the write share the record lock, so two adds cannot both take one number.
+    return withRecordLock(c, "add", () => {
+      const held = listJobs(c).find((j) => j.number === String(number));
+      if (held) fail("NUMBER_TAKEN", `M${number} is ${held.id} ("${held.title}")`);
+      return addJob(c, kind, title, opts);
+    });
   },
   set(c, { id, to, by = "session", reason = null }) {
     return locked(c, id, (job) => {

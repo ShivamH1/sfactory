@@ -1,6 +1,6 @@
 import { register } from "../registry.mjs";
 import { findRepoRoot, loadConfig } from "../config.mjs";
-import { readJob } from "../store.mjs";
+import { readJob, resolveId } from "../store.mjs";
 import { servicesUp, servicesDown, servicesStatus } from "../services.mjs";
 import { fail } from "../errors.mjs";
 import { copyForVerify } from "../verify-copies.mjs";
@@ -11,7 +11,7 @@ export const ACCEPTS = { verbs: ["up", "down", "status", "copy"], flags: [] };
 register("services", async ({ positional: [verb, id] }, io) => {
   if (!["up", "down", "status", "copy"].includes(verb ?? "") || !id) fail("BAD_ARGS", "usage: sfactory services up|down|status|copy <id>");
   const c = loadConfig(findRepoRoot(io.cwd));
-  const job = readJob(c, id);
+  const job = readJob(c, resolveId(c, id));
   const log = (m) => io.stderr(`${m}\n`);
   // copy: the copyForVerify files only, for a verify step that needs them before the services start (migrations).
   if (verb === "copy") {

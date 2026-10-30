@@ -89,13 +89,31 @@ export function createJobFolder(c, id) {
   try { mkdirSync(jobDir(c, id)); } catch (e) { if (e.code === "EEXIST") fail("JOB_EXISTS", `${id} already exists`); throw e; }
 }
 
-export function addJob(c, kind, title, { now, logOf } = {}) {
+/** Allocate the next id of `kind`, build the job with make(id) and write it under its lock. */
+export function addJobWith(c, kind, make) {
   for (let i = 0; i < 20; i++) {
     const id = nextId(c, kind);
     try { createJobFolder(c, id); } catch (e) { if (e.code === "JOB_EXISTS") continue; throw e; }
-    return withJobLock(c, id, () => writeJob(c, { ...newJob({ id, kind, title, now }), ...(logOf !== undefined ? { logOf } : {}) }));
+    return withJobLock(c, id, () => writeJob(c, make(id)));
   }
   fail("JOB_BUSY", `could not allocate a ${kind} id after 20 tries`);
+}
+
+export function addJob(c, kind, title, { now, logOf, stage, number, after } = {}) {
+  return addJobWith(c, kind, (id) => ({
+    ...newJob({ id, kind, title, now, ...(stage !== undefined ? { stage } : {}), ...(number !== undefined ? { number } : {}), ...(after !== undefined ? { after } : {}) }),
+    ...(logOf !== undefined ? { logOf } : {}),
+  }));
+}
+
+/** "M14" (any case) names the card whose number is "14"; anything else is returned as given. */
+export function resolveId(c, ref) {
+  const m = /^m(\d+(?:\.\d+)?)$/i.exec(String(ref ?? ""));
+  if (!m) return ref;
+  const hits = listJobs(c).filter((j) => j.number === m[1]);
+  if (!hits.length) fail("JOB_NOT_FOUND", `no card carries the number M${m[1]}`);
+  if (hits.length > 1) fail("AMBIGUOUS", `M${m[1]} is carried by ${hits.map((j) => j.id).join(" and ")}; fix the job files by hand`);
+  return hits[0].id;
 }
 export function nextId(c, kind) {
   const prefix = kind === "milestone" ? "m-" : "f-";

@@ -4,7 +4,7 @@ import { findRepoRoot, loadConfig } from "../config.mjs";
 // sanctioned exception to "only job.mjs writes": cut and remove change no stage and append no
 // history, and the branch/base/worktree/slug/lockToken fields belong to them. The job is re-read
 // after the git work and only those fields are patched, so a stage change made meanwhile survives.
-import { readJob, writeJob, withJobLock, listJobs } from "../store.mjs";
+import { readJob, writeJob, withJobLock, listJobs, resolveId } from "../store.mjs";
 import { resolveRecord, withRecordLock } from "../record.mjs";
 import { cut, remove, resolveBase } from "../worktree.mjs";
 import { fail } from "../errors.mjs";
@@ -136,12 +136,14 @@ register("worktree", async ({ positional: [verb, id], flags }, io) => {
   const c = loadConfig(findRepoRoot(io.cwd));
   if (verb === "base") { const b = resolveBase(c, { fetch: flags["no-fetch"] !== true }); io.stdout(`${b.branch} ${b.head}\n`); return 0; }
   if (!id) fail("BAD_ARGS", "usage: sfactory worktree cut <id> [--slug s] [--base-of <partner id>] | sfactory worktree remove <id> [--force] | sfactory worktree merge <id> --from <partner id> | sfactory worktree base");
+  const jid = resolveId(c, id);
+  const partnerOf = (v) => (typeof v === "string" ? resolveId(c, v) : v);
   if (verb === "cut") {
-    const j = cutJob(c, id, { slug: flags.slug, fetch: flags["no-fetch"] !== true, warn: io.stderr, ...(flags["base-of"] !== undefined ? { baseOf: flags["base-of"] } : {}) });
+    const j = cutJob(c, jid, { slug: flags.slug, fetch: flags["no-fetch"] !== true, warn: io.stderr, ...(flags["base-of"] !== undefined ? { baseOf: partnerOf(flags["base-of"]) } : {}) });
     io.stdout(`${j.id} ${j.branch} ${j.worktree} (base ${j.base.branch} ${j.base.head.slice(0, 7)}) lock token ${j.lockToken}\n`);
     return 0;
   }
-  if (verb === "remove") { removeJob(c, id, { force: flags.force === true }); io.stdout(`${id} worktree removed\n`); return 0; }
-  if (verb === "merge") { const m = await mergePartner(c, id, flags.from); io.stdout(`${id} merged ${m.branch} at ${m.head}\n`); return 0; }
+  if (verb === "remove") { removeJob(c, jid, { force: flags.force === true }); io.stdout(`${jid} worktree removed\n`); return 0; }
+  if (verb === "merge") { const m = await mergePartner(c, jid, partnerOf(flags.from)); io.stdout(`${jid} merged ${m.branch} at ${m.head}\n`); return 0; }
   fail("UNKNOWN_COMMAND", `worktree ${verb}`);
 }, ACCEPTS);
