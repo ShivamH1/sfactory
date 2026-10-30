@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { tmpRepo, writeConfig } from "./helpers.mjs";
 import { main } from "../src/cli.mjs";
 
@@ -28,4 +30,15 @@ test("cli: --roadmap is a boolean flag, so a title word may follow it", async ()
   assert.equal(j.title, "Audit log"); assert.equal(j.stage, "roadmap");
   r = await run(r0, ["job", "add", "milestone", "Later", "--roadmap", "item"]);
   assert.equal(r.code, 0, r.err); assert.equal(JSON.parse((await run(r0, ["job", "show", "m-2"])).out).title, "Later item");
+});
+
+test("cli: job import prints one line per card and refuses a missing file", async () => {
+  const r0 = repo();
+  writeFileSync(join(r0, "cards.json"), JSON.stringify({ cards: [{ number: "3", kind: "milestone", title: "Later", stage: "roadmap" }, { kind: "milestone", title: "Done thing", stage: "merged", pr: 2 }] }));
+  let r = await run(r0, ["job", "import", "cards.json"]);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.out, "created m-1 M3 roadmap\ncreated m-2 merged\n2 created, 0 skipped\n");
+  r = await run(r0, ["job", "import", "cards.json"]);
+  assert.match(r.out, /skipped #0: M3 is m-1\n/);
+  assert.notEqual((await run(r0, ["job", "import", "missing.json"])).code, 0);
 });

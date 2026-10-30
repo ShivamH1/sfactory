@@ -7,6 +7,7 @@ import { fail } from "../errors.mjs";
 import { WORKING } from "../job.mjs";
 import { jobDir, resolveId } from "../store.mjs";
 import { assertNotSecret } from "../commit.mjs";
+import { importCards } from "../import.mjs";
 
 /**
  * The person's notes for request-changes: exactly one of --notes "<text>" and --notes-file <path> (read relative to
@@ -48,6 +49,7 @@ const sub = {
   touch: (p, f) => { if (f.note === true) fail("BAD_ARGS", '--note needs a value: sfactory job touch <id> --note "<text>"'); return { id: p[0], note: str(f.note) }; },
   show: (p) => ({ id: p[0] }),
   list: () => ({}),
+  import: (p) => ({ file: p[0] }),
 };
 
 /** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
@@ -61,7 +63,20 @@ register("job", async ({ positional, flags }, io) => {
   if (typeof args.id === "string") args.id = resolveId(c, args.id);
   if (name === "add" && (!args.kind || !rest.slice(1).length)) fail("BAD_ARGS", 'usage: sfactory job add <milestone|fix> "<title>" [--log <n>, fix only]');
   if (name === "request-changes") args.notes = changeNotes(c, flags, io.cwd);
-  const out = actions[name === "request-changes" ? "requestChanges" : name](c, args);
+  if (name === "import") {
+    if (typeof args.file !== "string") fail("BAD_ARGS", "usage: sfactory job import <file.json>");
+    assertNotSecret(c, [args.file], { cwd: io.cwd });
+    let doc;
+    try { doc = JSON.parse(readFileSync(resolve(io.cwd, args.file), "utf8")); }
+    catch (e) { fail(e.code === "ENOENT" ? "BAD_ARGS" : "BAD_IMPORT", `${args.file}: ${e.code === "ENOENT" ? "no such file" : "not valid JSON"}`); }
+    const r = importCards(c, doc);
+    if (flags.json) { io.stdout(JSON.stringify(r, null, 2) + "\n"); return 0; }
+    for (const x of r.created) io.stdout(`created ${x.id}${x.number ? ` M${x.number}` : ""} ${x.stage}\n`);
+    for (const x of r.skipped) io.stdout(`skipped #${x.index}: ${x.reason}\n`);
+    io.stdout(`${r.created.length} created, ${r.skipped.length} skipped\n`);
+    return 0;
+  }
+  const out = actions[name ==="request-changes" ? "requestChanges" : name](c, args);
   if (name === "request-changes") { io.stdout(`${out.id} ${out.stage} ${join(jobDir(c, out.id), out.history.at(-1).file)}\n`); return 0; }
   if (name === "list") {
     io.stdout(flags.json ? JSON.stringify(out, null, 2) + "\n" : out.map((j) => `${j.id.padEnd(6)} ${j.stage.padEnd(18)} ${j.kind.padEnd(9)} ${j.title}\n`).join(""));
