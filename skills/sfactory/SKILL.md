@@ -18,9 +18,12 @@ Parse `$ARGUMENTS`: the first word is the command. Each row is the CLI line you 
 |---|---|
 | `/sfactory init` | `sfactory init`. Add `--force` only when the person asks to replace an existing config. Show what it wrote, what it guessed and what it could not guess. |
 | `/sfactory doctor` | `sfactory doctor`. Show every `FAIL` row and what fixes it. |
-| `/sfactory add milestone "<title>"` | `sfactory job add milestone "<title>"`. It waits in backlog until `run` starts it. |
+| `/sfactory add milestone "<title>" [--number <n>] [--roadmap] [--after "<text>"]` | `sfactory job add milestone "<title>"` with the same flags. Without `--roadmap` it waits in backlog until `run` starts it; with it, it waits in the Milestones column until the person starts it. `--number` gives it an M-number every command accepts in place of its id. |
 | `/sfactory add fix "<title>" --log <n>` | `sfactory job add fix "<title>" --log <n>`. Without `--log`, `sfactory job add fix "<title>"`. With it, the fix records itself as a dated note in milestone `<n>`'s log, which the cut finds. |
 | `/sfactory run [--resume <id>]` | Orientation (section 3), then `sfactory job list --json` and the run loop (section 4). With `--resume <id>`, first `sfactory job resume <id>`: a `stopped` card is resumed only this way. |
+| `/sfactory start <id>` | `sfactory job start <id>` (the id may be `M<n>`). It moves a Milestones card to backlog. Then carry on as `/sfactory run`. |
+| `/sfactory external <id> "<note>"` | `sfactory job external <id> --note "<note>"`: the card is being worked outside the factory, and `run` leaves it alone. `/sfactory merged <id>` or `/sfactory stop <id>` closes it. |
+| `/sfactory import <file>` | `sfactory job import <file>`. Show the lines it prints. It creates cards only in roadmap, backlog, external, pushed and merged, and skips cards already on the board. |
 | `/sfactory approve <id>` | `sfactory job approve <id>`. It writes `plan/approval.md` and moves the card to `building`. A milestone beside another active milestone is refused `PARALLEL_UNANSWERED` until a parallel proposal between them is answered yes (section 5): ask it, then approve. |
 | `/sfactory answer <id> ["<answer>"]` | Write the person's answer (from the command, or ask for it) to `<JOB_DIR>/decisions/<k>-answer.md`, where `<k>` is the highest `decisions/<k>.md`. Then run `sfactory job answer <id>`. |
 | `/sfactory parallel <id> --yes` or `--no` | `sfactory job parallel <id> --yes` or `sfactory job parallel <id> --no` (section 5). |
@@ -70,7 +73,9 @@ Run `sfactory job list --json`. Then, pass after pass, give each card one step, 
 
 Only when the person asks you to keep watching, use the Monitor tool with a bounded until-loop: check `sfactory job list --json` every 30 seconds, give up after 30 minutes, and carry on the moment a card moves.
 
-A run ends when nothing is left but `pushed`, `merged` and `stopped` cards, or every remaining card waits on the person.
+The factory never works a `roadmap` or `external` card: a `roadmap` card waits for `/sfactory start`, an `external` card is someone else's work. Skip both in every pass.
+
+A run ends when nothing is left but `roadmap`, `external`, `pushed`, `merged` and `stopped` cards, or every remaining card waits on the person.
 
 **backlog**
 

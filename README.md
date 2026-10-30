@@ -16,7 +16,7 @@ In a repository with the plugin installed:
 /sfactory run
 ```
 
-What you see on the board (http://127.0.0.1:4317), left to right: Backlog, Plan, Needs you, In process, Review, Fixed, Pushed / PR, Done.
+What you see on the board (http://127.0.0.1:4317), left to right: Milestones, Backlog, Plan, Needs you, In process, Review, Fixed, Pushed / PR, External running, Done. **Milestones** holds planned work the factory leaves alone until you start it (`/sfactory start M14`); **External running** shows work being done outside the factory, which `run` never touches.
 
 1. The card sits in **Backlog**, then moves to **Plan**: the factory cuts a worktree and a branch for it, and the planning skills work with you in the session to write a brief and a plan into your project's own record (the paths come from `record` in the config).
 2. **Stop one, approval.** The card parks in **Needs you** as `awaiting-approval`. Open it, read the plan in the drawer (the *Approve* button stays off until you have viewed every plan file), then press *Approve*, or send notes with *Request changes*. The terminal equivalent is `/sfactory approve <id>`.
@@ -62,8 +62,12 @@ In `mixed`, the judge is the vendor that did not write the code. Model names, ef
 In a Claude Code session (each is a thin call into the CLI with the skill around it):
 
 - `/sfactory init` and `/sfactory doctor` — write and check the config
-- `/sfactory add milestone "<title>"` and `/sfactory add fix "<title>" --log <n>` — a backlog card
+- `/sfactory add milestone "<title>" [--number <n>] [--roadmap] [--after "<text>"]` and `/sfactory add fix "<title>" --log <n>` — a backlog card (a roadmap card with `--roadmap`)
 - `/sfactory run [--resume <id>]` — work every card from its saved state
+- `/sfactory start <id>` — move a Milestones card to backlog
+- `/sfactory external <id> "<note>"` — mark a card as worked outside the factory
+- `/sfactory import <file>` — create cards in bulk from a JSON file
+- `<id>` may be `M<n>` for a numbered card
 - `/sfactory approve <id>` — release `awaiting-approval`
 - `/sfactory answer <id>` — release `decision-needed` once the questionnaire is answered
 - `/sfactory parallel <id> --yes` or `--no` — admit or queue a second milestone
@@ -74,7 +78,7 @@ In a Claude Code session (each is a thin call into the CLI with the skill around
 
 The CLI (npm users run `sfactory <command>`; plugin users also get an `sfactory-<command>` shim for each):
 
-- `sfactory job` — create, move and inspect cards (`add`, `set`, `approve`, `park`, `answer`, `parallel`, `stop`, `resume`, `merged`, `rework`, `request-changes`, `touch`, `show`, `list`)
+- `sfactory job` — create, move and inspect cards (`add`, `set`, `approve`, `park`, `answer`, `parallel`, `stop`, `resume`, `merged`, `rework`, `request-changes`, `touch`, `show`, `list`, `start`, `external`, `import`)
 - `sfactory lock` — take and release the suite and resource locks
 - `sfactory worktree` — cut, remove and merge job worktrees; `worktree base` prints the base branch
 - `sfactory ports` — allocate and free a job's port block
@@ -95,6 +99,20 @@ The CLI (npm users run `sfactory <command>`; plugin users also get an `sfactory-
 - `sfactory install` — `--codex`: copy the skills into `~/.codex/skills/`; without it, copy the skills, agents and prompts into `.claude/` for reading (Claude Code uses the plugin; `--dest <dir>`; `--force`)
 - `sfactory sync-rules` — make every file in the config's `rules` match the first (`--check` only reports)
 - `sfactory version`
+
+## Bringing an existing project
+
+A project with finished and planned work can put it on the board once. Write a JSON file from your own records and run `sfactory job import cards.json` after `sfactory init` and `sfactory doctor`:
+
+```json
+{ "cards": [
+  { "number": "12", "kind": "milestone", "title": "Saved searches", "stage": "merged", "branch": "feature/saved-searches", "pr": 31 },
+  { "number": "13", "kind": "milestone", "title": "CSV export", "stage": "external", "externalNote": "pairing session" },
+  { "number": "14", "kind": "milestone", "title": "Audit log", "stage": "roadmap", "after": "M13" }
+] }
+```
+
+Stages: `roadmap` (Milestones), `backlog`, `external`, `pushed`, `merged`. Other fields: `branch`, `pr`, `prUrl`, `started`, `ended` (merged only), `after`, `externalNote` (external only), `note`. The whole file is checked before anything is written, and cards already on the board are skipped, so running it again is safe.
 
 ## Safety rules
 
