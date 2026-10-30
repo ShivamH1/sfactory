@@ -8,18 +8,20 @@ import { withRecordLock } from "./record.mjs";
 const nextNo = (c, id, rel) => { let k = 1; while (jobFileExists(c, id, rel(k))) k++; return k; };
 const locked = (c, id, fn) => withJobLock(c, id, () => fn(readJob(c, id)));
 
+/** Stages that never count toward limits.parallelMilestones: not started, outside the factory, or finished. */
+export const OFF_STAGES = ["roadmap", "backlog", "external", "pushed", "merged", "stopped"];
+
 /**
  * The milestones that count toward limits.parallelMilestones: from planning until pushed, merged or stopped. A card
- * in backlog does not count, a queued one (parallel: queued) included, nor one parked for a parallel proposal from
- * backlog (it has not started).
+ * in roadmap, backlog or external does not count, a queued one (parallel: queued) included, nor one parked for a
+ * parallel proposal from backlog (it has not started).
  */
 export function activeMilestones(c, exceptId = null) {
-  const off = ["backlog", "pushed", "merged", "stopped"];
-  return listJobs(c).filter((j) => j.id !== exceptId && j.kind === "milestone" && !off.includes(j.stage) && !(j.stage === "decision-needed" && j.returnStage === "backlog"));
+  return listJobs(c).filter((j) => j.id !== exceptId && j.kind === "milestone" && !OFF_STAGES.includes(j.stage) && !(j.stage === "decision-needed" && j.returnStage === "backlog"));
 }
 
 /** Is a card resting at `stage` one that counts toward the cap? (the same rule as activeMilestones, for a stage not yet written) */
-const countsAt = (job, stage) => !["backlog", "pushed", "merged", "stopped"].includes(stage) && !(stage === "decision-needed" && job.returnStage === "backlog");
+const countsAt = (job, stage) => !OFF_STAGES.includes(stage) && !(stage === "decision-needed" && job.returnStage === "backlog");
 
 /** Throws CAP_REACHED when starting `id` would exceed limits.parallelMilestones. Call under the record lock. */
 function assertCap(c, id, verb) {

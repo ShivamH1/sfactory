@@ -1,16 +1,17 @@
 import { fail } from "./errors.mjs";
 
-export const STAGES = ["backlog", "planning", "awaiting-approval", "building", "reviewing", "fixing", "verifying", "pushing", "pushed", "merged", "decision-needed", "stopped"];
+export const STAGES = ["roadmap", "backlog", "planning", "awaiting-approval", "building", "reviewing", "fixing", "verifying", "pushing", "pushed", "external", "merged", "decision-needed", "stopped"];
 export const TERMINAL = ["merged"];
 export const WORKING = ["planning", "building", "reviewing", "fixing", "verifying", "pushing"];
 export const COLUMNS = {
-  backlog: "Backlog", planning: "Plan", "awaiting-approval": "Needs you", building: "In process", reviewing: "Review",
-  fixing: "Fixed", verifying: "Fixed", pushing: "Pushed / PR", pushed: "Pushed / PR", merged: "Done",
+  roadmap: "Milestones", backlog: "Backlog", planning: "Plan", "awaiting-approval": "Needs you", building: "In process", reviewing: "Review",
+  fixing: "Fixed", verifying: "Fixed", pushing: "Pushed / PR", pushed: "Pushed / PR", external: "External running", merged: "Done",
   "decision-needed": "Needs you", stopped: "Stopped",
 };
 /** Edges other than park/stop, which are added per call. "awaiting-approval -> building" also needs the approval file (commands/job.mjs). */
 export const TRANSITIONS = {
-  backlog: ["planning"],
+  roadmap: ["backlog", "external"],
+  backlog: ["planning", "external"],
   planning: ["awaiting-approval", "building"],
   "awaiting-approval": ["building"],
   building: ["reviewing"],
@@ -19,19 +20,25 @@ export const TRANSITIONS = {
   verifying: ["pushing", "fixing"],
   pushing: ["pushed"],
   pushed: ["merged", "building"],
+  external: ["merged"],
   merged: [],
   "decision-needed": [],   // only release()
   stopped: [],             // only resume()
 };
+/** A milestone number: a whole number or one with a single decimal part ("57", "29.1"). */
+export const NUMBER_RE = /^d+(.d+)?$/;
 
-export function newJob({ id, kind, title, now = new Date().toISOString() }) {
+export function newJob({ id, kind, title, now = new Date().toISOString(), stage = "backlog", number, after }) {
   if (!["milestone", "fix"].includes(kind)) fail("BAD_KIND", `kind must be milestone or fix, got ${kind}`);
+  if (!["backlog", "roadmap"].includes(stage)) fail("BAD_ARGS", `a new card starts in backlog or roadmap, not ${stage}`);
   return {
-    id, kind, title, stage: "backlog", returnStage: null, previousStage: null, pending: null,
+    id, kind, title, stage, returnStage: null, previousStage: null, pending: null,
     branch: null, base: null, worktree: null, ports: null, record: null,
     tasks: { total: 0, done: 0, parallel: [] }, round: 0, rework: 0, parallel: null, agents: null, cost: 0,
     started: now, updated: now, ended: null,
-    history: [{ at: now, from: null, to: "backlog", by: "session", reason: "created" }],
+    ...(number !== undefined ? { number } : {}),
+    ...(after !== undefined ? { after } : {}),
+    history: [{ at: now, from: null, to: stage, by: "session", reason: "created" }],
   };
 }
 

@@ -3,7 +3,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tmpDir } from "./helpers.mjs";
-import { actions } from "../src/job-actions.mjs";
+import { actions, OFF_STAGES, activeMilestones } from "../src/job-actions.mjs";
+import { newJob } from "../src/job.mjs";
+import { createJobFolder } from "../src/store.mjs";
 import { readJob, jobFileExists, readJobFile, writeJobFile, withJobLock, writeJob } from "../src/store.mjs";
 import { acquireSync, status } from "../src/lock.mjs";
 
@@ -296,4 +298,16 @@ test("N4: resume re-checks the cap and, past approval, the parallel answer; a ca
   actions.stop(c, { id: "f-1" });
   assert.equal(actions.resume(c, { id: "f-1" }).stage, "planning");
   unheld(c, "m-1");
+});
+
+const put = (c, job) => { createJobFolder(c, job.id); withJobLock(c, job.id, () => writeJob(c, job)); };
+
+test("actions: roadmap and external milestones never count toward the cap", () => {
+  const c = { ...cfg(), limits: { lockStaleMs: 60_000, parallelMilestones: 1 } };
+  assert.ok(OFF_STAGES.includes("roadmap") && OFF_STAGES.includes("external"));
+  put(c, newJob({ id: "m-1", kind: "milestone", title: "later", stage: "roadmap" }));
+  put(c, { ...newJob({ id: "m-2", kind: "milestone", title: "elsewhere" }), stage: "external" });
+  assert.deepEqual(activeMilestones(c), []);
+  actions.add(c, { kind: "milestone", title: "now" });
+  assert.equal(actions.set(c, { id: "m-3", to: "planning" }).stage, "planning");
 });

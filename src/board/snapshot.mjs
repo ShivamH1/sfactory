@@ -5,7 +5,7 @@ import { readCost } from "../cost.mjs";
 import { status } from "../lock.mjs";
 import { COLUMNS } from "../job.mjs";
 
-export const BOARD_COLUMNS = ["Backlog", "Plan", "Needs you", "In process", "Review", "Fixed", "Pushed / PR", "Done", "Stopped"];
+export const BOARD_COLUMNS = ["Milestones", "Backlog", "Plan", "Needs you", "In process", "Review", "Fixed", "Pushed / PR", "External running", "Done", "Stopped"];
 
 /** Every .md and .log under the job folder, relative with forward slashes, sorted; temp files and job.json left out. */
 function collectFiles(root) {

@@ -11,9 +11,9 @@ test("job: every stage has a column and a transition entry", () => {
 
 test("job: TRANSITIONS is exactly the specified edge set", () => {
   const want = {
-    backlog: ["planning"], planning: ["awaiting-approval", "building"], "awaiting-approval": ["building"], building: ["reviewing"],
+    roadmap: ["backlog", "external"], backlog: ["planning", "external"], planning: ["awaiting-approval", "building"], "awaiting-approval": ["building"], building: ["reviewing"],
     reviewing: ["fixing", "verifying", "building"], fixing: ["reviewing"], verifying: ["pushing", "fixing"], pushing: ["pushed"],
-    pushed: ["merged", "building"], merged: [], "decision-needed": [], stopped: [],
+    pushed: ["merged", "building"], external: ["merged"], merged: [], "decision-needed": [], stopped: [],
   };
   for (const from of STAGES) for (const to of STAGES) {
     assert.equal(TRANSITIONS[from].includes(to), want[from].includes(to), `${from} -> ${to}`);
@@ -289,4 +289,35 @@ test("job cmd: request-changes --notes-file refuses a path listed in secrets.nev
     assert.equal(r.code, 2, p); assert.match(r.err, /SECRET_PATH/);
   }
   assert.equal(existsSync(join(c.stateDir, "jobs", "m-1", "plan", "changes-1.md")), false);
+});
+
+test("job: roadmap and external are stages with their own columns, never working", () => {
+  for (const s of ["roadmap", "external"]) { assert.ok(STAGES.includes(s), s); assert.ok(!WORKING.includes(s), s); }
+  assert.equal(COLUMNS.roadmap, "Milestones");
+  assert.equal(COLUMNS.external, "External running");
+  assert.deepEqual(TRANSITIONS.roadmap, ["backlog", "external"]);
+  assert.deepEqual(TRANSITIONS.backlog, ["planning", "external"]);
+  assert.deepEqual(TRANSITIONS.external, ["merged"]);
+});
+
+test("job: newJob can start in roadmap and carries number and after only when given", () => {
+  const plain = newJob({ id: "m-1", kind: "milestone", title: "t", now: "2026-01-01T00:00:00.000Z" });
+  assert.equal(plain.stage, "backlog");
+  assert.equal("number" in plain, false); assert.equal("after" in plain, false);
+  const r = newJob({ id: "m-2", kind: "milestone", title: "t", now: "2026-01-01T00:00:00.000Z", stage: "roadmap", number: "14", after: "M13" });
+  assert.equal(r.stage, "roadmap"); assert.equal(r.number, "14"); assert.equal(r.after, "M13");
+  assert.deepEqual(r.history, [{ at: "2026-01-01T00:00:00.000Z", from: null, to: "roadmap", by: "session", reason: "created" }]);
+  assert.throws(() => newJob({ id: "m-3", kind: "milestone", title: "t", stage: "building" }), (e) => e.code === "BAD_ARGS");
+});
+
+test("job: roadmap -> backlog -> planning, roadmap -> external -> merged; external cannot plan; both can stop", () => {
+  const r = newJob({ id: "m-1", kind: "milestone", title: "t", stage: "roadmap" });
+  assert.equal(transition(r, "backlog").stage, "backlog");
+  const ext = transition(r, "external");
+  assert.equal(ext.stage, "external");
+  assert.equal(transition(ext, "merged").stage, "merged");
+  assert.throws(() => transition(ext, "planning"), (e) => e.code === "ILLEGAL_TRANSITION");
+  assert.throws(() => transition(r, "planning"), (e) => e.code === "ILLEGAL_TRANSITION");
+  assert.equal(stop(r).stage, "stopped");
+  assert.equal(stop(ext).stage, "stopped");
 });

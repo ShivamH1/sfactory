@@ -6,10 +6,14 @@ import { tmpDir } from "./helpers.mjs";
 import { addJob, withJobLock, writeJob, writeJobFile, jobDir } from "../src/store.mjs";
 import { park, transition } from "../src/job.mjs";
 import { addCost } from "../src/cost.mjs";
-import { buildSnapshot, VERDICT, BAD } from "../src/board/snapshot.mjs";
+import { buildSnapshot, VERDICT, BAD, BOARD_COLUMNS } from "../src/board/snapshot.mjs";
 import { acquireSync } from "../src/lock.mjs";
 
-const COLS = ["Backlog", "Plan", "Needs you", "In process", "Review", "Fixed", "Pushed / PR", "Done", "Stopped"];
+const COLS = ["Milestones", "Backlog", "Plan", "Needs you", "In process", "Review", "Fixed", "Pushed / PR", "External running", "Done", "Stopped"];
+
+test("snapshot: the columns, Milestones first and External running before Done", () => {
+  assert.deepEqual(BOARD_COLUMNS, COLS);
+});
 const T0 = "2026-10-27T10:00:00.000Z", NOW = "2026-10-27T10:10:00.000Z";
 
 function setup() {
