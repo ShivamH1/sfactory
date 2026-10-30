@@ -21,6 +21,19 @@ test("record: an unnumbered card keeps today's rule", () => {
   assert.equal(resolveRecord(cfg("next-milestone-number"), card({}), wt("01-a.md", "02-b.md"), []).n, 3);
 });
 
+test("record: a brief pattern without {n} never holds a number", () => {
+  const c = { record: { brief: "docs/sfactory/{id}/brief.md", plan: "docs/sfactory/{id}/plan.md", log: "docs/sfactory/{id}/log.md", stories: null, numbering: "job-id" } };
+  const d = tmpDir("sf-rn-");
+  mkdirSync(join(d, "docs", "sfactory", "m-1"), { recursive: true });
+  writeFileSync(join(d, "docs", "sfactory", "m-1", "brief.md"), "# b\n");
+  assert.equal(resolveRecord(c, card({ id: "m-7", number: "14" }), d, []).n, 14);
+});
+
+test("record: a zero-padded brief holds its number by value", () => {
+  assert.throws(() => resolveRecord(cfg("next-milestone-number"), card({ number: "1" }), wt("01-a.md"), []),
+    (e) => e.code === "NUMBER_TAKEN" && /spec\/01-a\.md/.test(e.message));
+});
+
 test("record: refusals for a numbered card", () => {
   const c = cfg("next-milestone-number");
   assert.throws(() => resolveRecord(c, card({ number: "29.1" }), wt(), []), (e) => e.code === "BAD_NUMBER");
