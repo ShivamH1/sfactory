@@ -162,6 +162,17 @@ Write the answer to decisions/${k}-answer.md, then run: sfactory job answer ${jo
     });
   },
   merged(c, { id, by = "session" }) { return locked(c, id, (job) => writeJob(c, transition(job, "merged", { by, reason: "merged" }))); },
+  /** A card waiting in roadmap joins the backlog; the next run starts it. */
+  start(c, { id, by = "session" }) { return locked(c, id, (job) => writeJob(c, transition(job, "backlog", { by, reason: "started" }))); },
+  /** A card worked outside the factory: run never touches it; merged or stop closes it. */
+  external(c, { id, note, by = "session" }) {
+    return locked(c, id, (job) => {
+      if (typeof note !== "string" || !note.trim() || note.length > 200) fail("BAD_ARGS", 'external needs --note "<who is doing it>" of at most 200 characters');
+      const next = transition(job, "external", { by, reason: "external" });
+      next.externalNote = note.trim();
+      return writeJob(c, next);
+    });
+  },
   rework(c, { id, notes, by = "session" }) {
     return locked(c, id, (job) => {
       if (typeof notes !== "string" || !notes.trim()) fail("BAD_ARGS", "rework needs --notes");

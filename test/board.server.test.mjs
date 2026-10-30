@@ -182,3 +182,14 @@ test("server: a POST answers an allow-listed job view, never the lock token or h
     assert.equal(body.job.history, undefined);
   });
 });
+
+test("server: POST start moves a roadmap card to backlog", async () => {
+  const c = mk();
+  actions.add(c, { kind: "milestone", title: "later", roadmap: true });
+  await withBoard(c, {}, async (b) => {
+    const r = await post(b, "jobs/m-1/start");
+    assert.equal(r.status, 200);
+    assert.equal((await r.json()).job.stage, "backlog");
+    assert.equal((await post(b, "jobs/m-1/start")).status, 409);
+  });
+});

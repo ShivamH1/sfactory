@@ -41,6 +41,8 @@ const sub = {
   stop: (p, f) => ({ id: p[0], reason: str(f.reason) }),
   resume: (p) => ({ id: p[0] }),
   merged: (p) => ({ id: p[0] }),
+  start: (p) => ({ id: p[0] }),
+  external: (p, f) => ({ id: p[0], note: str(f.note) }),
   rework: (p, f) => ({ id: p[0], notes: f.notes }),
   "request-changes": (p, f) => ({ id: p[0], notes: f.notes }),
   touch: (p, f) => { if (f.note === true) fail("BAD_ARGS", '--note needs a value: sfactory job touch <id> --note "<text>"'); return { id: p[0], note: str(f.note) }; },

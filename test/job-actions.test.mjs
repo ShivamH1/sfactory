@@ -323,3 +323,26 @@ test("actions: add with a number, in roadmap, with an after line", () => {
   throwsCode(() => actions.add(c, { kind: "milestone", title: "long", after: "x".repeat(81) }), "BAD_ARGS");
   assert.equal(actions.add(c, { kind: "milestone", title: "plain" }).stage, "backlog");
 });
+
+test("actions: start moves a roadmap card to backlog; nothing else starts", () => {
+  const c = cfg();
+  actions.add(c, { kind: "milestone", title: "later", number: "14", roadmap: true });
+  const j = actions.start(c, { id: "m-1", by: "board" });
+  assert.equal(j.stage, "backlog");
+  assert.deepEqual({ ...j.history.at(-1), at: undefined }, { at: undefined, from: "roadmap", to: "backlog", by: "board", reason: "started" });
+  throwsCode(() => actions.start(c, { id: "m-1" }), "ILLEGAL_TRANSITION");
+  unheld(c, "m-1");
+});
+
+test("actions: external from roadmap or backlog with a note; merged closes it", () => {
+  const c = cfg();
+  actions.add(c, { kind: "milestone", title: "a", roadmap: true });
+  actions.add(c, { kind: "milestone", title: "b" });
+  assert.equal(actions.external(c, { id: "m-1", note: "pairing session" }).externalNote, "pairing session");
+  assert.equal(actions.external(c, { id: "m-2", note: "another agent" }).stage, "external");
+  throwsCode(() => actions.external(c, { id: "m-1", note: "x" }), "ILLEGAL_TRANSITION");
+  actions.add(c, { kind: "milestone", title: "c" });
+  throwsCode(() => actions.external(c, { id: "m-3" }), "BAD_ARGS");
+  throwsCode(() => actions.external(c, { id: "m-3", note: "x".repeat(201) }), "BAD_ARGS");
+  assert.equal(actions.merged(c, { id: "m-1" }).stage, "merged");
+});
