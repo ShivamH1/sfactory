@@ -323,6 +323,6 @@ test("job: roadmap -> backlog -> planning, roadmap -> external -> merged; extern
 });
 
 test("job: NUMBER_RE accepts a whole or one-decimal milestone number and nothing else", () => {
-  for (const ok of ["57", "0", "29.1"]) assert.equal(NUMBER_RE.test(ok), true, ok);
-  for (const bad of ["d", "ddd", "1.2.3", "1.", ".5", "M14", ""]) assert.equal(NUMBER_RE.test(bad), false, bad);
+  for (const ok of ["57", "0", "10", "29.1", "0.5"]) assert.equal(NUMBER_RE.test(ok), true, ok);
+  for (const bad of ["d", "ddd", "1.2.3", "1.", ".5", "M14", "", "014", "00", "01.5"]) assert.equal(NUMBER_RE.test(bad), false, bad);
 });

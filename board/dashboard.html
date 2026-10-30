@@ -328,7 +328,7 @@
     card.appendChild(title);
     if (job.after) card.appendChild(h("div", "hint", "after " + job.after));
     if (job.externalNote) card.appendChild(h("span", "tag ext", job.externalNote + (job.pr ? " · PR #" + job.pr : "")));
-    if (job.activity &&job.activity.note) card.appendChild(h("div", "branch", job.activity.note));
+    if (job.activity && job.activity.note) card.appendChild(h("div", "branch", job.activity.note));
     if (job.branch) card.appendChild(h("div", "branch", job.branch));
     if (job.reviews && job.reviews.length) {
       var chips = h("div", "row");

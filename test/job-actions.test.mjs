@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { tmpDir } from "./helpers.mjs";
 import { actions, OFF_STAGES, activeMilestones } from "../src/job-actions.mjs";
 import { newJob } from "../src/job.mjs";
-import { createJobFolder } from "../src/store.mjs";
+import { createJobFolder, listJobs } from "../src/store.mjs";
 import { readJob, jobFileExists, readJobFile, writeJobFile, withJobLock, writeJob } from "../src/store.mjs";
 import { acquireSync, status } from "../src/lock.mjs";
 
@@ -322,6 +322,20 @@ test("actions: add with a number, in roadmap, with an after line", () => {
   throwsCode(() => actions.add(c, { kind: "fix", title: "f", roadmap: true }), "BAD_ARGS");
   throwsCode(() => actions.add(c, { kind: "milestone", title: "long", after: "x".repeat(81) }), "BAD_ARGS");
   assert.equal(actions.add(c, { kind: "milestone", title: "plain" }).stage, "backlog");
+});
+
+test("actions: a decimal number is history only: add needs --roadmap, start and planning refuse it", () => {
+  const c = cfg();
+  throwsCode(() => actions.add(c, { kind: "milestone", title: "d", number: "29.1" }), "BAD_NUMBER", /history only/);
+  assert.equal(listJobs(c).length, 0);
+  assert.equal(actions.add(c, { kind: "milestone", title: "d", number: "29.1", roadmap: true }).stage, "roadmap");
+  throwsCode(() => actions.start(c, { id: "m-1" }), "BAD_NUMBER");
+  assert.equal(readJob(c, "m-1").stage, "roadmap");
+  // a backlog card hand-edited to a decimal number cannot enter planning
+  put(c, newJob({ id: "m-2", kind: "milestone", title: "h", number: "29.2" }));
+  throwsCode(() => actions.set(c, { id: "m-2", to: "planning" }), "BAD_NUMBER");
+  assert.equal(readJob(c, "m-2").stage, "backlog");
+  unheld(c, "m-1"); unheld(c, "m-2");
 });
 
 test("actions: start moves a roadmap card to backlog; nothing else starts", () => {

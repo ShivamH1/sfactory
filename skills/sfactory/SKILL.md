@@ -1,6 +1,6 @@
 ---
 name: sfactory
-description: "The sfactory orchestrator. Use for any /sfactory command (init, doctor, add, run, approve, answer, parallel, status, board, rework, stop, clean, merged) or when the person asks to run the factory or work its cards. Moves every card through its stages with the sfactory CLI for each state change, and with the sfactory brainstorming, writing-plans and sdd skills and the sfactory agents for the work."
+description: "The sfactory orchestrator. Use for any /sfactory command (init, doctor, add, start, external, import, run, approve, answer, parallel, status, board, rework, stop, clean, merged) or when the person asks to run the factory or work its cards. Moves every card through its stages with the sfactory CLI for each state change, and with the sfactory brainstorming, writing-plans and sdd skills and the sfactory agents for the work."
 allowed-tools: Bash(sfactory *), Bash(sfactory-* *), Bash(agent-browser *), Read, Write, Edit, Agent, Skill, Monitor
 ---
 
@@ -8,7 +8,7 @@ allowed-tools: Bash(sfactory *), Bash(sfactory-* *), Bash(agent-browser *), Read
 
 You run the factory for this repository. You call the `sfactory` CLI for every state change, dispatch agents and invoke the factory's skills for the work, and talk to the person at the gates. You write no product code yourself. The CLI refuses anything illegal: when it refuses, read its error code, do what the code says, and never work around it.
 
-Words used below: `<id>` is a card id (`m-3`, `f-1`). JOB_DIR is `<stateDir>/jobs/<id>/` (`stateDir` from the config, resolved against the repository root; `.sfactory` by default). WORKTREE is the card's `worktree` field from `sfactory job show <id>`, and its record paths are the card's `record` field (`brief`, `plan`, `log`, `stories`), which the cut fills in. A milestone's are relative to WORKTREE. A fix card's are its own: its brief and plan sit in JOB_DIR (`plan/brief.md`, `plan/plan.md`) unless the config's `record.fix` gives patterns, and so does its log (`log.md`) unless it was filed with `--log <n>`; a path in JOB_DIR is absolute. PLAN, BRIEF and LOG are the three as absolute paths: `<WORKTREE>/<path>` for a relative one, the path itself for an absolute one. **A record file in JOB_DIR is the factory's, never committed**: write it, and leave it out of every `sfactory commit`.
+Words used below: `<id>` is a card id (`m-3`, `f-1`). When the person gives `M<n>`, run `sfactory job show M<n>` first and use the `id` it prints for JOB_DIR and every path. JOB_DIR is `<stateDir>/jobs/<id>/` (`stateDir` from the config, resolved against the repository root; `.sfactory` by default). WORKTREE is the card's `worktree` field from `sfactory job show <id>`, and its record paths are the card's `record` field (`brief`, `plan`, `log`, `stories`), which the cut fills in. A milestone's are relative to WORKTREE. A fix card's are its own: its brief and plan sit in JOB_DIR (`plan/brief.md`, `plan/plan.md`) unless the config's `record.fix` gives patterns, and so does its log (`log.md`) unless it was filed with `--log <n>`; a path in JOB_DIR is absolute. PLAN, BRIEF and LOG are the three as absolute paths: `<WORKTREE>/<path>` for a relative one, the path itself for an absolute one. **A record file in JOB_DIR is the factory's, never committed**: write it, and leave it out of every `sfactory commit`.
 
 ## 1. Commands
 
@@ -18,7 +18,7 @@ Parse `$ARGUMENTS`: the first word is the command. Each row is the CLI line you 
 |---|---|
 | `/sfactory init` | `sfactory init`. Add `--force` only when the person asks to replace an existing config. Show what it wrote, what it guessed and what it could not guess. |
 | `/sfactory doctor` | `sfactory doctor`. Show every `FAIL` row and what fixes it. |
-| `/sfactory add milestone "<title>" [--number <n>] [--roadmap] [--after "<text>"]` | `sfactory job add milestone "<title>"` with the same flags. Without `--roadmap` it waits in backlog until `run` starts it; with it, it waits in the Milestones column until the person starts it. `--number` gives it an M-number every command accepts in place of its id. |
+| `/sfactory add milestone "<title>" [--number <n>] [--roadmap] [--after "<text>"]` | `sfactory job add milestone "<title>"` with the same flags. Without `--roadmap` it waits in backlog until `run` starts it; with it, it waits in the Milestones column until the person starts it. `--number` gives it an M-number every person-facing command accepts in place of its id. |
 | `/sfactory add fix "<title>" --log <n>` | `sfactory job add fix "<title>" --log <n>`. Without `--log`, `sfactory job add fix "<title>"`. With it, the fix records itself as a dated note in milestone `<n>`'s log, which the cut finds. |
 | `/sfactory run [--resume <id>]` | Orientation (section 3), then `sfactory job list --json` and the run loop (section 4). With `--resume <id>`, first `sfactory job resume <id>`: a `stopped` card is resumed only this way. |
 | `/sfactory start <id>` | `sfactory job start <id>` (the id may be `M<n>`). It moves a Milestones card to backlog. Then carry on as `/sfactory run`. |
@@ -87,7 +87,7 @@ A run ends when nothing is left but `roadmap`, `external`, `pushed`, `merged` an
    - **Any other card,** milestone or fix: `sfactory worktree cut <id>`.
 
    The cut comes before any brainstorming. It also fills the job's `record`. A fix card reserves no milestone number. A fix with `--log <n>` gets milestone `<n>`'s existing log as its `record.log`: its task entries and its close go into one dated section under `record.postCloseHeading` there (section 4, pushing).
-3. **A cut that fails stops the card:** `sfactory job stop <id> --reason "worktree cut failed: <error code>"`. `LOG_NOT_FOUND` means `--log` matched no single log file: tell the person.
+3. **A cut that fails stops the card:** `sfactory job stop <id> --reason "worktree cut failed: <error code>"`. `LOG_NOT_FOUND` means `--log` matched no single log file: tell the person. `BAD_NUMBER` or `NUMBER_TAKEN` from the cut stops the card with that reason too, and you tell the person (a decimal or already-held number needs the card re-filed with its own `--number`).
 
 **planning**
 

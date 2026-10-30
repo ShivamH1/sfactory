@@ -61,14 +61,19 @@ register("job", async ({ positional, flags }, io) => {
   const c = loadConfig(findRepoRoot(io.cwd));
   const args = { ...sub[name](rest, flags), ...(typeof flags.by === "string" ? { by: flags.by } : {}) };
   if (typeof args.id === "string") args.id = resolveId(c, args.id);
-  if (name === "add" && (!args.kind || !rest.slice(1).length)) fail("BAD_ARGS", 'usage: sfactory job add <milestone|fix> "<title>" [--log <n>, fix only]');
+  if (name === "add" && (!args.kind || !rest.slice(1).length)) fail("BAD_ARGS", 'usage: sfactory job add <milestone|fix> "<title>" [--log <n>, fix only] [--number <n>] [--roadmap] [--after "<text>"]');
   if (name === "request-changes") args.notes = changeNotes(c, flags, io.cwd);
   if (name === "import") {
     if (typeof args.file !== "string") fail("BAD_ARGS", "usage: sfactory job import <file.json>");
     assertNotSecret(c, [args.file], { cwd: io.cwd });
+    let text;
+    try { text = readFileSync(resolve(io.cwd, args.file), "utf8"); }
+    catch (e) { fail("BAD_ARGS", `${args.file}: ${e.code === "ENOENT" ? "no such file" : (e.code ?? "unreadable")}`); }
+    // Windows PowerShell writes a UTF-8 byte-order mark; JSON.parse refuses it.
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
     let doc;
-    try { doc = JSON.parse(readFileSync(resolve(io.cwd, args.file), "utf8")); }
-    catch (e) { fail(e.code === "ENOENT" ? "BAD_ARGS" : "BAD_IMPORT", `${args.file}: ${e.code === "ENOENT" ? "no such file" : "not valid JSON"}`); }
+    try { doc = JSON.parse(text); }
+    catch { fail("BAD_IMPORT", `${args.file}: not valid JSON`); }
     const r = importCards(c, doc);
     if (flags.json) { io.stdout(JSON.stringify(r, null, 2) + "\n"); return 0; }
     for (const x of r.created) io.stdout(`created ${x.id}${x.number ? ` M${x.number}` : ""} ${x.stage}\n`);
@@ -76,7 +81,7 @@ register("job", async ({ positional, flags }, io) => {
     io.stdout(`${r.created.length} created, ${r.skipped.length} skipped\n`);
     return 0;
   }
-  const out = actions[name ==="request-changes" ? "requestChanges" : name](c, args);
+  const out = actions[name === "request-changes" ? "requestChanges" : name](c, args);
   if (name === "request-changes") { io.stdout(`${out.id} ${out.stage} ${join(jobDir(c, out.id), out.history.at(-1).file)}\n`); return 0; }
   if (name === "list") {
     io.stdout(flags.json ? JSON.stringify(out, null, 2) + "\n" : out.map((j) => `${j.id.padEnd(6)} ${j.stage.padEnd(18)} ${j.kind.padEnd(9)} ${j.title}\n`).join(""));

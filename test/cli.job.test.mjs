@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpRepo, writeConfig } from "./helpers.mjs";
 import { main } from "../src/cli.mjs";
@@ -41,4 +41,29 @@ test("cli: job import prints one line per card and refuses a missing file", asyn
   r = await run(r0, ["job", "import", "cards.json"]);
   assert.match(r.out, /skipped #0: M3 is m-1\n/);
   assert.notEqual((await run(r0, ["job", "import", "missing.json"])).code, 0);
+});
+
+test("cli: job import refuses a file listed in secrets.neverHandToAgents and creates no card", async () => {
+  const r0 = tmpRepo();
+  writeConfig(r0, { project: "p", agents: { mode: "claude" }, commands: { suite: "x" }, secrets: { neverHandToAgents: ["cards.json"] } });
+  writeFileSync(join(r0, "cards.json"), JSON.stringify({ cards: [{ kind: "milestone", title: "Later", stage: "roadmap" }] }));
+  let r = await run(r0, ["job", "import", "cards.json"]);
+  assert.notEqual(r.code, 0);
+  assert.match(r.err, /SECRET_PATH/);
+  r = await run(r0, ["job", "list"]);
+  assert.equal(r.out, "");
+});
+
+test("cli: job import reads a BOM-prefixed file, and names a read error by its code", async () => {
+  const r0 = repo();
+  writeFileSync(join(r0, "bom.json"), "﻿" + JSON.stringify({ cards: [{ kind: "milestone", title: "Later", stage: "roadmap" }] }));
+  let r = await run(r0, ["job", "import", "bom.json"]);
+  assert.equal(r.code, 0, r.err);
+  mkdirSync(join(r0, "dir.json"));
+  r = await run(r0, ["job", "import", "dir.json"]);
+  assert.notEqual(r.code, 0);
+  assert.match(r.err, /dir\.json: EISDIR/);
+  writeFileSync(join(r0, "bad.json"), "{nope");
+  r = await run(r0, ["job", "import", "bad.json"]);
+  assert.match(r.err, /BAD_IMPORT/);
 });

@@ -36,6 +36,14 @@ test("import: validation refuses the whole file, naming the card and the field",
   bad({ cards: [{ kind: "milestone", title: "a", stage: "roadmap", number: "4" }, { kind: "milestone", title: "b", stage: "roadmap", number: "4" }] }, /cards\[1\]\.number/);
 });
 
+test("import: a decimal number is history only: refused on a backlog card, kept on the other stages", () => {
+  bad({ cards: [{ kind: "milestone", title: "t", stage: "backlog", number: "29.1" }] }, /cards\[0\]\.number/);
+  bad({ cards: [{ kind: "milestone", title: "t", stage: "roadmap", number: "014" }] }, /cards\[0\]\.number/);
+  const c = cfg();
+  const r = importCards(c, { cards: ["roadmap", "external", "pushed", "merged"].map((stage, i) => ({ kind: "milestone", title: `d${i}`, stage, number: `29.${i + 1}` })) }, { now: "2026-10-30T10:00:00.000Z" });
+  assert.equal(r.created.length, 4);
+});
+
 test("import: writes every card in its stage with its fields, history and files", () => {
   const c = cfg();
   const r = importCards(c, DOC, { now: "2026-10-30T10:00:00.000Z" });

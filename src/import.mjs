@@ -36,6 +36,7 @@ export function validateImport(doc) {
     if (card.number !== undefined) {
       if (card.kind !== "milestone") no("number", "only a milestone carries a number");
       if (typeof card.number !== "string" || !NUMBER_RE.test(card.number)) no("number", 'must be a string like "14" or "29.1"');
+      if (card.stage === "backlog" && !/^\d+$/.test(card.number)) no("number", "a decimal number is history only; it cannot sit in the backlog (use roadmap, external, pushed or merged)");
       if (seen.has(card.number)) no("number", `M${card.number} is also cards[${seen.get(card.number)}]`);
       seen.set(card.number, i);
       out.number = card.number;

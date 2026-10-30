@@ -44,3 +44,21 @@ test("record: refusals for a numbered card", () => {
   // a merged card's record does not hold the number
   assert.equal(resolveRecord(c, card({ number: "14" }), wt(), [{ id: "m-9", kind: "milestone", stage: "merged", record: { n: 14 } }]).n, 14);
 });
+
+test("record: a planned number is reserved under next-milestone-number, merged or not", () => {
+  const c = cfg("next-milestone-number");
+  const planned = { id: "m-9", kind: "milestone", stage: "roadmap", number: "57", record: null };
+  assert.equal(resolveRecord(c, card({}), wt("55-a.md", "56-b.md"), [planned]).n, 58);
+  const merged = { id: "m-8", kind: "milestone", stage: "merged", number: "70", record: null };
+  assert.equal(resolveRecord(c, card({}), wt("55-a.md"), [merged]).n, 71);
+  // a fix card's number never counts, nor does a decimal one
+  assert.equal(resolveRecord(c, card({}), wt("55-a.md"), [{ id: "f-1", kind: "fix", stage: "backlog", number: "90" }, { id: "m-7", kind: "milestone", stage: "merged", number: "29.1" }]).n, 56);
+});
+
+test("record: an unnumbered card whose id number is another card's planned number is refused", () => {
+  const c = cfg("job-id");
+  const other = { id: "m-9", kind: "milestone", stage: "roadmap", number: "3", record: null, title: "Later" };
+  assert.throws(() => resolveRecord(c, card({}), wt(), [other]), (e) => e.code === "NUMBER_TAKEN" && /m-9/.test(e.message) && /--number/.test(e.message));
+  // no collision: unchanged
+  assert.equal(resolveRecord(c, card({}), wt(), [{ ...other, number: "4" }]).n, 3);
+});
