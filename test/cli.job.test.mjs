@@ -18,3 +18,14 @@ test("cli: job add --number --roadmap --after, and M<n> accepted as an id", asyn
   assert.equal(r.code, 0, r.err); assert.equal(JSON.parse(r.out).id, "m-1");
   assert.notEqual((await run(r0, ["job", "show", "M99"])).code, 0);
 });
+
+test("cli: --roadmap is a boolean flag, so a title word may follow it", async () => {
+  const r0 = repo();
+  let r = await run(r0, ["job", "add", "milestone", "--roadmap", "Audit", "log"]);
+  assert.equal(r.code, 0, r.err); assert.match(r.out, /^m-1 roadmap/);
+  r = await run(r0, ["job", "show", "m-1"]);
+  const j = JSON.parse(r.out);
+  assert.equal(j.title, "Audit log"); assert.equal(j.stage, "roadmap");
+  r = await run(r0, ["job", "add", "milestone", "Later", "--roadmap", "item"]);
+  assert.equal(r.code, 0, r.err); assert.equal(JSON.parse((await run(r0, ["job", "show", "m-2"])).out).title, "Later item");
+});
