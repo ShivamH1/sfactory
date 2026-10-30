@@ -26,6 +26,8 @@ test("import: validation refuses the whole file, naming the card and the field",
   bad({ cards: [{ kind: "milestone", title: "t", stage: "merged", pr: 0 }] }, /cards\[0\]\.pr/);
   bad({ cards: [{ kind: "milestone", title: "t", stage: "merged", prUrl: "javascript:x" }] }, /cards\[0\]\.prUrl/);
   bad({ cards: [{ kind: "milestone", title: "t", stage: "merged", started: "not a date" }] }, /cards\[0\]\.started/);
+  for (const v of ["1", "March 5", "12/31", "2026-02-30", "2026-09-02T10:00"]) bad({ cards: [{ kind: "milestone", title: "t", stage: "merged", started: v }] }, /cards\[0\]\.started/);
+  bad({ cards: [{ kind: "milestone", title: "t", stage: "merged", ended: "2026-13-01" }] }, /cards\[0\]\.ended/);
   bad({ cards: [{ kind: "milestone", title: "t", stage: "backlog", ended: "2026-01-01" }] }, /cards\[0\]\.ended/);
   bad({ cards: [{ kind: "milestone", title: "t", stage: "backlog", externalNote: "x" }] }, /cards\[0\]\.externalNote/);
   bad({ cards: [{ kind: "milestone", title: "t", stage: "roadmap", after: "x".repeat(81) }] }, /cards\[0\]\.after/);
@@ -67,6 +69,13 @@ test("import: running it again skips what is already on the board", () => {
   assert.equal(r2.skipped.length, 5);
   assert.match(r2.skipped[3].reason, /^a fix titled "Typo on the login page" is f-1$/);
   assert.equal(listJobs(c).length, 5);
+});
+
+test("import: a date-time with an offset is normalised to UTC", () => {
+  const c = cfg();
+  importCards(c, { cards: [{ kind: "milestone", title: "t", stage: "merged", started: "2026-09-02T10:00:00+05:30", ended: "2026-09-03T00:00:00Z" }] }, { now: "2026-10-30T10:00:00.000Z" });
+  const j = readJob(c, "m-1");
+  assert.equal(j.started, "2026-09-02T04:30:00.000Z"); assert.equal(j.ended, "2026-09-03T00:00:00.000Z");
 });
 
 test("import: one bad card writes nothing", () => {
