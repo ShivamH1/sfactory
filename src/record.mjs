@@ -102,13 +102,23 @@ function fixRecord(c, job, worktree) {
  * card's are its own (fixRecord), and any of them in its job folder is absolute.
  * {n} (milestones): "next-milestone-number" is one more than the highest {n} of a brief in the worktree and of
  * every other unmerged milestone's record (a fix never counts); any other numbering is the number in the card's id.
+ * A numbered milestone (`job.number`) takes its own number under every numbering, refused when it is not whole or
+ * another unmerged card or a brief already holds it.
  */
 export function resolveRecord(c, job, worktree, others = []) {
   if (job.kind === "fix") return fixRecord(c, job, worktree);
   const r = c.record;
   const idNo = Number(/\d+$/.exec(job.id)?.[0] ?? NaN);
   let n;
-  if (r.numbering === "next-milestone-number") {
+  if (job.number !== undefined && job.number !== null) {
+    if (!/^\d+$/.test(String(job.number))) fail("BAD_NUMBER", `${job.id} is M${job.number}; only a whole-number milestone can be cut`);
+    n = Number(job.number);
+    const holder = others.find((o) => o.id !== job.id && o.kind !== "fix" && o.stage !== "merged" && o.record?.n === n && !Number.isInteger(o.logOf));
+    if (holder) fail("NUMBER_TAKEN", `M${n} is already the record number of ${holder.id}`);
+    const re = patternRegex(r.brief, { n });
+    const brief = filesUnder(worktree, r.brief).find((f) => re.test(f));
+    if (brief) fail("NUMBER_TAKEN", `a brief for M${n} is already in the worktree: ${brief}`);
+  } else if (r.numbering === "next-milestone-number") {
     const re = patternRegex(r.brief);
     let max = 0;
     for (const f of filesUnder(worktree, r.brief)) { const m = re.exec(f); if (m?.groups?.n) max = Math.max(max, Number(m.groups.n)); }
