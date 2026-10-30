@@ -621,9 +621,12 @@ In `src/record.mjs`, replace the numbering block of `resolveRecord` (from `let n
     n = Number(job.number);
     const holder = others.find((o) => o.id !== job.id && o.kind !== "fix" && o.stage !== "merged" && o.record?.n === n && !Number.isInteger(o.logOf));
     if (holder) fail("NUMBER_TAKEN", `M${n} is already the record number of ${holder.id}`);
-    const re = patternRegex(r.brief, { n });
-    const brief = filesUnder(worktree, r.brief).find((f) => re.test(f));
-    if (brief) fail("NUMBER_TAKEN", `a brief for M${n} is already in the worktree: ${brief}`);
+    // Only a brief pattern with {n} can hold a brief "at that number"; compare by value, so 01-a.md is number 1.
+    if (r.brief.includes("{n}")) {
+      const re = patternRegex(r.brief);
+      const brief = filesUnder(worktree, r.brief).find((f) => { const m = re.exec(f); return m?.groups?.n !== undefined && Number(m.groups.n) === n; });
+      if (brief) fail("NUMBER_TAKEN", `a brief for M${n} is already in the worktree: ${brief}`);
+    }
   } else if (r.numbering === "next-milestone-number") {
     const re = patternRegex(r.brief);
     let max = 0;
