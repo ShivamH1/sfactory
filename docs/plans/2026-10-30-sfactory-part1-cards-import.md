@@ -63,7 +63,7 @@
 **Interfaces:**
 - Produces: `STAGES` includes `"roadmap"` and `"external"`; `COLUMNS.roadmap === "Milestones"`, `COLUMNS.external === "External running"`; `TRANSITIONS.roadmap = ["backlog", "external"]`, `TRANSITIONS.backlog = ["planning", "external"]`, `TRANSITIONS.external = ["merged"]`; `newJob({ id, kind, title, now, stage = "backlog", number, after })` where `stage` is `"backlog"` or `"roadmap"` and `number`/`after` are included only when given; `OFF_STAGES` exported from `src/job-actions.mjs`; `BOARD_COLUMNS` in the order Milestones, Backlog, Plan, Needs you, In process, Review, Fixed, Pushed / PR, External running, Done, Stopped.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `test/job.test.mjs`:
 
@@ -134,12 +134,12 @@ test("snapshot: the columns, Milestones first and External running before Done",
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `node --test test/job.test.mjs test/job-actions.test.mjs test/board.snapshot.test.mjs`
 Expected: FAIL — `roadmap` is not a stage, `OFF_STAGES` is undefined, `BOARD_COLUMNS` lacks the two columns.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `src/job.mjs`, replace the four constants and `newJob`:
 
@@ -212,14 +212,14 @@ In `src/board/snapshot.mjs`:
 export const BOARD_COLUMNS = ["Milestones", "Backlog", "Plan", "Needs you", "In process", "Review", "Fixed", "Pushed / PR", "External running", "Done", "Stopped"];
 ```
 
-- [ ] **Step 4: Run the touched tests, then the full suite**
+- [x] **Step 4: Run the touched tests, then the full suite**
 
 Run: `node --test test/job.test.mjs test/job-actions.test.mjs test/board.snapshot.test.mjs`
 Expected: PASS.
 Run: `node --test`
 Expected: PASS. If `test/board.page.test.mjs` fails because the page's column sections no longer match `BOARD_COLUMNS`, add the two sections to `board/dashboard.html` now (Task 6's Step 3 shows them: a `Milestones` section first and an `External running` section before `Done`) and rerun.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/job.mjs src/job-actions.mjs src/board/snapshot.mjs test/job.test.mjs test/job-actions.test.mjs test/board.snapshot.test.mjs
@@ -249,7 +249,7 @@ git commit -m "feat(job): roadmap and external stages, outside the cap and the w
 - Consumes: `newJob({ ..., stage, number, after })`, `NUMBER_RE` (Task 1).
 - Produces: `addJobWith(c, kind, make)` in `src/store.mjs` — allocates the next id of `kind`, calls `make(id)` for the full job object and writes it under the job lock, returning it; `addJob(c, kind, title, { now, logOf, stage, number, after })`; `resolveId(c, ref)` → a job id string (`"m-3"`) for `"M14"`/`"m14"` style refs, `ref` unchanged otherwise, `JOB_NOT_FOUND` when no card carries the number, `AMBIGUOUS` when two do; `actions.add(c, { kind, title, logOf, number, roadmap, after })` refusing `BAD_NUMBER` and `NUMBER_TAKEN`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `test/store.test.mjs`:
 
@@ -322,12 +322,12 @@ test("cli: job add --number --roadmap --after, and M<n> accepted as an id", asyn
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `node --test test/store.test.mjs test/job-actions.test.mjs test/cli.job.test.mjs`
 Expected: FAIL — `addJobWith` and `resolveId` are not exported; `add` ignores `number`; the CLI refuses `--number`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `src/store.mjs`, replace `addJob` and add `addJobWith` and `resolveId`:
 
@@ -424,14 +424,14 @@ In `src/board/server.mjs`, extend `STATUS`:
 const STATUS = { ILLEGAL_TRANSITION: 409, FIX_ROUNDS_EXHAUSTED: 409, ANSWER_REQUIRED: 409, APPROVAL_REQUIRED: 409, BAD_KIND: 400, JOB_BUSY: 409, JOB_NOT_FOUND: 404, BAD_ARGS: 400, BAD_ID: 400, BAD_PATH: 400, BAD_NUMBER: 400, NUMBER_TAKEN: 409, AMBIGUOUS: 409 };
 ```
 
-- [ ] **Step 4: Run the touched tests, then the full suite**
+- [x] **Step 4: Run the touched tests, then the full suite**
 
 Run: `node --test test/store.test.mjs test/job-actions.test.mjs test/cli.job.test.mjs`
 Expected: PASS.
 Run: `node --test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/store.mjs src/job-actions.mjs src/commands/job.mjs src/commands/worktree.mjs src/commands/services.mjs src/board/server.mjs test/store.test.mjs test/job-actions.test.mjs test/cli.job.test.mjs
@@ -455,7 +455,7 @@ git commit -m "feat(job): milestone numbers, add --roadmap and --after, M<n> acc
 - Consumes: `TRANSITIONS` (Task 1), `resolveId` in the job command (Task 2).
 - Produces: `actions.start(c, { id, by })` (`roadmap -> backlog`, reason `"started"`); `actions.external(c, { id, note, by })` (`roadmap|backlog -> external`, reason `"external"`, sets `externalNote`); `sfactory job start <id>`, `sfactory job external <id> --note "<text>"`; board route `POST /jobs/:id/start`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `test/job-actions.test.mjs`:
 
@@ -499,12 +499,12 @@ test("server: POST start moves a roadmap card to backlog", async () => {
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `node --test test/job-actions.test.mjs test/board.server.test.mjs`
 Expected: FAIL — `actions.start` is not a function; the board answers 404 for `start`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `src/job-actions.mjs`, add to `actions` (beside `merged`):
 
@@ -537,14 +537,14 @@ In `src/board/server.mjs`, extend `ROUTES`:
 const ROUTES = { approve: "approve", answer: "answer", parallel: "parallel", merged: "merged", stop: "stop", rework: "rework", "request-changes": "requestChanges", start: "start" };
 ```
 
-- [ ] **Step 4: Run the touched tests, then the full suite**
+- [x] **Step 4: Run the touched tests, then the full suite**
 
 Run: `node --test test/job-actions.test.mjs test/board.server.test.mjs`
 Expected: PASS.
 Run: `node --test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/job-actions.mjs src/commands/job.mjs src/board/server.mjs test/job-actions.test.mjs test/board.server.test.mjs
@@ -565,7 +565,7 @@ git commit -m "feat(job): start and external gates; the board can start a roadma
 - Consumes: `job.number` (Task 2).
 - Produces: `resolveRecord(c, job, worktree, others)` returns `n = Number(job.number)` for a numbered milestone under every `record.numbering`; refuses `BAD_NUMBER` (not a whole number) and `NUMBER_TAKEN` (another unmerged card's `record.n`, or a brief at that number in the worktree).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `test/record.number.test.mjs`:
 
@@ -605,12 +605,12 @@ test("record: refusals for a numbered card", () => {
 });
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `node --test test/record.number.test.mjs`
 Expected: FAIL — `n` is 3 (or the id's number), not 14; no refusal is thrown.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `src/record.mjs`, replace the numbering block of `resolveRecord` (from `let n;` to the end of the `else` line):
 
@@ -638,14 +638,14 @@ In `src/record.mjs`, replace the numbering block of `resolveRecord` (from `let n
 
 Update the docblock above `resolveRecord` to add: "A numbered milestone (`job.number`) takes its own number under every numbering, refused when it is not whole or another unmerged card or a brief already holds it."
 
-- [ ] **Step 4: Run the test, then the full suite**
+- [x] **Step 4: Run the test, then the full suite**
 
 Run: `node --test test/record.number.test.mjs`
 Expected: PASS.
 Run: `node --test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/record.mjs test/record.number.test.mjs
@@ -668,7 +668,7 @@ git commit -m "feat(record): a numbered milestone's record takes its own number"
 - Consumes: `addJobWith`, `listJobs`, `writeJobFile` (store), `newJob`, `NUMBER_RE` (job), `withRecordLock` (record), `assertNotSecret` (commit, as `request-changes --notes-file` uses it).
 - Produces: `validateImport(doc)` → `{ cards }` with each card normalised (dates as ISO strings) or throws `BAD_IMPORT` naming `cards[<i>].<field>`; `importCards(c, doc, { now })` → `{ created: [{ index, id, number, stage }], skipped: [{ index, reason }] }`; CLI `sfactory job import <file>` printing one line per card, `--json` for the result object.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `test/import.test.mjs`:
 
@@ -766,12 +766,12 @@ test("cli: job import prints one line per card and refuses a missing file", asyn
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `node --test test/import.test.mjs test/cli.job.test.mjs`
 Expected: FAIL — `../src/import.mjs` does not exist; `import` is not a `job` verb.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `src/import.mjs`:
 
@@ -906,14 +906,14 @@ In `src/commands/job.mjs`:
   }
 ```
 
-- [ ] **Step 4: Run the touched tests, then the full suite**
+- [x] **Step 4: Run the touched tests, then the full suite**
 
 Run: `node --test test/import.test.mjs test/cli.job.test.mjs`
 Expected: PASS.
 Run: `node --test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/import.mjs src/commands/job.mjs test/import.test.mjs test/cli.job.test.mjs
@@ -937,7 +937,7 @@ git commit -m "feat(job): import cards from a JSON file, safe to run again"
 - Consumes: job fields `number`, `after`, `externalNote`, `pr`, `prUrl` (Tasks 2, 3, 5); route `start` (Task 3).
 - Produces: `jobView` adds `number`, `after`, `externalNote`, `pr`, `prUrl` (each `null` when absent); the page has `Milestones` and `External running` sections, shows `M<number>` in place of the id when a card has one (the id in the `title` attribute), an "after …" line, the external note as a tag, a *Start* button on roadmap cards and *Mark merged* on external cards.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `test/board.snapshot.test.mjs`:
 
@@ -971,12 +971,12 @@ test("page: a section per board column, the start gate and the number pill", () 
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `node --test test/board.snapshot.test.mjs test/board.page.test.mjs`
 Expected: FAIL — `number` is undefined in the view; the page has no Start gate.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `src/board/snapshot.mjs`, inside the object `jobView` returns, after `slug: j.slug ?? null,`:
 
@@ -1031,14 +1031,14 @@ In `board/dashboard.html`:
 
 In `examples/jobs/generate.mjs`, add two demo cards following the file's existing pattern: a `roadmap` milestone (`number: "5"`, title "Notifications digest", `after: "M4"`) and an `external` milestone (`number: "4"`, title "Billing export", `externalNote: "pairing session"`, `pr: 12`). Run `node examples/jobs/generate.mjs` to regenerate `examples/jobs/*`; update any count the examples tests pin (`test/examples.jobs.test.mjs`) to match.
 
-- [ ] **Step 4: Run the touched tests, then the full suite**
+- [x] **Step 4: Run the touched tests, then the full suite**
 
 Run: `node --test test/board.snapshot.test.mjs test/board.page.test.mjs test/examples.jobs.test.mjs`
 Expected: PASS.
 Run: `node --test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/board/snapshot.mjs board/dashboard.html examples/jobs test/board.snapshot.test.mjs test/board.page.test.mjs test/examples.jobs.test.mjs
@@ -1063,7 +1063,7 @@ git commit -m "feat(board): Milestones and External running columns, M-numbers, 
 - Consumes: every command added in Tasks 2, 3 and 5.
 - Produces: the orchestrator knows `/sfactory start`, `/sfactory external`, `/sfactory import`, `add --roadmap`, and its run loop skips `roadmap` and `external`; version `0.3.0`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `test/skills.test.mjs`:
 
@@ -1078,12 +1078,12 @@ test("sfactory skill: start, external and import are commands, and the run loop 
 
 (Use the file's existing `skillsRoot`, `readFileSync` and `join`.)
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `node --test test/skills.test.mjs`
 Expected: FAIL — the rows are missing.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `skills/sfactory/SKILL.md`, section 1's command table:
 
@@ -1138,14 +1138,14 @@ In `docs/DESIGN.md`, after the state-machine section, add a dated amendment: "*A
 
 In `package.json` and `.claude-plugin/plugin.json`, change `"version": "0.2.0"` to `"version": "0.3.0"`.
 
-- [ ] **Step 4: Run the test, then the full suite**
+- [x] **Step 4: Run the test, then the full suite**
 
 Run: `node --test test/skills.test.mjs test/docs.test.mjs`
 Expected: PASS (the docs test checks every new command line against `ACCEPTS`).
 Run: `node --test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/sfactory/SKILL.md README.md INSTALL.md docs/DESIGN.md package.json .claude-plugin/plugin.json test/skills.test.mjs
