@@ -40,6 +40,8 @@ A card may carry `number`: a string matching `^\d+(\.\d+)?$` (`"57"`, `"29.1"`).
 
 Every command that takes a job id also takes `M<number>` (case-insensitive): one resolver in `src/store.mjs` (`resolveId(c, ref)`), called by `commands/job.mjs` before the action and by every other command that takes an id. `NOT_FOUND` when no card carries it, `AMBIGUOUS` when two do (the import and `add` both refuse a duplicate number, so this means a hand-edited job file).
 
+*Dated 2026-10-30 (owner ruling after the Part 1 whole-branch review):* (1) a card's number is reserved from the moment it is on the board: the next free number counts every other milestone's whole number in any stage, and under `job-id` numbering an unnumbered card whose id number another card carries is refused `NUMBER_TAKEN`; (2) a decimal number (`29.1`) is history only: such a card may sit in `roadmap`, `external`, `pushed` or `merged`, and is refused `BAD_NUMBER` by `add` without `--roadmap`, by an import into `backlog`, by `start`, and on entering `planning`; (3) a number has no leading zero (`014` is refused; `0` is allowed).
+
 **Numbering.** When a numbered milestone is cut, its record `{n}` is its number, not the next free one, for every `record.numbering` value. A card whose number is not a whole number is refused at the cut (`BAD_NUMBER`), and so is a number another unmerged card's record already holds, or a brief at that number already in the worktree (`NUMBER_TAKEN`, naming the file). An unnumbered card keeps today's rule.
 
 ### 2.3 Gates
