@@ -785,7 +785,18 @@ const STAGES = ["roadmap", "backlog", "external", "pushed", "merged"];
 const FIELDS = ["number", "kind", "title", "stage", "branch", "pr", "prUrl", "started", "ended", "after", "externalNote", "note"];
 
 const text = (v, max) => typeof v === "string" && v.trim() !== "" && v.length <= max;
-const iso = (v) => { const t = Date.parse(v); return typeof v === "string" && !Number.isNaN(t) ? new Date(t).toISOString() : null; };
+const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
+/** A strict ISO date (YYYY-MM-DD, read as UTC midnight) or a date-time with Z or an offset, as an ISO string; null for anything else or an impossible date. */
+const iso = (v) => {
+  const m = typeof v === "string" ? ISO_RE.exec(v) : null;
+  if (!m) return null;
+  const t = Date.parse(v);
+  if (Number.isNaN(t)) return null;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  const day = new Date(Date.UTC(y, mo - 1, d));
+  if (day.getUTCFullYear() !== y || day.getUTCMonth() !== mo - 1 || day.getUTCDate() !== d) return null;
+  return new Date(t).toISOString();
+};
 
 /** Check a whole import document; return the cards normalised (dates as ISO strings), or throw BAD_IMPORT naming the first bad field. */
 export function validateImport(doc) {
