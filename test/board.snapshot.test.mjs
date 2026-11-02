@@ -9,6 +9,8 @@ import { addCost } from "../src/cost.mjs";
 import { buildSnapshot, VERDICT, BAD, BOARD_COLUMNS } from "../src/board/snapshot.mjs";
 import { acquireSync } from "../src/lock.mjs";
 import { importCards } from "../src/import.mjs";
+import { appendEvent } from "../src/events.mjs";
+import { actions } from "../src/job-actions.mjs";
 
 const COLS = ["Milestones", "Backlog", "Plan", "Needs you", "In process", "Review", "Fixed", "Pushed / PR", "External running", "Done", "Stopped"];
 
@@ -195,4 +197,13 @@ test("snapshot: number, after, externalNote, pr and prUrl are allow-listed", () 
   assert.equal(r.column, "Milestones"); assert.equal(r.number, "14"); assert.equal(r.after, "M13"); assert.equal(r.externalNote, null);
   assert.equal(e.column, "External running"); assert.equal(e.externalNote, "pairing session"); assert.equal(e.pr, 34); assert.equal(e.prUrl, "https://example.com/pr/34");
   assert.equal(r.needsYou, null); assert.equal(e.needsYou, null);
+});
+
+test("snapshot: running lists the agents running now", () => {
+  const c = { stateDir: tmpDir("sf-snap-"), limits: { lockStaleMs: 60_000 } };
+  const j = addJob(c, "milestone", "t");
+  actions.set(c, { id: j.id, to: "planning" });
+  appendEvent(c, j.id, { kind: "agent", phase: "start", vendor: "claude", role: "planner", model: "opus" });
+  const s = buildSnapshot(c);
+  assert.deepEqual(s.running.map((r) => [r.id, r.role, r.vendor]), [[j.id, "planner", "claude"]]);
 });

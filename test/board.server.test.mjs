@@ -6,6 +6,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { addJob, readJob, readJobFile, writeJobFile, withJobLock, writeJob, jobDir } from "../src/store.mjs";
 import { actions } from "../src/job-actions.mjs";
+import { appendEvent } from "../src/events.mjs";
 import { startBoard } from "../src/board/server.mjs";
 
 const H = { "X-Sfactory-Board": "1", "Content-Type": "application/json" };
@@ -234,4 +235,20 @@ test("server: GET /assets/<name> serves the allow-listed board files, nothing el
     assert.match(js.headers.get("content-type"), /^text\/javascript/);
     for (const p of ["assets/dashboard.html", "assets/..%2Fpackage.json", "assets/x/board.css", "assets/"]) assert.equal((await fetch(`${b.url}${p}`)).status, 404, p);
   });
+});
+
+test("server: /jobs.json and /activity.json agree on the agents running now, in demo mode too", async () => {
+  const demo = tmpDir("sf-demo-");
+  const c = { ...mk(), stateDir: demo };
+  const j = addJob(c, "milestone", "demo card");
+  actions.set(c, { id: j.id, to: "planning" });
+  appendEvent(c, j.id, { kind: "agent", phase: "start", vendor: "codex", role: "implementer", model: "implement" });
+  for (const opts of [{}, { demoDir: demo }]) {
+    await withBoard(opts.demoDir ? mk() : c, opts, async (b) => {
+      const s = await (await fetch(`${b.url}jobs.json`)).json();
+      const a = await (await fetch(`${b.url}activity.json`)).json();
+      assert.deepEqual(s.running.map((r) => r.id), [j.id]);
+      assert.deepEqual(a.running, s.running);
+    });
+  }
 });

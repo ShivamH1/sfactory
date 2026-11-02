@@ -87,7 +87,8 @@ export function startBoard(c, { port = c.board.port, host = "127.0.0.1", demoDir
         const raw = url.searchParams.get("limit");
         const limit = raw === null ? undefined : Number(raw);
         if (limit !== undefined && !Number.isInteger(limit)) throw new SfactoryError("BAD_ARGS", "limit must be a whole number");
-        return sendJson(res, 200, activity(view, { cursor: url.searchParams.get("cursor") ?? undefined, limit }));
+        const demoNow = demoDir ? Date.parse(buildSnapshot(view, { demo: true }).generatedAt) : undefined;
+        return sendJson(res, 200, activity(view, { cursor: url.searchParams.get("cursor") ?? undefined, limit }, demoNow === undefined ? {} : { now: demoNow }));
       }
       if (req.method === "GET" && parts.length === 3 && parts[0] === "jobs" && parts[2] === "tail") {
         const raw = url.searchParams.get("from") ?? "0";
