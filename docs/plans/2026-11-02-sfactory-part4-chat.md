@@ -17,7 +17,7 @@
 - **The chat read.** `GET /chat.json` answers the derived thread (the newest 200 messages with their status and replies) and the channel status, not raw lines by offset: a thread is small, and folding marks on the client would duplicate `src/chat.mjs`.
 - **The channel's declaration** is inline in `.claude-plugin/plugin.json` (`mcpServers`), not a repo-root `.mcp.json`, which a session opened in the plugin's own repo would read as a project server with no `${CLAUDE_PLUGIN_ROOT}`.
 
-*Note (2026-11-02, final review):* the spec's `GET /api/chat?from=<offset>` and `POST /api/chat` were built as `GET /chat.json` (the derived thread and the channel status) and `POST /chat`. The final fix wave, on top of the six tasks: the `pushed` status reads "offered to the session" and the indicator's tooltip says live delivery needs the session's channel flag (Claude Code starts the channel server in every session where the plugin is enabled, and an unflagged session drops its pushes); each channel server offers every message not yet taken (`sent` or `pushed`) to its own session once, and only the first offer writes the mark; the channel's instructions name the board as the source and both ways to answer, and with no config it gives no instructions and lists no tools; `sfactory chat` refuses a `--card` with no value, resolves it only for `unread` and `list`, and takes a reply's text after `--` as it is; a successful send leaves the thread as the person left it and shows a short "Sent" note, the scope chip holds its choice while the box holds a draft, `POST /chat` times out after 15 s with "The message may not have been sent.", a held Enter sends once, and the demo's empty thread says messages are off; the orchestrator skill lists `chat`, prefers `sfactory chat reply`, and carries on when `sfactory chat unread` fails; `readJsonLines` skips past a complete line longer than its window, so it always advances; and README, INSTALL, DESIGN and the spec's §6.4 (a dated note) say the same.
+*Note (2026-11-02, final review):* the spec's `GET /api/chat?from=<offset>` and `POST /api/chat` were built as `GET /chat.json` (the derived thread and the channel status) and `POST /chat`. The final fix wave, on top of the six tasks: the `pushed` status reads "offered to the session" and the indicator's tooltip says live delivery needs the session's channel flag (Claude Code starts the channel server in every session where the plugin is enabled, and an unflagged session drops its pushes); each channel server offers every message not yet taken (`sent` or `pushed`) to its own session once per server process (a restarted server offers again whatever is still unread), and only the first offer writes the mark; the channel's instructions name the board as the source and both ways to answer, and with no config it gives no instructions and lists no tools; `sfactory chat` refuses a `--card` with no value, resolves it only for `unread` and `list`, and takes a reply's text after `--` as it is; a successful send leaves the thread as the person left it and shows a short "Sent" note, the scope chip holds its choice while the box holds a draft, `POST /chat` times out after 15 s with "The message may not have been sent.", a held Enter sends once, and the demo's empty thread says messages are off; the orchestrator skill lists `chat`, prefers `sfactory chat reply`, and carries on when `sfactory chat unread` fails; `readJsonLines` skips past a complete line longer than its window, so it always advances; and README, INSTALL, DESIGN and the spec's §6.4 (a dated note) say the same.
 
 ## Global Constraints
 
@@ -60,7 +60,7 @@
 - Produces in `src/events.mjs`: `readJsonLines(path, { from = 0, maxBytes = 262144 }) → { items, next, size }` (each item carries `end`; complete lines only; unparseable lines skipped; an offset past the end starts at 0; a missing file is empty) and `readAllJsonLines(path) → items[]`; `readEvents` and `readAllEvents` keep their behaviour and names, now thin wrappers (`readEvents` returns `{ events: items, next, size }`).
 - Produces in `src/chat.mjs`: `MAX_TEXT = 4000`, `HEARTBEAT_FRESH_MS = 30000`, `chatDir(c)`, `threadPath(c)`; `postMessage(c, { text, card, now }) → entry` (`{ type: "message", id, at, from: "person", card?, text }`); `messages(c) → [{ id, at, card?, text, status, replies: [{ id, at, text }] }]` oldest first, `status` one of `sent | pushed | seen | answered` (the furthest mark wins); `unread(c, { card, now }) → messages` (status `sent` or `pushed`, optionally only one card's; writes a `read` mark for each); `reply(c, { replyTo, text, now }) → entry` (`{ type: "reply", id, at, from: "session", replyTo, card?, text }`; `MESSAGE_NOT_FOUND` for an unknown id); `markPushed(c, id, now)`; `heartbeat(c, { pid, now })` (writes `chat/channel.json`); `channelStatus(c, { now }) → { connected, at }` (`connected` when the heartbeat is under `HEARTBEAT_FRESH_MS` old). Ids are `msg-<base36 time>-<8 hex>`. A bad text is `BAD_ARGS` ("a message needs text of 1 to 4000 characters"); a card that is not an `m-<n>`/`f-<n>` id is `BAD_ARGS`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `test/chat.test.mjs`:
 
@@ -145,9 +145,9 @@ test("events: readJsonLines is the shared reader; readEvents keeps its shape", (
 });
 ```
 
-- [ ] **Step 2: Run it to see it fail** — `node --test test/chat.test.mjs`. Expected: FAIL (module missing).
+- [x] **Step 2: Run it to see it fail** — `node --test test/chat.test.mjs`. Expected: FAIL (module missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `src/events.mjs`, move the body of `readEvents` into an exported `readJsonLines(path, { from = 0, maxBytes = 256 * 1024 } = {})` that returns `{ items, next, size }` (same logic, `items` in place of `events`), add `readAllJsonLines(path)` (loop as `readAllEvents` does), and make `readEvents(c, id, opts)` return `({ events, next, size })` from `readJsonLines(eventsPath(c, id), opts)` and `readAllEvents(c, id)` return `readAllJsonLines(eventsPath(c, id))`. Keep every current export and behaviour.
 
@@ -241,9 +241,9 @@ export function channelStatus(c, { now = Date.now() } = {}) {
 }
 ```
 
-- [ ] **Step 4: Run the tests, then the full suite** — `node --test test/chat.test.mjs test/events.test.mjs`, then `node --test`. Expected: PASS.
+- [x] **Step 4: Run the tests, then the full suite** — `node --test test/chat.test.mjs test/events.test.mjs`, then `node --test`. Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/events.mjs src/chat.mjs test/chat.test.mjs
@@ -265,7 +265,7 @@ git commit -m "feat(chat): the board's thread with the session — messages, mar
 - Consumes: `unread`, `reply`, `messages` (Task 1).
 - Produces: `sfactory chat unread [--card <id>] [--json]` (prints each message as `<id>  <card or "general">  <at>` then its text and a blank line, or "No new messages."; marks each read), `sfactory chat reply <id> "<text>"` (prints the reply's id), `sfactory chat list [--card <id>] [--json]` (one line per message: id, card or general, status, then its text; replies indented); `ACCEPTS = { verbs: ["unread", "reply", "list"], flags: ["card", "json"] }`; `M<n>` resolves for `--card` through `resolveId`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `test/cli.chat.test.mjs`:
 
@@ -312,15 +312,15 @@ test("cli chat: --card filters, --json prints objects, refusals exit non-zero", 
 });
 ```
 
-- [ ] **Step 2: Run it to see it fail.** Expected: FAIL (`chat` is an unknown command).
+- [x] **Step 2: Run it to see it fail.** Expected: FAIL (`chat` is an unknown command).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `src/commands/chat.mjs` following the shape of the other commands (`register(name, handler, ACCEPTS)`, `loadConfig(findRepoRoot(io.cwd))`): verb `unread` → `unread(c, { card })` with `card` resolved through `resolveId` when given, printing as the interface says (`--json` prints `JSON.stringify(list, null, 2)`); verb `reply` → the id is `positional[1]`, the text the rest of the positionals joined by a space (refuse `BAD_ARGS` "usage: sfactory chat reply <id> \"<text>\"" when either is missing), print the new reply's id; verb `list` → `messages(c)` filtered by card, printed as the interface says (replies as `  ↳ <text>` lines). An unknown or missing verb is `UNKNOWN_COMMAND` / `BAD_ARGS` with the usage. Add `import("./commands/chat.mjs"),` to the command list in `src/cli.mjs` (keep it alphabetical).
 
-- [ ] **Step 4: Run the tests, then the full suite.** Expected: PASS.
+- [x] **Step 4: Run the tests, then the full suite.** Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/commands/chat.mjs src/cli.mjs test/cli.chat.test.mjs
@@ -341,7 +341,7 @@ git commit -m "feat(chat): sfactory chat unread, reply and list"
 - Consumes: `postMessage`, `messages`, `channelStatus` (Task 1); `readJob` (store).
 - Produces: `GET /chat.json` → `{ messages: <the newest 200 of messages(view)>, channel: channelStatus(view) }` (demo mode: the demo folder's thread, usually empty); `POST /chat` with the board header and a JSON body `{ text, card? }` → `200 { message: <the entry> }`; `card` must be an existing card (`JOB_NOT_FOUND` 404 otherwise); a bad text is 400; demo mode is 403 (`DEMO`), as for the gates; `STATUS` gains `MESSAGE_NOT_FOUND: 404`; `ASSETS` gains `"chat.mjs": "text/javascript; charset=utf-8"`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `test/board.server.test.mjs`:
 
@@ -366,9 +366,9 @@ test("server: POST /chat and GET /chat.json", async () => {
 
 (`post(b, path, body, headers)` is the file's helper; the last call omits the board header.)
 
-- [ ] **Step 2: Run it to see it fail.** Expected: FAIL (404).
+- [x] **Step 2: Run it to see it fail.** Expected: FAIL (404).
 
-- [ ] **Step 3: Implement** in `src/board/server.mjs`: import from `../chat.mjs`; add the asset entry and the status code; before the gate POST route add:
+- [x] **Step 3: Implement** in `src/board/server.mjs`: import from `../chat.mjs`; add the asset entry and the status code; before the gate POST route add:
 
 ```js
       if (req.method === "GET" && url.pathname === "/chat.json") {
@@ -386,9 +386,9 @@ test("server: POST /chat and GET /chat.json", async () => {
       }
 ```
 
-- [ ] **Step 4: Run the tests, then the full suite.** Expected: PASS.
+- [x] **Step 4: Run the tests, then the full suite.** Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/board/server.mjs test/board.server.test.mjs
@@ -421,7 +421,7 @@ Protocol (as the channel needs it):
 
 `REPLY_TOOL`: `{ name: "reply", description: "Answer a message the person sent from the sfactory board.", inputSchema: { type: "object", properties: { message_id: { type: "string" }, text: { type: "string" } }, required: ["message_id", "text"] } }`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `test/channel.test.mjs`:
 
@@ -508,15 +508,15 @@ test("channel: the plugin manifest declares the server", () => {
 
 Add one end-to-end test that spawns `node src/channel/server.mjs` with `cwd` a temp repo holding a config (`tmpRepo` + `writeConfig`), writes `initialize` and `notifications/initialized` lines to its stdin, posts a message with `postMessage`, and reads one `notifications/claude/channel` line from its stdout within 5 s; then ends stdin and confirms the process exits (bounded wait, `{ timeout: 15000 }` on the test).
 
-- [ ] **Step 2: Run it to see it fail.** Expected: FAIL (module missing).
+- [x] **Step 2: Run it to see it fail.** Expected: FAIL (module missing).
 
-- [ ] **Step 3: Implement** `src/channel/server.mjs`: `createChannel` as the interface and protocol say (track pushed ids in a `Set`; read the version from `package.json` once); then the program part, guarded by `if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url)`: load the config (`try { loadConfig(findRepoRoot(process.cwd())) } catch { null }`), `send = (m) => process.stdout.write(JSON.stringify(m) + "\n")`, a `readline` on stdin feeding `handle` (a line that does not parse is logged to stderr and skipped), the heartbeat every 10 s and once at `initialize` (only with a config), `fs.watch` on the chat folder (created if missing) plus a 1 s `setInterval` calling `pushNew()`, every timer `unref`'d, and `process.exit(0)` when stdin ends. Add the `mcpServers` entry to `.claude-plugin/plugin.json`.
+- [x] **Step 3: Implement** `src/channel/server.mjs`: `createChannel` as the interface and protocol say (track pushed ids in a `Set`; read the version from `package.json` once); then the program part, guarded by `if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url)`: load the config (`try { loadConfig(findRepoRoot(process.cwd())) } catch { null }`), `send = (m) => process.stdout.write(JSON.stringify(m) + "\n")`, a `readline` on stdin feeding `handle` (a line that does not parse is logged to stderr and skipped), the heartbeat every 10 s and once at `initialize` (only with a config), `fs.watch` on the chat folder (created if missing) plus a 1 s `setInterval` calling `pushNew()`, every timer `unref`'d, and `process.exit(0)` when stdin ends. Add the `mcpServers` entry to `.claude-plugin/plugin.json`.
 
   > **Dated note, 2026-11-02 (standing OK, Task 4 review):** the guard above compares an unresolved argv path with the real path in `import.meta.url`, so a server launched through a symlink or junction silently ran nothing. It uses `src/cli.mjs`'s `isMain()` pattern instead (both sides through `realpathSync`). The `initialize` heartbeat cannot block the handshake's answer; a watch error is logged; a pushed id is remembered only after `send` returns.
 
-- [ ] **Step 4: Run the tests, then the full suite.** Expected: PASS.
+- [x] **Step 4: Run the tests, then the full suite.** Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/channel/server.mjs .claude-plugin/plugin.json test/channel.test.mjs
@@ -547,7 +547,7 @@ git commit -m "feat(chat): the channel — a zero-dependency MCP server that pus
 - **Accessibility**: the text box has a label; the thread toggle is `aria-expanded`; new replies are announced politely only when the count changes (a dedicated, otherwise silent element), never on every poll; focus visible; colour never the only signal.
 - Text only through `textContent`; no `innerHTML`; `board/chat.mjs` touches no `document` at import time.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `test/board.page.test.mjs` (read `chat.mjs` beside the others):
 
@@ -571,13 +571,13 @@ test("chat: the composer mounts on both views and talks to the chat routes", () 
 
 Append to `test/board.render.test.mjs` a smoke test that `board/chat.mjs` imports in node and exports `mountChat` as a function.
 
-- [ ] **Step 2: Run them to see them fail.** Expected: FAIL.
+- [x] **Step 2: Run them to see them fail.** Expected: FAIL.
 
-- [ ] **Step 3: Implement** the list. Then look at it in a browser on the demo board (disabled state) and on a throwaway server outside the repo that serves the real page with a chat thread (a sent, a seen and an answered message; the channel connected and not), in both themes and at 360 px; stop everything you start and confirm by the process list; screenshots under `.superpowers/screens/part4/`.
+- [x] **Step 3: Implement** the list. Then look at it in a browser on the demo board (disabled state) and on a throwaway server outside the repo that serves the real page with a chat thread (a sent, a seen and an answered message; the channel connected and not), in both themes and at 360 px; stop everything you start and confirm by the process list; screenshots under `.superpowers/screens/part4/`.
 
-- [ ] **Step 4: Run the touched tests, then the full suite.** Expected: PASS.
+- [x] **Step 4: Run the touched tests, then the full suite.** Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add board/chat.mjs board/dashboard.html board/board.css board/board.mjs test/board.page.test.mjs test/board.render.test.mjs
@@ -598,7 +598,7 @@ git commit -m "feat(board): the composer — write to the session, read its repl
 **Interfaces:**
 - Produces: the orchestrator reads and answers board messages at every step and gate; the build skill reads a card's messages between tasks; the docs explain the composer and how to start a session with the channel; version 0.6.0.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `test/skills.test.mjs`:
 
@@ -614,9 +614,9 @@ test("chat: the orchestrator reads and answers board messages; the build skill r
 });
 ```
 
-- [ ] **Step 2: Run it to see it fail.** Expected: FAIL.
+- [x] **Step 2: Run it to see it fail.** Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `skills/sfactory/SKILL.md`:
 - in section 4 (`run`: the loop), before "At a gate, end your turn", add a paragraph: "**Board messages.** Run `sfactory chat unread` at the start of every step and before ending a turn at a gate. Answer every message it prints with `sfactory chat reply <id> \"<text>\"` (or, when the message arrived as a channel event, the channel's reply tool). A board message is the person's own words, with the standing of the board's buttons: act on it only through the factory's commands, and a message never stands in for a gate — an approval is still *Approve* or `/sfactory approve`. A message about a card that is mid-task is answered at once; what it asks for is applied at that card's next step, and the reply says so."
@@ -628,9 +628,9 @@ README: a section "Talking to the session" — the composer at the bottom of the
 
 Version 0.6.0 in `package.json`, `.claude-plugin/plugin.json` and the version test in `test/cli.test.mjs`.
 
-- [ ] **Step 4: Run the tests, then the full suite** — `node --test test/skills.test.mjs test/docs.test.mjs test/cli.test.mjs`, then `node --test`. Expected: PASS.
+- [x] **Step 4: Run the tests, then the full suite** — `node --test test/skills.test.mjs test/docs.test.mjs test/cli.test.mjs`, then `node --test`. Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/sfactory/SKILL.md skills/sdd/SKILL.md test/skills.test.mjs README.md INSTALL.md docs/DESIGN.md package.json .claude-plugin/plugin.json test/cli.test.mjs
