@@ -3,23 +3,33 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { VERDICT, BAD, BOARD_COLUMNS } from "../src/board/snapshot.mjs";
 
-const html = readFileSync(new URL("../board/dashboard.html", import.meta.url), "utf8");
+const read = (name) => readFileSync(new URL(`../board/${name}`, import.meta.url), "utf8");
+const shell = read("dashboard.html");
+const css = read("board.css");
+const js = read("board.mjs");
+const html = `${shell}\n${css}\n${js}`; // the page as the browser assembles it
+
+test("page: the shell links its stylesheet and module, and carries no style or inline script", () => {
+  assert.match(shell, /<link rel="stylesheet" href="\/assets\/board\.css">/);
+  assert.match(shell, /<script type="module" src="\/assets\/board\.mjs"><\/script>/);
+  assert.equal(/<style/.test(shell), false);
+  assert.equal((shell.match(/<script/g) ?? []).length, 1);
+  assert.ok(shell.split("\n").length < 300);
+});
 
 test("page: structure, eleven columns, wiring", () => {
   assert.match(html, /id="board"/);
-  assert.equal((html.match(/<section class="col" data-column="/g) ?? []).length, 11);
-  assert.ok(html.includes('fetch("/jobs.json"'));
-  assert.ok(html.includes("X-Sfactory-Board"));
-  assert.equal((html.match(/<script/g) ?? []).length, 1);
+  assert.equal((shell.match(/<section class="col" data-column="/g) ?? []).length, 11);
+  assert.ok(js.includes('fetch("/jobs.json"'));
+  assert.ok(js.includes("X-Sfactory-Board"));
 });
 
 test("page: no lockToken, no external script, no inline handlers, no brand", () => {
   assert.equal(html.includes("lockToken"), false);
-  assert.equal(/<script[^>]*\ssrc=/.test(html), false);
+  assert.equal(/<script[^>]*\ssrc="(?!\/assets\/)/.test(shell), false);
   assert.equal(/\son[a-z]+\s*=/i.test(html), false);
   assert.equal(/thrive/i.test(html), false);
-  assert.equal(html.includes("innerHTML"), false);
-  assert.ok(html.split("\n").length < 900);
+  assert.equal(js.includes("innerHTML"), false);
 });
 
 test("page: both light theme blocks", () => {
@@ -34,14 +44,13 @@ test("page: fix round 1 behaviours are in the source", () => {
   assert.match(html, /#board\.has-cards \.col\.is-empty/);
   assert.match(html, /"tag you", "needs you"/);
   assert.match(html, /function required/);
-  assert.equal(/#[0-9a-f]{3,8}\b/i.test(html.split("</style>")[0].split(/:root\[data-theme="light"\]/)[1].split("* {")[1]), false);
+  assert.equal(/#[0-9a-f]{3,8}\b/i.test(css.split(/:root\[data-theme="light"\]/)[1].split("* {")[1]), false);
 });
 
 test("page: pulse keyframes with a reduced-motion static frame, danger token in every theme block, review chips", () => {
   assert.match(html, /@keyframes pulse/);
   assert.match(html, /prefers-reduced-motion: no-preference\)\s*\{\s*\.card\.active\s*\{\s*animation: pulse/);
   assert.match(html, /prefers-reduced-motion: reduce\)\s*\{\s*\.card\.active\s*\{\s*animation: none; box-shadow/);
-  const css = html.split("</style>")[0];
   const darkDefault = css.split("@media (prefers-color-scheme: light)")[0];
   const lightMedia = css.split("@media (prefers-color-scheme: light)")[1].split(':root[data-theme="light"]')[0];
   const lightAttr = css.split(':root[data-theme="light"] {')[1].split("* {")[0];

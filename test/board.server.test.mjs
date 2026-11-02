@@ -221,3 +221,17 @@ test("server: GET /activity.json and /jobs/:id/tail", async () => {
     assert.equal((await fetch(`${b.url}jobs/m-1/tail?path=verify/suite.log&from=-1`)).status, 400);
   });
 });
+
+test("server: GET /assets/<name> serves the allow-listed board files, nothing else", async () => {
+  const c = mk();
+  await withBoard(c, {}, async (b) => {
+    const css = await fetch(`${b.url}assets/board.css`);
+    assert.equal(css.status, 200);
+    assert.match(css.headers.get("content-type"), /^text\/css/);
+    assert.equal(css.headers.get("cache-control"), "no-store");
+    const js = await fetch(`${b.url}assets/board.mjs`);
+    assert.equal(js.status, 200);
+    assert.match(js.headers.get("content-type"), /^text\/javascript/);
+    for (const p of ["assets/dashboard.html", "assets/..%2Fpackage.json", "assets/x/board.css", "assets/"]) assert.equal((await fetch(`${b.url}${p}`)).status, 404, p);
+  });
+});

@@ -15,6 +15,22 @@ function loadPage() {
   try { return readFileSync(new URL("../../board/dashboard.html", import.meta.url), "utf8"); } catch { return PLACEHOLDER; }
 }
 
+/** The board's own files, served from board/ under /assets/<name>; nothing outside this list. */
+export const ASSETS = {
+  "board.css": "text/css; charset=utf-8",
+  "board.mjs": "text/javascript; charset=utf-8",
+  "activity.mjs": "text/javascript; charset=utf-8",
+  "codex-render.mjs": "text/javascript; charset=utf-8",
+  "activity-state.mjs": "text/javascript; charset=utf-8",
+};
+function loadAssets() {
+  const out = {};
+  for (const name of Object.keys(ASSETS)) {
+    try { out[name] = readFileSync(new URL(`../../board/${name}`, import.meta.url), "utf8"); } catch { /* not built yet: 404 */ }
+  }
+  return out;
+}
+
 function send(res, status, body, type) {
   res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store" });
   res.end(body);
@@ -48,6 +64,7 @@ async function readBody(req) {
 
 export function startBoard(c, { port = c.board.port, host = "127.0.0.1", demoDir = null, log = console.error } = {}) {
   const page = loadPage();
+  const assets = loadAssets();
   const view = demoDir ? { ...c, stateDir: demoDir } : c;
   let boundPort = null;
 
@@ -59,6 +76,11 @@ export function startBoard(c, { port = c.board.port, host = "127.0.0.1", demoDir
       const parts = url.pathname.split("/").filter(Boolean).map((s) => { try { return decodeURIComponent(s); } catch { throw new SfactoryError("BAD_ARGS", "malformed encoding in the path"); } });
 
       if (req.method === "GET" && url.pathname === "/") return send(res, 200, page, "text/html; charset=utf-8");
+      if (req.method === "GET" && parts.length === 2 && parts[0] === "assets") {
+        const name = parts[1];
+        if (!Object.hasOwn(ASSETS, name) || assets[name] === undefined) return sendJson(res, 404, { code: "NOT_FOUND" });
+        return send(res, 200, assets[name], ASSETS[name]);
+      }
       if (req.method === "GET" && url.pathname === "/jobs.json") return sendJson(res, 200, buildSnapshot(view, { demo: !!demoDir }));
 
       if (req.method === "GET" && url.pathname === "/activity.json") {
