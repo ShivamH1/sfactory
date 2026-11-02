@@ -188,14 +188,23 @@ const ID_RE = /^[mf]-\d+$/;
 
 export const eventsPath = (c, id) => join(c.stateDir, "jobs", id, EVENTS_FILE);
 
-/** One event as one line, cut to MAX_LINE_BYTES by shortening its longest string fields; never split. */
+/** Fields never cut: the timeline needs them whole. */
+const UNCUT = new Set(["at", "by", "kind"]);
+const chars = (s) => Array.from(s); // code points, so a cut never splits a character
+
+/**
+ * One event as one line of at most MAX_LINE_BYTES, by shortening its longest string fields (each cut strictly
+ * shorter, by whole characters; `at`, `by` and `kind` never cut); never split. Null when it still cannot fit.
+ */
 export function encodeEvent(event) {
   const o = { ...event };
   let s = JSON.stringify(o);
   while (Buffer.byteLength(s) > MAX_LINE_BYTES - 1) {
-    const longest = Object.keys(o).filter((k) => typeof o[k] === "string" && o[k].length > 16).sort((a, b) => o[b].length - o[a].length)[0];
-    if (!longest) break;
-    o[longest] = `${o[longest].slice(0, Math.max(16, Math.floor(o[longest].length * 0.6)))}…`;
+    const longest = Object.keys(o).filter((k) => !UNCUT.has(k) && typeof o[k] === "string" && chars(o[k]).length > 17)
+      .sort((a, b) => chars(o[b]).length - chars(o[a]).length)[0];
+    if (!longest) return null;
+    const cs = chars(o[longest]);
+    o[longest] = `${cs.slice(0, Math.max(16, Math.floor(cs.length * 0.6))).join("")}…`;
     s = JSON.stringify(o);
   }
   return `${s}\n`;
@@ -209,7 +218,9 @@ export function appendEvent(c, id, event, { now = new Date().toISOString(), warn
   if (!ID_RE.test(String(id)) || !existsSync(join(c.stateDir, "jobs", String(id)))) return false;
   try {
     if (!KINDS.includes(event?.kind)) throw new Error(`unknown event kind "${event?.kind}"`);
-    appendFileSync(eventsPath(c, id), encodeEvent({ at: now, by: "session", ...event }));
+    const line = encodeEvent({ at: now, by: "session", ...event });
+    if (line === null) throw new Error(`the event does not fit in ${MAX_LINE_BYTES} bytes`);
+    appendFileSync(eventsPath(c, id), line);
     return true;
   } catch (e) {
     warn(`warning: ${id}: event not recorded (${e.message})\n`);
@@ -277,7 +288,7 @@ export function runningAgents(c, jobs, { now = Date.now(), staleMs = STALE_AGENT
       else if (e.phase === "finish") open.delete(key);
     }
     for (const e of open.values()) {
-      const t = Date.parse(e.at);
+      const t = typeof e.at === "string" ? Date.parse(e.at) : NaN;
       if (Number.isNaN(t) || now - t > staleMs) continue;
       out.push({ id: j.id, role: e.role, task: e.task ?? null, vendor: e.vendor, model: e.model ?? null, startedAt: e.at, log: e.log ?? null });
     }
