@@ -81,7 +81,7 @@ Both themes define the same names (components use only these):
 **Interfaces:**
 - Produces: `ASSETS` (exported from `src/board/server.mjs`): `{ "board.css": "text/css; charset=utf-8", "board.mjs": "text/javascript; charset=utf-8", "activity.mjs": ..., "codex-render.mjs": ..., "activity-state.mjs": ... }` (all `text/javascript; charset=utf-8` but the CSS); `GET /assets/<name>` answers the file from `board/` read once at `startBoard`, `Cache-Control: no-store`, 404 `NOT_FOUND` for any other name (including `..` or a nested path); a listed file missing on disk answers 404 too. `board/dashboard.html` keeps all its markup, loses its `<style>` and inline `<script>`, and gains `<link rel="stylesheet" href="/assets/board.css">` and `<script type="module" src="/assets/board.mjs"></script>`; `board.css` is the old `<style>` body, `board.mjs` the old script body. **No visual or behaviour change in this task.**
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `test/board.server.test.mjs`:
 
@@ -129,11 +129,11 @@ and update the existing tests:
 - "page: no lockToken, no external script, no inline handlers, no brand": run the same checks on `html`, except the external-script check, which becomes `assert.equal(/<script[^>]*\ssrc="(?!\/assets\/)/.test(shell), false)` (only local module scripts); keep `innerHTML` absent from `js`; drop the 900-line check (the shell check covers size).
 - every other test that reads `html` keeps reading `html` (now the assembled page) — the CSS rules and script functions they pin are unchanged by this task.
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `node --test test/board.server.test.mjs test/board.page.test.mjs` — Expected: FAIL (no assets route; `board.css`/`board.mjs` do not exist).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 1. Create `board/board.css` with the exact contents of the current `<style>` element in `board/dashboard.html` (without the `<style>` tags), and `board/board.mjs` with the exact contents of the current inline `<script>` (without the tags). The script is an IIFE today; in a module it runs the same way (modules are deferred and strict — check it has no sloppy-mode-only code; it uses `var` and functions, which are fine).
 2. In `board/dashboard.html`, delete the `<style>…</style>` element and put `<link rel="stylesheet" href="/assets/board.css">` after the font links; replace the `<script>…</script>` element with `<script type="module" src="/assets/board.mjs"></script>`.
@@ -169,11 +169,11 @@ function loadAssets() {
 
    (`send` already sets `Cache-Control: no-store`. `parts` is the decoded path split on `/`, so `..%2F` decodes to a name that is not in the list.)
 
-- [ ] **Step 4: Run the touched tests, then the full suite**
+- [x] **Step 4: Run the touched tests, then the full suite**
 
 Run: `node --test test/board.server.test.mjs test/board.page.test.mjs test/board.command.test.mjs` — Expected: PASS. Then `node --test` — Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/board/server.mjs board/dashboard.html board/board.css board/board.mjs test/board.page.test.mjs test/board.server.test.mjs
@@ -194,7 +194,7 @@ git commit -m "refactor(board): the page is a shell plus its own assets, served 
 **Interfaces:**
 - Produces: `renderCodexStream(text) → blocks[]`, each block one of `{ kind: "message", text }`, `{ kind: "reasoning", text }`, `{ kind: "command", command, output, exit, status }` (`status` `"running" | "completed" | "failed"`, `exit` a number or null), `{ kind: "files", changes: [{ path, change }], status }`, `{ kind: "usage", input, cached, output }`, `{ kind: "raw", text }`; an item's `started`/`updated`/`completed` events merge into one block by the item's `id`, in the order the item first appeared; `thread.started` and `turn.started` produce nothing; a line that is not JSON, or an event or item type the renderer does not know, becomes a `raw` block (never dropped). `splitOutput(text, max = 12) → { shown, hidden }` (the first `max` lines, and how many more).
 
-- [ ] **Step 1: Write the fixture and the failing tests**
+- [x] **Step 1: Write the fixture and the failing tests**
 
 Create `test/fixtures/codex-stream.jsonl` — a generic stream, hand-written in the shape a real `codex exec --json` run writes (no real project, path or person):
 
@@ -255,11 +255,11 @@ test("render: splitOutput collapses after max lines", () => {
 });
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `node --test test/board.render.test.mjs` — Expected: FAIL (module missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `board/codex-render.mjs`:
 
@@ -321,9 +321,9 @@ export function splitOutput(text, max = 12) {
 
 *Dated 2026-11-02 (review fix, under the owner's standing OK for robustness fixes):* every string field goes through a safe `str(v)` (`typeof v === "string" ? v : v == null ? "" : JSON.stringify(v)`, falling back to `""` if that throws), so a crafted value never throws and blanks the pane; items merge by id only when the id is a string and the kinds match, and `thread.started` clears the id map (a log may hold more than one run); a files block's `status` is normalised like a command's (`running`, `completed`, `failed`). Tests cover an object without `toString`, a reused id across two runs, `item: null`, `changes` not an array and string usage fields.
 
-- [ ] **Step 4: Run the test, then the full suite** — `node --test test/board.render.test.mjs`, then `node --test`. Expected: PASS.
+- [x] **Step 4: Run the test, then the full suite** — `node --test test/board.render.test.mjs`, then `node --test`. Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add board/codex-render.mjs test/fixtures/codex-stream.jsonl test/board.render.test.mjs
@@ -343,7 +343,7 @@ git commit -m "feat(board): render a Codex stream as messages, commands, file ch
 **Interfaces:**
 - Produces: `KEEP_EVENTS = 500`; `foldActivity(state, answer) → { events, cursor, running }` (appends `answer.events`, keeps the newest `KEEP_EVENTS`, replaces `cursor` and `running`); `foldTail(view, asked, answer) → { text, next, size }` (appends when `answer.from === asked`, replaces otherwise); `describe(event) → { title, sub, tone }` (`tone` is `"live" | "ok" | "bad" | "you" | null`); `GROUPS = { Agents: ["agent"], Gates: ["gate"], Suite: ["suite"], Stages: ["stage"] }`; `matches(event, { card, group }) → boolean` (`card` null for all cards, `group` null for all kinds).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `test/board.state.test.mjs`:
 
@@ -398,9 +398,9 @@ test("state: matches filters by card and by group", () => {
 });
 ```
 
-- [ ] **Step 2: Run it to see it fail** — `node --test test/board.state.test.mjs`. Expected: FAIL.
+- [x] **Step 2: Run it to see it fail** — `node --test test/board.state.test.mjs`. Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `board/activity-state.mjs`:
 
@@ -477,9 +477,9 @@ export function matches(e, { card = null, group = null } = {}) {
 
 *Dated 2026-11-02 (review fix, under the owner's standing OK for robustness fixes):* `describe` never throws and never prints "undefined": every field it shows goes through a safe text helper (strings as they are, numbers as text, anything else empty), and a missing name falls back to a neutral word; an agent row's second line is its `log` when it has one (spec §6.3, "the file underneath"), else its model; a suite killed by a signal says so; `matches` reads only `GROUPS`' own keys; `foldTail` tolerates a missing answer. Tests cover hostile and partial events.
 
-- [ ] **Step 4: Run the test, then the full suite.** Expected: PASS.
+- [x] **Step 4: Run the test, then the full suite.** Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add board/activity-state.mjs test/board.state.test.mjs
@@ -501,7 +501,7 @@ git commit -m "feat(board): fold the activity feed and log tails; one sentence p
 - Consumes: `runningAgents(c, jobs, { now })` from `src/events.mjs`; `activity(c, args, { now })` from `src/board/activity.mjs`.
 - Produces: `buildSnapshot(...).running` — `runningAgents` over every job, with `now` the snapshot's own `now` (the demo's latest moment in demo mode, the real clock otherwise); the `/activity.json` route passes the same demo-aware `now` to `activity`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `test/board.snapshot.test.mjs` (add `appendEvent` from `../src/events.mjs` and `actions` from `../src/job-actions.mjs` to its imports if absent):
 
@@ -538,9 +538,9 @@ test("server: /jobs.json and /activity.json agree on the agents running now, in 
 
 (Add `appendEvent` from `../src/events.mjs` to the file's imports. Task 7 pins the demo clock itself, against the generated demo jobs whose times are fixed in the past.)
 
-- [ ] **Step 2: Run them to see them fail** — Expected: FAIL (`running` is undefined in the snapshot).
+- [x] **Step 2: Run them to see them fail** — Expected: FAIL (`running` is undefined in the snapshot).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `src/board/snapshot.mjs`, import `runningAgents` from `../events.mjs`, and in `buildSnapshot`'s returned object add, after `jobs,`:
 
@@ -555,9 +555,9 @@ In `src/board/server.mjs`, in the `/activity.json` route, pass a demo-aware cloc
         return sendJson(res, 200, activity(view, { cursor: url.searchParams.get("cursor") ?? undefined, limit }, demoNow === undefined ? {} : { now: demoNow }));
 ```
 
-- [ ] **Step 4: Run the touched tests, then the full suite.** Expected: PASS.
+- [x] **Step 4: Run the touched tests, then the full suite.** Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/board/snapshot.mjs src/board/server.mjs test/board.snapshot.test.mjs test/board.server.test.mjs
@@ -592,7 +592,7 @@ git commit -m "feat(board): the snapshot carries the agents running now; demo mo
 - **Tabs**: `Board` and `Activity` buttons with `aria-pressed`; `?view=activity` selects Activity on load (an unknown value falls back to Board); switching updates the URL with `history.replaceState` and remembers the last view in `localStorage` (`board-view`). In this task the Activity button shows an empty `#activity` section with the text "Activity loads here"; Task 6 builds it.
 - **Reduced motion**: the breathing dot and the active-card ring keep a static frame under `prefers-reduced-motion: reduce`.
 
-- [ ] **Step 1: Update the page tests (they fail until the redesign lands)**
+- [x] **Step 1: Update the page tests (they fail until the redesign lands)**
 
 In `test/board.page.test.mjs`:
 - replace "page: both light theme blocks" with:
@@ -628,15 +628,15 @@ test("page: top bar, tabs, Done collapse and the running line", () => {
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail** — `node --test test/board.page.test.mjs`. Expected: FAIL.
+- [x] **Step 2: Run them to see them fail** — `node --test test/board.page.test.mjs`. Expected: FAIL.
 
-- [ ] **Step 3: Implement** the "What to build" list in `board/board.css`, `board/dashboard.html` and `board/board.mjs`. Keep every existing behaviour the page tests pin (approve-after-viewing, verdict colouring, chips, the drawer, the gates, the empty-column rules, the pulse frames); change only what this task names. Then open the board in a browser against the demo (`node src/cli.mjs board --demo`, http://127.0.0.1:4317) in both themes and at 360 px width, and compare with `board-style.html`; report what you compared.
+- [x] **Step 3: Implement** the "What to build" list in `board/board.css`, `board/dashboard.html` and `board/board.mjs`. Keep every existing behaviour the page tests pin (approve-after-viewing, verdict colouring, chips, the drawer, the gates, the empty-column rules, the pulse frames); change only what this task names. Then open the board in a browser against the demo (`node src/cli.mjs board --demo`, http://127.0.0.1:4317) in both themes and at 360 px width, and compare with `board-style.html`; report what you compared.
 
 *Dated 2026-11-02 (review fix, under the owner's standing OK; spec §6.5 accessibility):* functional small text (the card stats line, the Approve hint, the connection label) uses `--ink-2`, and porcelain glass's `--ink-2` rises to `rgba(31,30,27,.68)` so it reads at 4.5:1 on a card; `--ink-3` stays for counts and "Nothing here". The connection label is not a live region (a screen reader would read the time every poll). The `@supports` fallbacks also accept `-webkit-backdrop-filter`.
 
-- [ ] **Step 4: Run the page tests, then the full suite.** Expected: PASS.
+- [x] **Step 4: Run the page tests, then the full suite.** Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add board/board.css board/dashboard.html board/board.mjs test/board.page.test.mjs
@@ -674,7 +674,7 @@ git commit -m "feat(board): smoked and porcelain glass, the new cards, Done coll
 - **Narrow screens**: below 900 px the split stacks — tiles, output, timeline.
 - **Text only**: every string reaches the page through `textContent`; no `innerHTML`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `test/board.page.test.mjs` (read `activity.mjs` beside the others: `const act = read("activity.mjs");`):
 
@@ -698,15 +698,15 @@ test("activity: the view mounts from the board and uses the pure modules", () =>
 
 Append to `test/board.render.test.mjs` a smoke test that `board/activity.mjs` parses as a module (`await import(new URL("../board/activity.mjs", import.meta.url))` succeeds and exports `mountActivity` as a function — the module must not touch `document` at import time).
 
-- [ ] **Step 2: Run them to see them fail.** Expected: FAIL.
+- [x] **Step 2: Run them to see them fail.** Expected: FAIL.
 
-- [ ] **Step 3: Implement** the "What to build" list. Then run the demo board and look at the Activity view in both themes and at 360 px; report what you compared with `activity-view.html`.
+- [x] **Step 3: Implement** the "What to build" list. Then run the demo board and look at the Activity view in both themes and at 360 px; report what you compared with `activity-view.html`.
 
 *Dated 2026-11-02 (review fix, under the owner's standing OK):* the timeline orders by each event's `at` (newest first, arrival order breaking ties), not by arrival, so an import's back-dated events never sit above Today; ordering, day grouping, the report-path choice and the shared formatting helpers live in `activity-state.mjs` with tests, and `board.mjs` imports the shared ones; a finished or non-running log is tailed at `pollMs`, not every second; a long log opens near its end; the suite tile only follows a log started after the suite lock was taken; a reviewer with no report of its own shows "No report yet"; focus rings are never clipped.
 
-- [ ] **Step 4: Run the touched tests, then the full suite.** Expected: PASS.
+- [x] **Step 4: Run the touched tests, then the full suite.** Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add board/activity.mjs board/board.mjs board/dashboard.html board/board.css test/board.page.test.mjs test/board.render.test.mjs
@@ -727,7 +727,7 @@ git commit -m "feat(board): the Activity view — running tiles, the timeline an
 **Interfaces:**
 - Produces: a demo card in `building` with an `events.jsonl` (a started Codex implementer with a `log`, a Claude spec reviewer started and finished with `--verdict ok`, a commit, a suite run) and that log (`tasks/3/codex-0/codex.jsonl`, the fixture's content), all within the demo's clock, so `board --demo` shows a running tile and live output; version 0.5.0.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `test/examples.jobs.test.mjs`, update the pinned job count to the new total and add: the generated `examples/jobs/<the new id>/events.jsonl` exists and parses line by line, and its card is in `building`.
 
@@ -747,18 +747,18 @@ test("server: the demo board shows a running Codex agent with a log it can tail"
 
 (Import `fileURLToPath` from `node:url`.)
 
-- [ ] **Step 2: Run them to see them fail.** Expected: FAIL.
+- [x] **Step 2: Run them to see them fail.** Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - In `examples/jobs/generate.mjs`, add one card (the next free `m-<n>` id, title "Saved searches", number "6", branch `feature/saved-searches`) walked to `building` with `tasks: { total: 5, done: 2 }`, and write beside its `job.json` an `events.jsonl` built with `encodeEvent` from `src/events.mjs` (fixed `at` values within the hour before the card's `updated`): stage events for its walk, a gate `approve` by `board`, a Claude `spec-reviewer` start and finish (`verdict: "ok"`) on task 2, a commit, a suite start and finish (`ok: true`, `durationMs: 161000`), and a Codex `implementer` start on task 3 with `log: "tasks/3/codex-0/codex.jsonl"` and no finish; and write `tasks/3/codex-0/codex.jsonl` with the content of `test/fixtures/codex-stream.jsonl` minus its last line (the turn is still running). Make the card's `updated` the demo's latest moment. Regenerate with `node examples/jobs/generate.mjs`.
 - README: in "The board", describe the two themes (smoked glass by default, porcelain light, the toggle remembers), the Activity tab (running tiles, timeline with filters, the live output pane and its four tabs), and that `board --demo` shows a running agent. In "A card in 90 seconds" mention the Activity tab.
 - `docs/DESIGN.md`: a dated amendment line for Part 3, pointing at the spec's §6.
 - Version 0.5.0 in `package.json`, `.claude-plugin/plugin.json` and the version test in `test/cli.test.mjs`.
 
-- [ ] **Step 4: Run the touched tests, then the full suite.** Expected: PASS.
+- [x] **Step 4: Run the touched tests, then the full suite.** Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add examples/jobs test/examples.jobs.test.mjs test/board.server.test.mjs README.md docs/DESIGN.md package.json .claude-plugin/plugin.json test/cli.test.mjs
