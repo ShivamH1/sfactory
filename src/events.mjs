@@ -57,13 +57,12 @@ export function appendEvent(c, id, event, { now = new Date().toISOString(), warn
 }
 
 /**
- * Events of card `id` from byte offset `from`, reading at most `maxBytes`: complete lines only, each event with
+ * Items of a JSON-lines file from byte offset `from`, reading at most `maxBytes`: complete lines only, each item with
  * `end`, the offset after its line; a line that does not parse is skipped. `next` is where the next read starts.
  * A missing file is empty; an offset past the end (the file was replaced) starts again from 0.
  */
-export function readEvents(c, id, { from = 0, maxBytes = 256 * 1024 } = {}) {
-  const f = eventsPath(c, id);
-  if (!existsSync(f)) return { events: [], next: 0, size: 0 };
+export function readJsonLines(f, { from = 0, maxBytes = 256 * 1024 } = {}) {
+  if (!existsSync(f)) return { items: [], next: 0, size: 0 };
   const fd = openSync(f, "r");
   try {
     const size = fstatSync(fd).size;
@@ -73,31 +72,42 @@ export function readEvents(c, id, { from = 0, maxBytes = 256 * 1024 } = {}) {
     const n = len > 0 ? readSync(fd, buf, 0, len, start) : 0;
     const chunk = buf.subarray(0, n);
     const last = chunk.lastIndexOf(0x0a);
-    const events = [];
-    if (last < 0) return { events, next: start, size };
+    const items = [];
+    if (last < 0) return { items, next: start, size };
     let pos = 0;
     while (pos <= last) {
       const nl = chunk.indexOf(0x0a, pos);
       try {
         const e = JSON.parse(chunk.subarray(pos, nl).toString("utf8"));
-        if (e && typeof e === "object" && !Array.isArray(e)) events.push({ ...e, end: start + nl + 1 });
+        if (e && typeof e === "object" && !Array.isArray(e)) items.push({ ...e, end: start + nl + 1 });
       } catch { /* a line that does not parse is skipped */ }
       pos = nl + 1;
     }
-    return { events, next: start + last + 1, size };
+    return { items, next: start + last + 1, size };
   } finally { closeSync(fd); }
+}
+
+/** Every complete item of a JSON-lines file. */
+export function readAllJsonLines(f) {
+  const out = [];
+  let from = 0;
+  for (;;) {
+    const r = readJsonLines(f, { from });
+    out.push(...r.items);
+    if (r.next === from || r.next >= r.size) return out;
+    from = r.next;
+  }
+}
+
+/** Events of card `id` from byte offset `from`: see readJsonLines. */
+export function readEvents(c, id, opts = {}) {
+  const { items, next, size } = readJsonLines(eventsPath(c, id), opts);
+  return { events: items, next, size };
 }
 
 /** Every complete event of card `id`. */
 export function readAllEvents(c, id) {
-  const out = [];
-  let from = 0;
-  for (;;) {
-    const r = readEvents(c, id, { from });
-    out.push(...r.events);
-    if (r.next === from || r.next >= r.size) return out;
-    from = r.next;
-  }
+  return readAllJsonLines(eventsPath(c, id));
 }
 
 /**
