@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { tmpDir } from "./helpers.mjs";
 import { acquire, acquireSync, clearGuard, release, status, withLock } from "../src/lock.mjs";
+import { addJob } from "../src/store.mjs";
+import { readAllEvents } from "../src/events.mjs";
 
 const cfg = () => ({ stateDir: tmpDir("sf-lock-"), limits: { lockStaleMs: 3_600_000 } });
 
@@ -215,4 +217,14 @@ test("lock: (n) a lock that cannot be created names the path and the errno, not 
   } finally { allow(); }
   const l = acquireSync(c, "p", { holder: "a" });
   l.release();
+});
+
+test("lock: live, suite and commit locks held by a card record take and release; others record nothing", async () => {
+  const c = { stateDir: tmpDir("sf-lk-"), limits: { lockStaleMs: 60_000 } };
+  const j = addJob(c, "milestone", "t");
+  for (const name of ["live", "suite", "commit"]) { const l = await acquire(c, name, { holder: j.id }); l.release(); }
+  const r = acquireSync(c, "record", { holder: j.id }); r.release();
+  const s = await acquire(c, "suite", { holder: "session" }); s.release();
+  const ev = readAllEvents(c, j.id).filter((e) => e.kind === "lock").map((e) => `${e.phase} ${e.name}`);
+  assert.deepEqual(ev, ["take live", "release live", "take suite", "release suite", "take commit", "release commit"]);
 });
