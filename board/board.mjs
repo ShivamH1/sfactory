@@ -154,15 +154,17 @@ import { fmtElapsed, vendorName, taskLabel, byMilestoneNumber } from "./activity
     if (m < 60) return m + "m";
     return Math.floor(m / 60) + "h " + (m % 60) + "m";
   }
-  // the running line: who and which task, then the elapsed time in its own span (mono, tabular figures)
+  // the running line: who and which task, then the elapsed time in its own span (mono, tabular figures, no wrap);
+  // the separator is inside the span after a no-break space, so "· 10m" wraps only together with the last word
   function fillRun(sp, r, job, genAt) {
     var parts = [vendorName(r.vendor), r.role];
     var task = taskLabel(r.task, job);
     if (task) parts.push(task);
     var el = fmtShort(genAt - Date.parse(r.startedAt));
-    sp.textContent = parts.join(" · ") + (el ? " · " : "");
-    if (el) sp.appendChild(h("span", "el", el));
+    sp.textContent = parts.join(" · ");
+    if (el) sp.appendChild(h("span", "el", NBSP + "· " + el));
   }
+  var NBSP = String.fromCharCode(160); // a no-break space, written as a code so no invisible character sits in the source
   function buildCard(job, demo, runs, genAt) {
     var ext = job.stage === "external";
     var card = h("article", "card" + (job.needsYou ? " needs" : "") + (job.stage === "stopped" ? " stopped" : "") + (ext ? " ext" : "") + (runs.length ? " run" : "") + (job.active ? " active" : ""));

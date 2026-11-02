@@ -181,8 +181,8 @@ test("activity: review fixes — time-ordered timeline, shared helpers, unclippe
   assert.match(act, /createTextNode\(text\.slice\(plainLen\)\)/);
 });
 
-/** Every CSS rule as [selector, body], media-query rules included (the selector is the piece just before the body). */
-const rules = css.split("}").map((chunk) => chunk.split("{")).filter((p) => p.length >= 2).map((p) => [p[p.length - 2].trim(), p[p.length - 1].trim()]);
+/** Every CSS rule as [selector, body], media-query rules included (the selector is the piece just before the body); comments are dropped first, so one above a rule is not read as part of its selector. */
+const rules = css.replace(/\/\*[\s\S]*?\*\//g, "").split("}").map((chunk) => chunk.split("{")).filter((p) => p.length >= 2).map((p) => [p[p.length - 2].trim(), p[p.length - 1].trim()]);
 const ruleFor = (sel) => rules.filter(([s]) => s === sel).map(([, b]) => b).join(" ");
 
 test("page: the Milestones column is ordered by number (29.1 between 29 and 30), unnumbered after, by id as the fallback", () => {
@@ -202,11 +202,14 @@ test("page: champagne means only that the person is needed (a running command, t
   assert.match(ruleFor(".locks i.held"), /background: var\(--ink-2\)/);
   assert.match(ruleFor(".locks .held-by"), /color: var\(--ink\)/);
   assert.match(js, /held \? name \+ " · " \+ \(l\.holder \|\| "held"\)/);
+  const NEEDS_YOU = ['.col[data-column="Needs you"] h2', ".card.needs", ".card.ext", ".tag.you", ".tag.ext", ".btn.go"];
   for (const [sel, body] of rules) {
     if (!/var\(--you\)/.test(body) || sel.startsWith(":root")) continue;
-    assert.ok(!/act-|locks|held|\.live|suite/.test(sel), `${sel} is not a thing that needs the person, yet uses --you`);
+    assert.ok(NEEDS_YOU.includes(sel), `${sel} uses --you, but only what needs the person may: ${NEEDS_YOU.join(", ")}`);
   }
-  for (const sel of ['.col[data-column="Needs you"] h2', ".card.needs", ".card.ext", ".tag.you", ".tag.ext", ".btn.go"]) assert.match(ruleFor(sel), /var\(--you\)/, `${sel} keeps --you`);
+  for (const sel of NEEDS_YOU) assert.match(ruleFor(sel), /var\(--you\)/, `${sel} keeps --you`);
+  assert.match(ruleFor("#demo"), /color: var\(--ink-2\)/, "the demo banner is a passive status");
+  assert.match(ruleFor("#demo"), /border: 1px solid var\(--panel-line\)/);
 });
 
 test("page: cheap fixes: footer labels legible, the running line's time in mono, tiles that do not re-announce each second", () => {
@@ -215,7 +218,10 @@ test("page: cheap fixes: footer labels legible, the running line's time in mono,
   assert.match(ruleFor(".empty"), /color: var\(--ink-3\)/);
   assert.match(ruleFor(".live .el"), /font-family: var\(--mono\)/);
   assert.match(ruleFor(".live .el"), /font-variant-numeric: tabular-nums/);
-  assert.match(js, /sp\.appendChild\(h\("span", "el", el\)\)/);
+  // the separator lives in the span, glued to the last word by a no-break space: "· 10m" never wraps onto its own line
+  assert.match(ruleFor(".live .el"), /white-space: nowrap/);
+  assert.match(js, /sp\.textContent = parts\.join\(" · "\);\s*if \(el\) sp\.appendChild\(h\("span", "el", NBSP \+ "· " \+ el\)\);/);
+  assert.match(js, /var NBSP = String\.fromCharCode\(160\);/);
   assert.match(act, /b\.setAttribute\("aria-label", \[pillOf\(t\.id\), name, whoOf\(t\)\]\.filter\(has\)\.join\(" · "\)\)/);
   assert.match(act, /const meta = h\("span", "act-meta"\);\s*meta\.setAttribute\("aria-hidden", "true"\);/);
 });

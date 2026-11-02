@@ -160,7 +160,7 @@ test("snapshot: a demo snapshot measures elapsed against the latest stamp in its
   assert.equal(s.jobs[0].elapsedMs, 30 * 60 * 1000);
 });
 
-test("snapshot: a touch makes a working card pulse and carries its note (at and note only)", async () => {
+test("snapshot: a touch marks a working card active and carries its note (at and note only)", async () => {
   const { c } = setup();
   const { actions } = await import("../src/job-actions.mjs");
   const a = addJob(c, "fix", "Touched", { now: T0 });
