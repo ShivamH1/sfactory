@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tmpDir } from "./helpers.mjs";
 import { addJob, writeJobFile } from "../src/store.mjs";
-import { appendEvent } from "../src/events.mjs";
+import { writeFileSync } from "node:fs";
+import { appendEvent, eventsPath, encodeEvent } from "../src/events.mjs";
 import { activity, tail, TAIL_MAX } from "../src/board/activity.mjs";
 
 const cfg = () => ({ stateDir: tmpDir("sf-act-"), limits: { lockStaleMs: 60_000 } });
@@ -32,6 +33,17 @@ test("activity: a limit never skips an event; the rest comes on the next call", 
   let cur = start;
   for (let k = 0; k < 5; k++) { const r = activity(c, { cursor: cur, limit: 2 }); seen.push(...notes(r)); cur = r.cursor; }
   assert.deepEqual(seen, ["m-1 n1", "m-2 n2", "m-1 n3", "m-2 n4", "m-1 n5", "m-2 n6"]);
+});
+
+test("activity: a log that shrank under a cut cursor is read from its start, each event once", { timeout: 5000 }, () => {
+  const c = cfg(); addJob(c, "milestone", "a"); addJob(c, "milestone", "b");
+  for (let i = 1; i <= 6; i++) appendEvent(c, "m-1", { kind: "note", text: `old${i}` }, { now: t(i) });
+  let cur = activity(c, {}).cursor;
+  const lines = [1, 2, 3].map((i) => encodeEvent({ at: t(10 + i), by: "x", kind: "note", text: `new${i}` }));
+  writeFileSync(eventsPath(c, "m-1"), lines.join(""));
+  const seen = [];
+  for (let k = 0; k < 5; k++) { const r = activity(c, { cursor: cur, limit: 2 }); seen.push(...notes(r)); cur = r.cursor; }
+  assert.deepEqual(seen, ["m-1 new1", "m-1 new2", "m-1 new3"]);
 });
 
 test("activity: limit is clamped, a foreign cursor refused, running agents listed", () => {
