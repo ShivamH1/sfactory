@@ -976,14 +976,19 @@ function decodeCursor(s) {
   fail("BAD_ARGS", "the cursor is not one this board gave");
 }
 
-/** Every complete event of one card from `from`, each with its end offset. */
+/**
+ * Every complete event of one card from `from`, each with its end offset, and `start`, the offset actually read
+ * from: 0 when the log is now shorter than `from` (readEvents restarts a replaced file), so a cut cursor never
+ * keeps a stale offset.
+ */
 function eventsFrom(c, id, from) {
   const out = [];
-  let off = from;
+  let off = from, start = null;
   for (;;) {
     const r = readEvents(c, id, { from: off });
+    if (start === null) start = off <= r.size ? off : 0;
     out.push(...r.events.map((e) => ({ ...e, id })));
-    if (r.next === off || r.next >= r.size) return { events: out, end: r.next };
+    if (r.next === off || r.next >= r.size) return { events: out, start, end: r.next };
     off = r.next;
   }
 }
@@ -997,7 +1002,7 @@ export function activity(c, { cursor, limit } = {}, { now = Date.now() } = {}) {
   const n = Math.min(ACTIVITY_MAX, Math.max(1, Number.isInteger(limit) ? limit : ACTIVITY_LIMIT));
   const jobs = listJobs(c);
   const from = cursor === undefined || cursor === null || cursor === "" ? null : decodeCursor(cursor);
-  const queues = jobs.map((j) => ({ id: j.id, start: from ? (from[j.id] ?? 0) : 0, ...eventsFrom(c, j.id, from ? (from[j.id] ?? 0) : 0) }));
+  const queues = jobs.map((j) => ({ id: j.id, ...eventsFrom(c, j.id, from ? (from[j.id] ?? 0) : 0) }));
   // A k-way merge by `at`: each card's events stay in file order, so a prefix of the merge is a prefix of every card.
   const merged = [];
   const heads = queues.map(() => 0);
@@ -1005,7 +1010,7 @@ export function activity(c, { cursor, limit } = {}, { now = Date.now() } = {}) {
     let best = -1;
     for (let i = 0; i < queues.length; i++) {
       const e = queues[i].events[heads[i]];
-      if (e && (best < 0 || String(e.at).localeCompare(String(queues[best].events[heads[best]].at)) < 0)) best = i;
+      if (e && (best < 0 || String(e.at) < String(queues[best].events[heads[best]].at))) best = i;
     }
     if (best < 0) break;
     merged.push(queues[best].events[heads[best]++]);
