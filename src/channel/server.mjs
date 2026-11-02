@@ -1,6 +1,5 @@
 import { readFileSync, mkdirSync, realpathSync, watch } from "node:fs";
-import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { findRepoRoot, loadConfig } from "../config.mjs";
 import { messages, markPushed, reply, heartbeat, chatDir } from "../chat.mjs";
@@ -15,7 +14,7 @@ export const REPLY_TOOL = {
 
 const VERSION = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
 
-/** The protocol and the push, free of I/O but `send` and the thread. `c` null: no config, nothing is pushed. */
+/** The protocol and the push, free of I/O but `send` and the thread (it also writes the heartbeat at `initialize`). `c` null: no config, nothing is pushed. */
 export function createChannel({ c, send, now = () => new Date().toISOString() }) {
   const pushed = new Set();
   let ready = false;
@@ -27,8 +26,8 @@ export function createChannel({ c, send, now = () => new Date().toISOString() })
     let n = 0;
     for (const m of messages(c)) {
       if (m.status !== "sent" || pushed.has(m.id)) continue;
-      pushed.add(m.id);
       send({ jsonrpc: "2.0", method: "notifications/claude/channel", params: { content: m.text, meta: { message_id: m.id, ...(m.card ? { card: m.card } : {}) } } });
+      pushed.add(m.id);
       markPushed(c, m.id, now());
       n += 1;
     }
@@ -56,7 +55,7 @@ export function createChannel({ c, send, now = () => new Date().toISOString() })
     }
     switch (method) {
       case "initialize":
-        if (c) heartbeat(c, { now: now() });
+        if (c) { try { heartbeat(c, { now: now() }); } catch { /* the handshake is answered regardless */ } }
         return result(id, {
           protocolVersion: params?.protocolVersion,
           capabilities: { experimental: { "claude/channel": {} }, tools: {} },
@@ -73,7 +72,12 @@ export function createChannel({ c, send, now = () => new Date().toISOString() })
   return { handle, pushNew };
 }
 
-if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+function isMain() {
+  if (!process.argv[1]) return false;
+  try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
+}
+
+if (isMain()) {
   let c = null;
   try { c = loadConfig(findRepoRoot(process.cwd())); } catch (e) { process.stderr.write(`sfactory channel: no config (${e?.message ?? e})\n`); }
   const send = (m) => process.stdout.write(`${JSON.stringify(m)}\n`);
@@ -83,9 +87,9 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
     setInterval(safe(() => heartbeat(c)), 10_000).unref();
     try {
       mkdirSync(chatDir(c), { recursive: true });
-      // The long (real) path: on Windows libuv aborts the process when events name a path unlike a short 8.3 one.
+      // On Windows, watching a short 8.3 path aborts the process inside libuv, so watch the long real path.
       const w = watch(realpathSync.native(chatDir(c)), safe(() => ch.pushNew()));
-      w.on("error", () => {});
+      w.on("error", (e) => process.stderr.write(`sfactory channel: watch error (${e?.message ?? e})\n`));
       w.unref();
     } catch (e) { process.stderr.write(`sfactory channel: watch failed (${e?.message ?? e})\n`); }
     setInterval(safe(() => ch.pushNew()), 1000).unref();

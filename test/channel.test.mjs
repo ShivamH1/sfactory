@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, symlinkSync } from "node:fs";
+import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -81,10 +82,9 @@ test("channel: the plugin manifest declares the server", () => {
   assert.deepEqual(p.mcpServers, { sfactory: { command: "node", args: ["${CLAUDE_PLUGIN_ROOT}/src/channel/server.mjs"] } });
 });
 
-test("channel: run as a program it pushes a posted message over stdout and exits when stdin ends", { timeout: 15000 }, async () => {
+async function runProgram(script) {
   const repo = tmpRepo();
   writeConfig(repo, { project: "p", agents: { mode: "claude" }, commands: { suite: "x" }, stateDir: tmpDir("sf-chan-state-") });
-  const script = fileURLToPath(new URL("../src/channel/server.mjs", import.meta.url));
   const child = spawn(process.execPath, [script], { cwd: repo, stdio: ["pipe", "pipe", "pipe"] });
   child.stderr.resume();
   const exited = new Promise((res) => child.once("exit", res));
@@ -109,8 +109,20 @@ test("channel: run as a program it pushes a posted message over stdout and exits
     assert.equal(push.params.content, "hello from the board");
     assert.deepEqual(push.params.meta, { message_id: m.id });
     child.stdin.end();
-    await Promise.race([exited, new Promise((_, rej) => setTimeout(() => rej(new Error("did not exit")), 5000))]);
+    const code = await Promise.race([exited, new Promise((_, rej) => setTimeout(() => rej(new Error("did not exit")), 5000))]);
+    assert.equal(code, 0);
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill();
   }
+}
+
+const SCRIPT = fileURLToPath(new URL("../src/channel/server.mjs", import.meta.url));
+
+test("channel: run as a program it pushes a posted message over stdout and exits when stdin ends", { timeout: 15000 }, () => runProgram(SCRIPT));
+
+test("channel: the program part also runs when launched through a directory link", { timeout: 15000 }, async (t) => {
+  const link = join(tmpDir("sf-chan-link-"), "src-link");
+  try { symlinkSync(fileURLToPath(new URL("../src", import.meta.url)), link, "junction"); }
+  catch (e) { t.skip(`cannot make a directory link here (${e.code})`); return; }
+  await runProgram(join(link, "channel", "server.mjs"));
 });
