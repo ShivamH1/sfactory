@@ -9,13 +9,16 @@ export function foldActivity(state, answer) {
 
 /** One tail answer folded into a log view: appended when the server read from where we asked, replaced when it restarted (the file was replaced). */
 export function foldTail(view, asked, answer) {
+  if (answer == null || typeof answer !== "object") return view ?? { text: "", next: asked, size: 0 };
   const base = answer.from === asked ? (view?.text ?? "") : "";
   return { text: base + String(answer.text ?? ""), next: answer.next, size: answer.size };
 }
 
-const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+/** A field as display text: strings as they are, finite numbers as text, anything else empty; never throws. */
+const txt = (v) => (typeof v === "string" ? v : Number.isFinite(v) ? String(v) : "");
+const cap = (v) => { const s = txt(v); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; };
 const dur = (ms) => {
-  if (!Number.isFinite(ms)) return null;
+  if (!Number.isFinite(ms) || ms < 0) return null;
   const s = Math.round(ms / 1000);
   return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
 };
@@ -27,33 +30,52 @@ const GATE = {
 /** One timeline row's words: a title, a quiet second line, and a tone (live, ok, bad, you, or none). */
 export function describe(e) {
   switch (e?.kind) {
-    case "stage":
-      return e.from == null
-        ? { title: `Created in ${e.to}`, sub: e.reason ?? null, tone: null }
-        : { title: `Moved to ${e.to}`, sub: [`from ${e.from}`, e.reason].filter(Boolean).join(" · "), tone: null };
+    case "stage": {
+      const to = txt(e.to), from = txt(e.from), reason = txt(e.reason);
+      return !from
+        ? { title: `Created${to ? ` in ${to}` : ""}`, sub: reason || null, tone: null }
+        : { title: `Moved${to ? ` to ${to}` : ""}`, sub: [`from ${from}`, reason].filter(Boolean).join(" · "), tone: null };
+    }
     case "gate": {
-      const title = e.action === "parallel" ? (e.yes ? "Approved to run in parallel" : "Queued instead of running in parallel") : (GATE[e.action] ?? cap(String(e.action)));
-      return { title, sub: e.by ? `by ${e.by}` : null, tone: "you" };
+      const action = txt(e.action);
+      const title = action === "parallel" ? (e.yes ? "Approved to run in parallel" : "Queued instead of running in parallel")
+        : (Object.hasOwn(GATE, action) ? GATE[action] : cap(action) || "Gate");
+      return { title, sub: txt(e.by) ? `by ${txt(e.by)}` : null, tone: "you" };
     }
     case "agent": {
-      const who = `${cap(e.vendor)} ${e.role}`;
-      const on = e.task ? ` on task ${e.task}` : "";
-      if (e.phase === "start") return { title: `${who} started${on}`, sub: e.model ?? null, tone: "live" };
-      if (e.ok === false) return { title: `${who} failed${on}`, sub: e.model ?? null, tone: "bad" };
+      const who = [cap(e.vendor), txt(e.role)].filter(Boolean).join(" ") || "Agent";
+      const on = txt(e.task) ? ` on task ${txt(e.task)}` : "";
+      const sub = txt(e.log) || txt(e.model) || null;
+      if (e.phase === "start") return { title: `${who} started${on}`, sub, tone: "live" };
+      if (e.ok === false) return { title: `${who} failed${on}${Number.isInteger(e.exit) ? ` (exit ${e.exit})` : ""}`, sub, tone: "bad" };
       const verdict = e.verdict === "ok" ? ": ✓ Approved" : e.verdict === "fixes" ? ": ✕ Needs fixes" : "";
-      return { title: `${who} finished${on}${verdict}`, sub: e.model ?? null, tone: e.verdict === "fixes" ? "bad" : e.verdict === "ok" ? "ok" : null };
+      return { title: `${who} finished${on}${verdict}`, sub, tone: e.verdict === "fixes" ? "bad" : e.verdict === "ok" ? "ok" : null };
     }
     case "suite": {
-      if (e.phase === "start") return { title: "Suite started", sub: e.log ?? null, tone: "live" };
+      const log = txt(e.log) || null;
+      if (e.phase === "start") return { title: "Suite started", sub: log, tone: "live" };
       const took = dur(e.durationMs);
-      const title = e.ok ? `Suite passed${took ? ` in ${took}` : ""}` : `Suite failed${Number.isInteger(e.exit) ? ` (exit ${e.exit})` : ""}${took ? ` in ${took}` : ""}`;
-      return { title, sub: e.log ?? null, tone: e.ok ? "ok" : "bad" };
+      const signal = txt(e.signal);
+      const inTime = took ? ` in ${took}` : "";
+      const title = e.ok ? `Suite passed${inTime}`
+        : !Number.isInteger(e.exit) && signal ? `Suite stopped by ${signal}${inTime}`
+        : `Suite failed${Number.isInteger(e.exit) ? ` (exit ${e.exit})` : ""}${inTime}`;
+      return { title, sub: log, tone: e.ok ? "ok" : "bad" };
     }
-    case "service": return { title: e.phase === "up" ? `Service ${e.name} up${e.port ? ` on :${e.port}` : ""}` : `Service ${e.name} down`, sub: null, tone: null };
-    case "lock": return { title: `${e.phase === "take" ? "Took" : "Released"} the ${e.name} lock`, sub: null, tone: null };
-    case "commit": return { title: `Committed ${String(e.sha ?? "").slice(0, 7)}`, sub: Number.isInteger(e.files) ? `${e.files} file${e.files === 1 ? "" : "s"}` : null, tone: null };
-    case "note": return { title: String(e.text ?? ""), sub: null, tone: null };
-    default: return { title: String(e?.kind ?? "event"), sub: null, tone: null };
+    case "service": {
+      const name = txt(e.name), port = txt(e.port);
+      return { title: `Service${name ? ` ${name}` : ""} ${e.phase === "up" ? `up${port ? ` on :${port}` : ""}` : "down"}`, sub: null, tone: null };
+    }
+    case "lock": {
+      const name = txt(e.name);
+      return { title: `${e.phase === "take" ? "Took" : "Released"} ${name ? `the ${name}` : "a"} lock`, sub: null, tone: null };
+    }
+    case "commit": {
+      const sha = txt(e.sha).slice(0, 7);
+      return { title: `Committed${sha ? ` ${sha}` : ""}`, sub: Number.isInteger(e.files) ? `${e.files} file${e.files === 1 ? "" : "s"}` : null, tone: null };
+    }
+    case "note": return { title: txt(e.text), sub: null, tone: null };
+    default: return { title: txt(e?.kind) || "Event", sub: null, tone: null };
   }
 }
 
@@ -63,6 +85,6 @@ export const GROUPS = { Agents: ["agent"], Gates: ["gate"], Suite: ["suite"], St
 /** Does an event pass the timeline's filters (card: a card id or null; group: a GROUPS key or null)? */
 export function matches(e, { card = null, group = null } = {}) {
   if (card && e.id !== card) return false;
-  if (group && !(GROUPS[group] ?? []).includes(e.kind)) return false;
+  if (group && !(Object.hasOwn(GROUPS, group) && GROUPS[group].includes(e.kind))) return false;
   return true;
 }

@@ -39,6 +39,40 @@ test("state: describe gives one sentence per kind", () => {
   assert.equal(d({ kind: "mystery" }), "mystery");
 });
 
+test("state: describe never throws on hostile fields and never prints undefined", () => {
+  const hostile = [
+    { kind: "agent", vendor: 7 }, { kind: "note", text: { toString: 1 } }, { kind: "agent", role: { toString: 1 }, vendor: { toString: 1 } },
+    { kind: "stage", to: { toString: 1 }, from: { toString: 1 } }, { kind: "gate", action: { toString: 1 } }, { kind: { toString: 1 } }, null,
+  ];
+  for (const e of hostile) assert.doesNotThrow(() => describe(e));
+  for (const e of [{ kind: "agent" }, { kind: "service" }, { kind: "lock", phase: "release" }, { kind: "gate" }, { kind: "stage" }, { kind: "commit" }, { kind: { toString: 1 } }]) {
+    const r = describe(e);
+    assert.ok(!`${r.title} ${r.sub}`.includes("undefined"), JSON.stringify(e));
+  }
+  assert.equal(describe({ kind: "agent" }).title, "Agent finished");
+  assert.equal(describe({ kind: "service" }).title, "Service down");
+  assert.equal(describe({ kind: "lock", phase: "release" }).title, "Released a lock");
+  assert.equal(describe({ kind: "gate" }).title, "Gate");
+  assert.equal(describe({ kind: "stage" }).title, "Created");
+  assert.equal(describe({ kind: "stage", from: "a" }).title, "Moved");
+  assert.equal(describe({ kind: "commit" }).title, "Committed");
+  assert.equal(describe({ kind: { toString: 1 } }).title, "Event");
+});
+
+test("state: describe agent sub is its log, suite signal and agent exit are named", () => {
+  assert.equal(describe({ kind: "agent", phase: "start", vendor: "codex", role: "implementer", model: "m", log: "agents/a.log" }).sub, "agents/a.log");
+  assert.equal(describe({ kind: "suite", phase: "finish", ok: false, signal: "SIGTERM", durationMs: 4000 }).title, "Suite stopped by SIGTERM in 4s");
+  assert.equal(describe({ kind: "agent", phase: "finish", vendor: "codex", role: "reviewer", ok: false, exit: 2 }).title, "Codex reviewer failed (exit 2)");
+});
+
+test("state: foldTail tolerates a missing answer; matches ignores unknown groups", () => {
+  assert.doesNotThrow(() => foldTail(null, 0, undefined));
+  assert.deepEqual(foldTail(null, 5, undefined), { text: "", next: 5, size: 0 });
+  const v = { text: "x", next: 1, size: 1 };
+  assert.equal(foldTail(v, 1, null), v);
+  assert.equal(matches({ id: "m-1", kind: "agent" }, { group: "constructor" }), false);
+});
+
 test("state: matches filters by card and by group", () => {
   const e = { id: "m-1", kind: "agent" };
   assert.equal(matches(e, { card: null, group: null }), true);

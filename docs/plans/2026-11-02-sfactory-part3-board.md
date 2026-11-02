@@ -475,6 +475,8 @@ export function matches(e, { card = null, group = null } = {}) {
 }
 ```
 
+*Dated 2026-11-02 (review fix, under the owner's standing OK for robustness fixes):* `describe` never throws and never prints "undefined": every field it shows goes through a safe text helper (strings as they are, numbers as text, anything else empty), and a missing name falls back to a neutral word; an agent row's second line is its `log` when it has one (spec §6.3, "the file underneath"), else its model; a suite killed by a signal says so; `matches` reads only `GROUPS`' own keys; `foldTail` tolerates a missing answer. Tests cover hostile and partial events.
+
 - [ ] **Step 4: Run the test, then the full suite.** Expected: PASS.
 
 - [ ] **Step 5: Commit**
