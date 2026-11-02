@@ -3,6 +3,11 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fail } from "./errors.mjs";
 import { slugify } from "./store.mjs";
+import { appendEvent } from "./events.mjs";
+
+/** The locks the board's timeline shows: taken or released by a card. */
+const TIMELINE_LOCKS = ["live", "suite", "commit"];
+const noteLock = (c, name, holder, phase) => { if (TIMELINE_LOCKS.includes(name)) appendEvent(c, holder, { kind: "lock", phase, name }); };
 
 export const GRACE_MS = 5000;
 const lockPath = (c, name) => join(c.stateDir, "locks", `${slugify(name)}.lock`);
@@ -140,6 +145,7 @@ export function acquireSync(c, name, { holder, staleMs = c.limits?.lockStaleMs ?
   const note = {};
   const l = tryAcquireOnce(c, name, { holder, staleMs, pid, durable }, note);
   if (!l) fail("LOCK_HELD", heldMessage(c, name, staleMs, note));
+  noteLock(c, name, holder, "take");
   return l;
 }
 
@@ -149,7 +155,7 @@ export async function acquire(c, name, { holder, waitMs = 0, pollMs = 500, stale
   for (;;) {
     const note = {};
     const l = tryAcquireOnce(c, name, { holder, staleMs, pid, durable }, note);
-    if (l) return l;
+    if (l) { noteLock(c, name, holder, "take"); return l; }
     if (Date.now() >= deadline) fail("LOCK_HELD", heldMessage(c, name, staleMs, note));
     await sleep(Math.max(1, Math.min(pollMs, deadline - Date.now())));
   }
@@ -174,7 +180,7 @@ export function release(c, name, { holder, token } = {}) {
   const moved = `${path}.rel-${randomUUID()}`;
   try { renameSync(path, moved); } catch (e) { if (e.code === "ENOENT") return false; throw e; }
   const got = parse(moved);
-  if (got !== null && got.holder === holder && got.token === cur.token) { unlinkSync(moved); return true; }
+  if (got !== null && got.holder === holder && got.token === cur.token) { unlinkSync(moved); noteLock(c, name, holder, "release"); return true; }
   // We moved someone else's lock (a takeover landed between our read and our rename): put it back without overwriting.
   try { linkSync(moved, path); unlinkSync(moved); } catch (e) {
     if (e.code !== "EEXIST") throw e;

@@ -100,6 +100,10 @@ function assertShellSafe(args) {
   for (const a of args) if (a === "" || /["%\x00-\x1f]/.test(a)) fail("BAD_ARGS", `codex argument cannot be passed through cmd.exe: ${JSON.stringify(a)}`);
 }
 
+/** The stream file names inside a run's --out dir (the command records them as an agent event's log). */
+export const EXEC_STREAM = "codex.jsonl";
+export const REVIEW_STREAM = "codex-review.jsonl";
+
 async function runExecLike(c, { args, cwd, prompt, outDir, logName, timeoutMs, spawn, env }) {
   assertShellSafe(args);
   mkdirSync(outDir, { recursive: true });
@@ -143,7 +147,7 @@ export async function runCodexExec(c, { cwd, profile, prompt, sandbox = "workspa
   checkNames({ profile, sandbox });
   preflight({ profile, which, home: codexHome, requireProfile: true });
   const args = ["exec", "-C", cwd, "-p", profile, "-s", sandbox, "--json", "-o", join(outDir, "last-message.md")];
-  return runExecLike(c, { args, cwd, prompt, outDir, logName: "codex.jsonl", timeoutMs, spawn, env });
+  return runExecLike(c, { args, cwd, prompt, outDir, logName: EXEC_STREAM, timeoutMs, spawn, env });
 }
 
 /**
@@ -159,6 +163,6 @@ export async function runCodexReview(c, { cwd, base, commit, prompt, profile, ou
   preflight({ profile, which, home: codexHome, requireProfile: true });
   const args = ["exec", "-C", cwd, "-p", profile, "-s", "read-only", "review", "--json", "-o", join(outDir, "last-message.md"), "-"];
   const target = base != null ? `Review the changes on this branch against ${base}: run \`git diff ${base}...HEAD\` to see them.` : `Review commit ${commit}: run \`git show ${commit}\` to see it.`;
-  const r = await runExecLike(c, { args, cwd, prompt: `${target}\n\n${prompt}`, outDir, logName: "codex-review.jsonl", timeoutMs, spawn, env });
+  const r = await runExecLike(c, { args, cwd, prompt: `${target}\n\n${prompt}`, outDir, logName: REVIEW_STREAM, timeoutMs, spawn, env });
   return { ...r, text: r.lastMessage };
 }

@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { loadConfig } from "../src/config.mjs";
 import { tmpRepo, writeConfig } from "./helpers.mjs";
 import { main } from "../src/cli.mjs";
 
@@ -66,4 +67,47 @@ test("cli: job import reads a BOM-prefixed file, and names a read error by its c
   writeFileSync(join(r0, "bad.json"), "{nope");
   r = await run(r0, ["job", "import", "bad.json"]);
   assert.match(r.err, /BAD_IMPORT/);
+});
+
+test("cli: job touch --agent records an agent event", async () => {
+  const r0 = repo();
+  await run(r0, ["job", "add", "milestone", "x"]);
+  await run(r0, ["job", "set", "m-1", "planning"]);
+  const r = await run(r0, ["job", "touch", "m-1", "--agent", "start", "--role", "implementer", "--vendor", "codex", "--task", "1", "--model", "implement"]);
+  assert.equal(r.code, 0, r.err);
+  const show = JSON.parse((await run(r0, ["job", "show", "m-1"])).out);
+  assert.equal(show.activity.note, "start codex implementer task 1 implement");
+  assert.notEqual((await run(r0, ["job", "touch", "m-1", "--agent", "start", "--role", "x", "--vendor", "nope"])).code, 0);
+});
+
+test("cli: job touch refuses valueless agent flags and agent flags without --agent, recording nothing", async () => {
+  const r0 = repo();
+  await run(r0, ["job", "add", "milestone", "x"]);
+  await run(r0, ["job", "set", "m-1", "planning"]);
+  const ev = () => { try { return readFileSync(join(loadConfig(r0).stateDir, "jobs", "m-1", "events.jsonl"), "utf8"); } catch { return ""; } };
+  const before = ev();
+  const base = ["job", "touch", "m-1", "--agent", "finish", "--role", "reviewer", "--vendor", "claude"];
+  for (const flag of ["--verdict", "--task", "--model"]) {
+    const r = await run(r0, [...base, flag]);
+    assert.notEqual(r.code, 0, flag);
+    assert.match(r.err, new RegExp(`${flag} needs a value`));
+  }
+  for (const extra of [["--role", "x"], ["--vendor", "claude"], ["--task", "1"], ["--model", "m"], ["--verdict", "ok"]]) {
+    const r = await run(r0, ["job", "touch", "m-1", "--note", "n", ...extra]);
+    assert.notEqual(r.code, 0, extra[0]);
+    assert.match(r.err, /go with --agent/);
+  }
+  assert.equal(ev(), before, "no event was recorded");
+  const ok = await run(r0, [...base, "--task", "1", "--verdict", "ok"]);
+  assert.equal(ok.code, 0, ok.err);
+  assert.match(ev(), /"verdict":"ok"/);
+});
+
+test("cli: a --by of more than 40 characters is refused", async () => {
+  const r0 = repo();
+  await run(r0, ["job", "add", "milestone", "x"]);
+  const r = await run(r0, ["job", "set", "m-1", "planning", "--by", "x".repeat(41)]);
+  assert.notEqual(r.code, 0);
+  assert.match(r.err, /at most 40 characters/);
+  assert.equal((await run(r0, ["job", "touch", "m-1", "--note", "n", "--by", "x".repeat(40)])).code, 0);
 });

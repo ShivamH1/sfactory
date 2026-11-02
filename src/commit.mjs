@@ -3,6 +3,7 @@ import { isAbsolute, join, posix } from "node:path";
 import { fail } from "./errors.mjs";
 import { git } from "./git.mjs";
 import { withLock } from "./lock.mjs";
+import { appendEvent } from "./events.mjs";
 import { coveredBySecret } from "./secrets.mjs";
 import { assertFactoryWorktree, assertFactoryBranch } from "./push.mjs";
 
@@ -62,6 +63,8 @@ export async function commit(c, { cwd, paths, message, holder }) {
     git(["--literal-pathspecs", "commit", "--quiet", "-m", message, "--", ...paths], { cwd });
     const added = git(["log", "-1", "--format=%(trailers)", "HEAD"], { cwd });
     if (added && c.git.trailers !== true) fail("TRAILER_REFUSED", `a commit-msg hook added a trailer: ${added.split(/\r?\n/).filter(Boolean).join("; ")} (the commit was left in place, not reset)`);
-    return git(["rev-parse", "HEAD"], { cwd });
+    const sha = git(["rev-parse", "HEAD"], { cwd });
+    appendEvent(c, holder, { kind: "commit", sha, files: paths.length });
+    return sha;
   });
 }

@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { tmpRepo, tmpDir, sh } from "./helpers.mjs";
 import { hasTrailers, assertNamedPaths, assertNotSecret, commit } from "../src/commit.mjs";
 import { git, isClean } from "../src/git.mjs";
+import { addJob } from "../src/store.mjs";
+import { readAllEvents } from "../src/events.mjs";
 
 // I3: commit works only in a registered worktree under worktrees.dir, on a branch the factory may write. wtRepo() makes
 // one (feature/card, beside a main checkout) and cfg() carries its repoRoot and worktrees.dir.
@@ -133,4 +135,16 @@ test("I3: commit refuses the main checkout, a worktree outside worktrees.dir or 
   assert.match(await commit(cfg(), { cwd: wt, paths: ["o.txt"], message: "feat: o", holder: "t" }), /^[0-9a-f]{40}$/);
   // no repoRoot at all (a caller that bypassed loadConfig) is refused, never waved through
   await assert.rejects(commit({ ...cfg(), repoRoot: undefined }, { cwd: wt, paths: ["o.txt"], message: "feat: o2", holder: "t" }), (e) => e.code === "MAIN_CHECKOUT");
+});
+
+test("commit: a commit held by a card records its sha and file count; a session commit records nothing", async () => {
+  const r = wtRepo();
+  const c = cfg();
+  const j = addJob(c, "milestone", "t");
+  writeFileSync(join(r, "a.txt"), "a"); writeFileSync(join(r, "b.txt"), "b");
+  const sha = await commit(c, { cwd: r, paths: ["a.txt", "b.txt"], message: "feat: ab", holder: j.id });
+  writeFileSync(join(r, "c.txt"), "c");
+  await commit(c, { cwd: r, paths: ["c.txt"], message: "feat: c", holder: "session" });
+  const ev = readAllEvents(c, j.id).filter((e) => e.kind === "commit").map((e) => [e.sha, e.files]);
+  assert.deepEqual(ev, [[sha, 2]]);
 });

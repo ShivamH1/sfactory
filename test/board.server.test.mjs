@@ -58,6 +58,17 @@ test("server: approve needs the header, the right stage, then writes the approva
   });
 });
 
+test("server: a \"by\" of more than 40 characters is a 400", async () => {
+  const c = mk();
+  const j = addJob(c, "milestone", "By");
+  toApproval(c, j.id);
+  await withBoard(c, {}, async (b) => {
+    const r = await post(b, `jobs/${j.id}/approve`, { by: "x".repeat(41) });
+    assert.equal(r.status, 400);
+    assert.equal((await post(b, `jobs/${j.id}/approve`, { by: "x".repeat(40) })).status, 200);
+  });
+});
+
 test("server: answer releases a parked job; parallel no queues; request-changes", async () => {
   const c = mk();
   const f = addJob(c, "fix", "Parked");
@@ -191,5 +202,22 @@ test("server: POST start moves a roadmap card to backlog", async () => {
     assert.equal(r.status, 200);
     assert.equal((await r.json()).job.stage, "backlog");
     assert.equal((await post(b, "jobs/m-1/start")).status, 409);
+  });
+});
+
+test("server: GET /activity.json and /jobs/:id/tail", async () => {
+  const c = mk();
+  actions.add(c, { kind: "milestone", title: "One" });
+  writeJobFile(c, "m-1", "verify/suite.log", "green\n");
+  await withBoard(c, {}, async (b) => {
+    const a = await (await fetch(`${b.url}activity.json`)).json();
+    assert.ok(a.events.some((e) => e.kind === "stage" && e.to === "backlog" && e.id === "m-1"));
+    assert.equal(typeof a.cursor, "string"); assert.deepEqual(a.running, []);
+    assert.equal((await fetch(`${b.url}activity.json?cursor=nope`)).status, 400);
+    const t = await (await fetch(`${b.url}jobs/m-1/tail?path=verify/suite.log&from=0`)).json();
+    assert.equal(t.text, "green\n");
+    assert.equal((await fetch(`${b.url}jobs/m-1/tail?path=job.json`)).status, 403);
+    assert.equal((await fetch(`${b.url}jobs/m-1/tail?path=nope.log`)).status, 404);
+    assert.equal((await fetch(`${b.url}jobs/m-1/tail?path=verify/suite.log&from=-1`)).status, 400);
   });
 });

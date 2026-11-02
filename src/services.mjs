@@ -6,6 +6,7 @@ import { jobDir, readJobFile, writeJobFile } from "./store.mjs";
 import { substitute } from "./ports.mjs";
 import { status as lockStatus, withLock } from "./lock.mjs";
 import { dropNamedSecrets } from "./secrets.mjs";
+import { appendEvent } from "./events.mjs";
 import { copyForVerify, removeVerifyCopies, assertVerifying } from "./verify-copies.mjs";
 
 const RECORD = "verify/services.json";
@@ -143,7 +144,7 @@ function resolveEntries(c, job) {
     if (e.port != null && !(Object.hasOwn(ports, e.port) && ports[e.port] != null)) fail("BAD_ARGS", `commands.services.${e.name}: port "${e.port}" is not one of the job ports`);
     const env = {};
     for (const [k, v] of Object.entries(e.env ?? {})) env[k] = sub(v, `env ${k}`);
-    return { name: e.name, cmd: sub(e.cmd, "cmd"), env, live: e.live === true };
+    return { name: e.name, cmd: sub(e.cmd, "cmd"), env, live: e.live === true, ...(e.port != null ? { port: ports[e.port] } : {}) };
   });
 }
 
@@ -229,6 +230,7 @@ export function servicesUp(c, job, { log = () => {}, startOf, startsFn } = {}) {
         child.unref();
         started.push({ name: e.name, pid: child.pid, startedAt: Date.now(), cmd: e.cmd, log: logPath });
         writeRecord(c, job, started); // as each starts, so a later failure still leaves every started pid recorded
+        appendEvent(c, job.id, { kind: "service", phase: "up", name: e.name, ...(Number.isInteger(e.port) ? { port: e.port } : {}) });
         log(`started ${e.name} pid ${child.pid}`);
       }
     } catch (err) {
@@ -268,7 +270,7 @@ export function servicesDown(c, job, { log = () => {}, startOf, startsFn, kill }
         const r = rec.services[i], st = states[i];
         if (st === "ours") {
           const k = await killAndWait(r.pid, { kill });
-          if (k === true) { killed.push(r.name); log(`stopped ${r.name} pid ${r.pid}`); }
+          if (k === true) { killed.push(r.name); appendEvent(c, job.id, { kind: "service", phase: "down", name: r.name }); log(`stopped ${r.name} pid ${r.pid}`); }
           else { skipped.push({ name: r.name, pid: r.pid, alive: true, reason: k }); keep.push(r); }
         } else if (st === "foreign") {
           skipped.push({ name: r.name, pid: r.pid, alive: true, reason: "pid now belongs to another process" }); log(`left pid ${r.pid} alone: not ${r.name}`);

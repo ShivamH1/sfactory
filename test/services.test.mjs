@@ -9,6 +9,7 @@ import { fail } from "../src/errors.mjs";
 import { jobDir, writeJob as rawWriteJob, readJob, withJobLock } from "../src/store.mjs";
 const writeJob = (c, job) => withJobLock(c, job.id, () => rawWriteJob(c, job));
 import { isFree } from "../src/ports.mjs";
+import { readAllEvents } from "../src/events.mjs";
 import { acquire } from "../src/lock.mjs";
 import { servicesUp as rawUp, servicesDown as rawDown, servicesStatus, pidAlive, processStarts, groupIsOurs } from "../src/services.mjs";
 
@@ -104,6 +105,8 @@ test("services: up substitutes ports into cmd and env, drops secrets, logs, reco
     assert.ok(up.every((s) => !pidAlive(s.pid)));
     assert.ok(await waitFor(() => isFree(ports.api)));
     assert.equal(existsSync(join(jobDir(c, job.id), "verify", "services.json")), false);
+    const ev = readAllEvents(c, job.id).filter((e) => e.kind === "service").map((e) => [e.phase, e.name, e.port ?? null]);
+    assert.deepEqual(ev, [["up", "api", ports.api], ["up", "probe", null], ["down", "api", null], ["down", "probe", null]]);
   });
 });
 

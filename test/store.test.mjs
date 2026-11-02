@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers.mjs";
-import { newJob } from "../src/job.mjs";
+import { newJob, transition } from "../src/job.mjs";
+import { readAllEvents } from "../src/events.mjs";
 import { addJob, addJobWith, resolveId, slugify, jobDir, listJobs, readJob, writeJob as rawWriteJob, withJobLock, nextId, writeJobFile, readJobFile, jobFileExists } from "../src/store.mjs";
 
 const cfg = () => ({ stateDir: tmpDir("sf-state-") });
@@ -96,4 +97,17 @@ test("store: resolveId maps M<n> to the card carrying that number", () => {
   assert.equal(resolveId(c, "m-2"), "m-2");
   assert.equal(resolveId(c, "f-9"), "f-9");
   assert.throws(() => resolveId(c, "M99"), (e) => e.code === "JOB_NOT_FOUND" && /M99/.test(e.message));
+});
+
+test("store: writeJob records each new stage move as a stage event, once", () => {
+  const c = { stateDir: tmpDir("sf-st-"), limits: { lockStaleMs: 60_000 } };
+  const j = addJob(c, "milestone", "t");
+  let ev = readAllEvents(c, j.id);
+  assert.deepEqual(ev.map((e) => [e.kind, e.from, e.to, e.reason]), [["stage", null, "backlog", "created"]]);
+  const moved = transition(j, "planning", { by: "board", reason: "started" });
+  withJobLock(c, j.id, () => rawWriteJob(c, moved));
+  withJobLock(c, j.id, () => rawWriteJob(c, moved)); // a rewrite with no new history adds nothing
+  ev = readAllEvents(c, j.id);
+  assert.deepEqual(ev.map((e) => [e.kind, e.from, e.to, e.by, e.reason]), [["stage", null, "backlog", "session", "created"], ["stage", "backlog", "planning", "board", "started"]]);
+  assert.equal(ev[1].at, moved.history.at(-1).at);
 });
