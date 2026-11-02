@@ -1,0 +1,11 @@
+{"kind":"stage","at":"2026-01-05T14:01:00.000Z","by":"session","from":null,"to":"backlog","reason":"created"}
+{"kind":"stage","at":"2026-01-05T14:02:00.000Z","by":"session","from":"backlog","to":"planning","reason":null}
+{"kind":"stage","at":"2026-01-05T14:05:00.000Z","by":"session","from":"planning","to":"awaiting-approval","reason":null}
+{"kind":"stage","at":"2026-01-05T14:08:00.000Z","by":"board","from":"awaiting-approval","to":"building","reason":"approved"}
+{"kind":"gate","at":"2026-01-05T14:08:00.000Z","by":"board","action":"approve"}
+{"kind":"agent","at":"2026-01-05T14:15:00.000Z","by":"session","phase":"start","vendor":"claude","role":"spec-reviewer","task":"2"}
+{"kind":"agent","at":"2026-01-05T14:25:00.000Z","by":"session","phase":"finish","vendor":"claude","role":"spec-reviewer","task":"2","verdict":"ok"}
+{"kind":"commit","at":"2026-01-05T14:28:00.000Z","by":"session","sha":"a1b2c3d","files":4}
+{"kind":"suite","at":"2026-01-05T14:30:00.000Z","by":"session","phase":"start"}
+{"kind":"suite","at":"2026-01-05T14:32:41.000Z","by":"session","phase":"finish","ok":true,"exit":0,"durationMs":161000}
+{"kind":"agent","at":"2026-01-05T14:50:00.000Z","by":"session","phase":"start","vendor":"codex","role":"implementer","task":"3","model":"implement","log":"tasks/3/codex-0/codex.jsonl"}

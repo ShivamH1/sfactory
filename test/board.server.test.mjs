@@ -6,7 +6,9 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { addJob, readJob, readJobFile, writeJobFile, withJobLock, writeJob, jobDir } from "../src/store.mjs";
 import { actions } from "../src/job-actions.mjs";
+import { appendEvent } from "../src/events.mjs";
 import { startBoard } from "../src/board/server.mjs";
+import { fileURLToPath } from "node:url";
 
 const H = { "X-Sfactory-Board": "1", "Content-Type": "application/json" };
 const mk = () => ({ stateDir: tmpDir("sf-srv-"), project: "proj", board: { pollMs: 1500, port: 0 } });
@@ -219,5 +221,47 @@ test("server: GET /activity.json and /jobs/:id/tail", async () => {
     assert.equal((await fetch(`${b.url}jobs/m-1/tail?path=job.json`)).status, 403);
     assert.equal((await fetch(`${b.url}jobs/m-1/tail?path=nope.log`)).status, 404);
     assert.equal((await fetch(`${b.url}jobs/m-1/tail?path=verify/suite.log&from=-1`)).status, 400);
+  });
+});
+
+test("server: GET /assets/<name> serves the allow-listed board files, nothing else", async () => {
+  const c = mk();
+  await withBoard(c, {}, async (b) => {
+    const css = await fetch(`${b.url}assets/board.css`);
+    assert.equal(css.status, 200);
+    assert.match(css.headers.get("content-type"), /^text\/css/);
+    assert.equal(css.headers.get("cache-control"), "no-store");
+    const js = await fetch(`${b.url}assets/board.mjs`);
+    assert.equal(js.status, 200);
+    assert.match(js.headers.get("content-type"), /^text\/javascript/);
+    for (const p of ["assets/dashboard.html", "assets/..%2Fpackage.json", "assets/x/board.css", "assets/"]) assert.equal((await fetch(`${b.url}${p}`)).status, 404, p);
+  });
+});
+
+test("server: /jobs.json and /activity.json agree on the agents running now, in demo mode too", async () => {
+  const demo = tmpDir("sf-demo-");
+  const c = { ...mk(), stateDir: demo };
+  const j = addJob(c, "milestone", "demo card");
+  actions.set(c, { id: j.id, to: "planning" });
+  appendEvent(c, j.id, { kind: "agent", phase: "start", vendor: "codex", role: "implementer", model: "implement" });
+  for (const opts of [{}, { demoDir: demo }]) {
+    await withBoard(opts.demoDir ? mk() : c, opts, async (b) => {
+      const s = await (await fetch(`${b.url}jobs.json`)).json();
+      const a = await (await fetch(`${b.url}activity.json`)).json();
+      assert.deepEqual(s.running.map((r) => r.id), [j.id]);
+      assert.deepEqual(a.running, s.running);
+    });
+  }
+});
+
+test("server: the demo board shows a running Codex agent with a log it can tail", async () => {
+  // demoDir is a state dir (it holds jobs/). The agent counts as running only by the demo clock, the demo's latest
+  // stamp: the committed stamps are fixed in 2026, far more than 6 h before the real clock.
+  await withBoard(mk(), { demoDir: fileURLToPath(new URL("../examples/", import.meta.url)) }, async (b) => {
+    const a = await (await fetch(`${b.url}activity.json`)).json();
+    const r = a.running.find((x) => x.vendor === "codex");
+    assert.ok(r, "a running Codex agent");
+    const t = await (await fetch(`${b.url}jobs/${r.id}/tail?path=${encodeURIComponent(r.log)}&from=0`)).json();
+    assert.match(t.text, /"type":"item\.completed"/);
   });
 });

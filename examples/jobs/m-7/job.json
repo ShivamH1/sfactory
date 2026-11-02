@@ -1,0 +1,62 @@
+{
+  "id": "m-7",
+  "kind": "milestone",
+  "title": "Saved searches",
+  "stage": "building",
+  "returnStage": null,
+  "previousStage": null,
+  "pending": null,
+  "branch": "feature/saved-searches",
+  "base": {
+    "branch": "main",
+    "ref": "main",
+    "head": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "worktree": "../wt/saved-searches",
+  "ports": null,
+  "record": null,
+  "tasks": {
+    "total": 5,
+    "done": 2,
+    "parallel": []
+  },
+  "round": 0,
+  "rework": 0,
+  "parallel": null,
+  "agents": null,
+  "cost": 0,
+  "started": "2026-01-05T14:01:00.000Z",
+  "updated": "2026-01-05T15:00:00.000Z",
+  "ended": null,
+  "history": [
+    {
+      "at": "2026-01-05T14:01:00.000Z",
+      "from": null,
+      "to": "backlog",
+      "by": "session",
+      "reason": "created"
+    },
+    {
+      "at": "2026-01-05T14:02:00.000Z",
+      "from": "backlog",
+      "to": "planning",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T14:05:00.000Z",
+      "from": "planning",
+      "to": "awaiting-approval",
+      "by": "session",
+      "reason": null
+    },
+    {
+      "at": "2026-01-05T14:08:00.000Z",
+      "from": "awaiting-approval",
+      "to": "building",
+      "by": "board",
+      "reason": "approved"
+    }
+  ],
+  "number": "6"
+}

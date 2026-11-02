@@ -4,6 +4,7 @@ import { listJobs, readJobFile, jobDir } from "../store.mjs";
 import { readCost } from "../cost.mjs";
 import { status } from "../lock.mjs";
 import { COLUMNS } from "../job.mjs";
+import { runningAgents } from "../events.mjs";
 
 export const BOARD_COLUMNS = ["Milestones", "Backlog", "Plan", "Needs you", "In process", "Review", "Fixed", "Pushed / PR", "External running", "Done", "Stopped"];
 
@@ -110,6 +111,7 @@ export function buildSnapshot(c, { now: nowArg, demo = false } = {}) {
     generatedAt: now,
     columns: [...BOARD_COLUMNS],
     jobs,
+    running: runningAgents(c, all, { now: Date.parse(now) }),
     locks: { live: lockView(c, "live"), suite: lockView(c, "suite"), commit: lockView(c, "commit") },
     ports: jobs.filter((j) => j.ports && j.stage !== "merged").map((j) => ({ id: j.id, ports: j.ports })),
     ...(demo ? { demo: true } : {}),

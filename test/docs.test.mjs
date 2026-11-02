@@ -24,6 +24,17 @@ test("docs: no company, product or machine-specific words in the shipped example
   }
 });
 
+test("README: the board as built: no pulsing card, Done collapses, and the log views warn about secrets", () => {
+  const t = read("README.md");
+  assert.equal(/puls/i.test(t), false, "no card pulses any more");
+  assert.match(t, /\*\*Done\*\* shows the newest 8/);
+  assert.match(t, /Show all N/);
+  assert.match(t, /remembered per viewer|remembers it per viewer/);
+  const local = t.split("- **Local only:**")[1].split("\n")[0];
+  assert.match(local, /whatever agents printed/);
+  assert.match(local, /keep secrets out of agents' output/);
+});
+
 test("versions: package.json and the plugin manifest agree", () => {
   assert.equal(JSON.parse(read("package.json")).version, JSON.parse(read(".claude-plugin/plugin.json")).version);
 });

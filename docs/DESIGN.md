@@ -75,6 +75,8 @@ Only `bin/job` writes `job.json`, and only along these edges.
 
 *Amendment (2026-11-02):* each card keeps `events.jsonl`, written where things happen (`writeJob` for stage moves, the gates, `job touch --agent`, the Codex command, the suite, the services, the card-held locks, the commit); the board reads it through `/activity.json` and `/jobs/<id>/tail`. See part 2 of `docs/plans/2026-10-30-sfactory-roadmap-activity-design.md`.
 
+*Amendment (2026-11-02, Part 3):* the board is redrawn in two glass themes (smoked, the default, and porcelain) with an Activity view (running agents, a timeline, live Codex output), and `board --demo` carries a running card with events and a Codex log. See §6 of `docs/plans/2026-10-30-sfactory-roadmap-activity-design.md`.
+
 `job.json` fields: `id`, `kind`, `title`, `stage`, `returnStage`, `branch`, `base`, `worktree`, `ports`, `record` (paths of the brief, plan, log), `tasks` (n, done, parallel), `round`, `agents` (mode and the resolved models), `cost`, `started`, `updated`, `ended`, `history` (every transition with a timestamp and a reason).
 
 ## 5. The task loop

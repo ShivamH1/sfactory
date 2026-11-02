@@ -16,7 +16,7 @@ In a repository with the plugin installed:
 /sfactory run
 ```
 
-What you see on the board (http://127.0.0.1:4317), left to right: Milestones, Backlog, Plan, Needs you, In process, Review, Fixed, Pushed / PR, External running, Done. **Milestones** holds planned work the factory leaves alone until you start it (`/sfactory start M14`); **External running** shows work being done outside the factory, which `run` never touches.
+What you see on the board (http://127.0.0.1:4317), left to right: Milestones, Backlog, Plan, Needs you, In process, Review, Fixed, Pushed / PR, External running, Done. **Milestones** holds planned work the factory leaves alone until you start it (`/sfactory start M14`); **External running** shows work being done outside the factory, which `run` never touches. Beside the Board tab, the **Activity** tab shows the agents running now, a timeline of what happened and the live output of the selected agent.
 
 1. The card sits in **Backlog**, then moves to **Plan**: the factory cuts a worktree and a branch for it, and the planning skills work with you in the session to write a brief and a plan into your project's own record (the paths come from `record` in the config).
 2. **Stop one, approval.** The card parks in **Needs you** as `awaiting-approval`. Open it, read the plan in the drawer (the *Approve* button stays off until you have viewed every plan file), then press *Approve*, or send notes with *Request changes*. The terminal equivalent is `/sfactory approve <id>`.
@@ -27,18 +27,21 @@ What you see on the board (http://127.0.0.1:4317), left to right: Milestones, Ba
 
 `/sfactory run` is idempotent: run it again after any stop and it carries on from the saved state.
 
-To try the board with no repo and no config: `sfactory board --demo` (read-only, eight sample cards).
+To try the board with no repo and no config: `sfactory board --demo` (read-only, nine sample cards, one of them with a Codex agent running and its live output; open the Activity tab to see it).
 
 ## The board
 
 `sfactory board` serves a kanban view of your jobs, read from the same job files the commands write. It prints a URL (default port 4317, or `board.port` in the config; `--port n` overrides) and stays up until Ctrl+C or SIGTERM; in a session, stop the background task `/sfactory board` started.
 
-- **At a glance:** a job in a working stage updated within `board.activeMs` (default 120000) has a softly pulsing card (a static ring under reduced motion); a stopped job's card and stage chip are red; a card shows up to three chips for the latest files in `reviews/` (a tick or a cross by the file's first line; click to open it in the drawer).
+- **Two themes:** smoked glass (dark) is the default whatever your system prefers; porcelain glass is the light one. The toggle in the top bar switches them and remembers your choice in the browser; the board works without that memory.
+- **At a glance:** a job in a working stage updated within `board.activeMs` (default 120000) has a sage border, and each agent running on it a line with a breathing dot (a static dot under reduced motion); champagne marks only what needs you; a stopped job's card and stage chip are red; a card shows up to three chips for the latest files in `reviews/` (a tick or a cross by the file's first line; click to open it in the drawer).
+- **Columns:** **Milestones** lists its cards by number (29.1 between 29 and 30). **Done** shows the newest 8 by the time they finished; the rest sit behind *Show all N*, and that choice is remembered per viewer in the browser.
 - **Approve after viewing:** on a plan awaiting approval the board's *Approve* stays off until the drawer has shown every `plan/*.md` file; *Request changes* is always available.
 - **The gates:** each button calls the same gate function the `sfactory job` commands call, so an illegal move, a missing approval or a busy job is refused with the same reason. Each write is made under the job lock, and a POST must carry the `X-Sfactory-Board: 1` header. The board starts no agent.
-- **Local only:** the server binds to 127.0.0.1 and refuses any Host header other than `127.0.0.1:<port>` or `localhost:<port>`. It is not reachable from another machine.
+- **Local only:** the server binds to 127.0.0.1 and refuses any Host header other than `127.0.0.1:<port>` or `localhost:<port>`. It is not reachable from another machine. The log views show whatever agents printed, so keep secrets out of agents' output.
 - **Service logs:** the drawer also lists a card's service logs (`verify/<name>.log`); they are read from the job folder on your machine and shown only there.
-- **Activity:** every card keeps an append-only `events.jsonl` (stage moves, gates, agent starts and finishes, suite runs, services, locks, commits). The board serves the recent events across all cards and the agents running now at `/activity.json`, and the tail of any log in a card's folder at `/jobs/<id>/tail?path=<file>&from=<offset>`. A Codex run records itself; a Claude agent is recorded by `sfactory job touch <id> --agent start|finish --role <role> --vendor claude`.
+- **The Activity tab** (`?view=activity`, beside Board): *Running now* shows one tile per running agent (card, vendor, role, task, elapsed time); a timeline of every event, newest first, with filters by card and by kind (Agents, Gates, Suite, Stages); and an output pane for the selected agent with four tabs: *Live output* (a Codex stream rendered by type, with a Following toggle), *Brief*, *Report* and *Raw log*. `sfactory board --demo` shows a running agent with a log it can tail.
+- **Activity data:** every card keeps an append-only `events.jsonl` (stage moves, gates, agent starts and finishes, suite runs, services, locks, commits). The board serves the recent events across all cards and the agents running now at `/activity.json`, and the tail of any log in a card's folder at `/jobs/<id>/tail?path=<file>&from=<offset>`. A Codex run records itself; a Claude agent is recorded by `sfactory job touch <id> --agent start|finish --role <role> --vendor claude`.
 - **Demo:** `--demo` reads `examples/jobs`, needs no config, and is read-only: the page renders no gate controls and a hand-sent POST answers 403.
 
 ## The three modes
