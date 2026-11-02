@@ -151,16 +151,37 @@
     if (typeof t === "object" && typeof t.total === "number" && t.total > 0) return (typeof t.done === "number" ? t.done : 0) + "/" + t.total + " tasks";
     return "";
   }
-  function buildCard(job, demo) {
-    var card = h("article", "card" + (job.needsYou ? " needs" : "") + (job.stage === "stopped" ? " stopped" : "") + (job.active ? " active" : ""));
+  // stages the column's name does not already say, so the card names them
+  var LABELLED_STAGES = ["awaiting-approval", "decision-needed", "fixing", "verifying", "pushing", "pushed", "stopped"];
+  function vendorName(v) { return v === "codex" ? "Codex" : v === "claude" ? "Claude" : String(v || "agent"); }
+  function fmtShort(ms) {
+    if (!(ms >= 0)) return "";
+    var m = Math.floor(ms / 60000);
+    if (m < 1) return Math.floor(ms / 1000) + "s";
+    if (m < 60) return m + "m";
+    return Math.floor(m / 60) + "h " + (m % 60) + "m";
+  }
+  function runLine(r, job, genAt) {
+    var parts = [vendorName(r.vendor), r.role];
+    if (r.task !== null && r.task !== undefined && r.task !== "") {
+      var total = job.tasks && typeof job.tasks.total === "number" && job.tasks.total > 0 && /^\d+$/.test(String(r.task)) ? " of " + job.tasks.total : "";
+      parts.push("task " + r.task + total);
+    }
+    var el = fmtShort(genAt - Date.parse(r.startedAt));
+    if (el) parts.push(el);
+    return parts.join(" · ");
+  }
+  function buildCard(job, demo, runs, genAt) {
+    var ext = job.stage === "external";
+    var card = h("article", "card" + (job.needsYou ? " needs" : "") + (job.stage === "stopped" ? " stopped" : "") + (ext ? " ext" : "") + (runs.length ? " run" : "") + (job.active ? " active" : ""));
     card.setAttribute("data-id", job.id);
     var top = h("div", "row");
-    var idEl = h("span", "id", job.number ? "M" + job.number : job.id);
+    var idEl = h("span", "num", job.number ? "M" + job.number : job.id);
     if (job.number) idEl.title = job.id;
     top.appendChild(idEl);
-    top.appendChild(h("span", "tag", job.kind));
-    top.appendChild(h("span", job.stage === "stopped" ? "tag danger" : "tag", job.stage));
-    if (job.needsYou) top.appendChild(h("span", "tag you", "needs you"));
+    top.appendChild(h("span", "kind", job.kind));
+    if (LABELLED_STAGES.indexOf(job.stage) >= 0) top.appendChild(h("span", job.stage === "stopped" ? "tag danger" : "tag", job.stage));
+    if (job.needsYou) { if (job.column !== "Needs you") top.appendChild(h("span", "tag you", "needs you")); }
     else if (job.pending) top.appendChild(h("span", "tag you", job.pending));
     if (job.parallel) top.appendChild(h("span", "tag", "parallel: " + job.parallel));
     card.appendChild(top);
@@ -168,10 +189,33 @@
     title.type = "button";
     title.addEventListener("click", function () { openDrawer(job.id); });
     card.appendChild(title);
-    if (job.after) card.appendChild(h("div", "hint", "after " + job.after));
-    if (job.externalNote) card.appendChild(h("span", "tag ext", job.externalNote + (job.pr ? " · PR #" + job.pr : "")));
-    if (job.activity && job.activity.note) card.appendChild(h("div", "branch", job.activity.note));
-    if (job.branch) card.appendChild(h("div", "branch", job.branch));
+    var where = job.branch || (job.after ? "after " + job.after : "");
+    if (where) { var m = h("div", "m", where); m.title = where; card.appendChild(m); }
+    if (job.activity && job.activity.note) card.appendChild(h("div", "note", job.activity.note));
+    var t = job.tasks;
+    if (job.column === "In process" && t && typeof t === "object" && typeof t.total === "number" && t.total > 0) {
+      var bar = h("div", "bar");
+      bar.setAttribute("aria-hidden", "true");
+      var fill = h("b");
+      fill.style.width = Math.max(0, Math.min(100, Math.round(100 * (Number(t.done) || 0) / t.total))) + "%";
+      bar.appendChild(fill);
+      card.appendChild(bar);
+    }
+    runs.forEach(function (r, i) {
+      var line = h("div", "live");
+      var dot = h("i");
+      dot.setAttribute("aria-hidden", "true");
+      line.appendChild(dot);
+      var txt = h("span", null, runLine(r, job, genAt));
+      txt.setAttribute("data-run", String(i));
+      line.appendChild(txt);
+      card.appendChild(line);
+    });
+    var prPart = job.pr ? "PR #" + job.pr : "";
+    if (ext) {
+      var extText = [job.externalNote, prPart].filter(Boolean).join(" · ");
+      if (extText) card.appendChild(h("span", "tag ext", extText));
+    } else if (prPart && ["pushing", "pushed", "merged"].indexOf(job.stage) >= 0) card.appendChild(h("span", "tag pr", prPart));
     if (job.reviews && job.reviews.length) {
       var chips = h("div", "row");
       job.reviews.forEach(function (r) {
@@ -197,20 +241,51 @@
     if (!demo) { var g = gateFor(card, job); if (g) card.appendChild(g); }
     return card;
   }
-  function sigOf(job, demo) {
+  // ---- Done: the newest eight by `ended`, the rest behind "Show all N" (a per-viewer choice) ----
+  var DONE_SHOWN = 8, doneAll = false;
+  try { doneAll = localStorage.getItem("board-done-all") === "1"; } catch (e) { /* storage may be blocked */ }
+  function renderDone(list) {
+    var box = cols["Done"].querySelector(".cards");
+    var sorted = list.slice().sort(function (a, b) { return String(b.ended || "").localeCompare(String(a.ended || "")); });
+    var want = sorted.map(function (j) { return cards[j.id].el; });
+    want.forEach(function (el, i) { var hide = !doneAll && i >= DONE_SHOWN; if (el.hidden !== hide) el.hidden = hide; });
+    var have = [].filter.call(box.children, function (e) { return e.classList.contains("card"); });
+    // reorder only when the order differs, so a focused card is not moved
+    if (want.length !== have.length || want.some(function (el, i) { return have[i] !== el; })) want.forEach(function (el) { box.appendChild(el); });
+    var more = box.querySelector(".more");
+    if (sorted.length > DONE_SHOWN) {
+      if (!more) {
+        more = h("button", "more");
+        more.type = "button";
+        more.addEventListener("click", function () {
+          doneAll = !doneAll;
+          try { localStorage.setItem("board-done-all", doneAll ? "1" : "0"); } catch (e) { /* ignore */ }
+          if (snap) renderDone(snap.jobs.filter(function (j) { return (cols[j.column] ? j.column : "Stopped") === "Done"; }));
+        });
+      }
+      more.textContent = doneAll ? "Show fewer" : "Show all " + sorted.length;
+      more.setAttribute("aria-expanded", doneAll ? "true" : "false");
+      if (box.lastElementChild !== more) box.appendChild(more);
+    } else if (more) more.remove();
+  }
+  function sigOf(job, demo, runs) {
     var o = Object.assign({}, job); delete o.elapsedMs; delete o.updated;
-    return JSON.stringify([o, demo]);
+    return JSON.stringify([o, demo, runs.map(function (r) { return [r.vendor, r.role, r.task, r.startedAt]; })]);
   }
   function renderCards(s) {
-    var demo = !!s.demo, seen = {}, counts = {};
+    var demo = !!s.demo, seen = {}, counts = {}, runsBy = {}, done = [];
+    var genAt = Date.parse(s.generatedAt);
+    (s.running || []).forEach(function (r) { (runsBy[r.id] = runsBy[r.id] || []).push(r); });
     s.jobs.forEach(function (job) {
       var col = cols[job.column] || cols["Stopped"];
       var name = col.getAttribute("data-column");
+      var runs = runsBy[job.id] || [];
       seen[job.id] = true;
       counts[name] = (counts[name] || 0) + 1;
-      var sig = sigOf(job, demo), cur = cards[job.id];
+      if (name === "Done") done.push(job);
+      var sig = sigOf(job, demo, runs), cur = cards[job.id];
       if (!cur || cur.sig !== sig) {
-        var fresh = buildCard(job, demo);
+        var fresh = buildCard(job, demo, runs, genAt);
         var focus = null;
         if (cur) { // keep what the person has typed, and where they were typing
           var ae = document.activeElement;
@@ -231,10 +306,16 @@
       }
       var span = cur.el.querySelector("[data-elapsed]");
       if (span) span.textContent = fmtElapsed(job.elapsedMs);
+      cur.el.querySelectorAll("[data-run]").forEach(function (sp) {
+        var r = runs[Number(sp.getAttribute("data-run"))];
+        if (r) sp.textContent = runLine(r, job, genAt);
+      });
       var box = col.querySelector(".cards");
       if (cur.el.parentNode !== box) box.appendChild(cur.el);
+      if (name !== "Done" && cur.el.hidden) cur.el.hidden = false;
     });
     Object.keys(cards).forEach(function (id) { if (!seen[id]) { cards[id].el.remove(); delete cards[id]; } });
+    renderDone(done);
     s.jobs.forEach(function (job) {
       var v = viewed[job.id];
       if (v && v.updated !== job.updated) delete viewed[job.id];
@@ -259,16 +340,24 @@
     if (p && typeof p === "object") return Object.keys(p).filter(function (k) { return k !== "block"; }).map(function (k) { return k + " " + p[k]; }).join(" · ");
     return String(p);
   }
+  function renderLocks(s) {
+    var box = $("locks");
+    box.textContent = "";
+    ["live", "suite", "commit"].forEach(function (name) {
+      var l = s.locks && s.locks[name];
+      var held = !!(l && l.held);
+      var item = h("span", held ? "lock held-by" : "lock");
+      var dot = h("i", held ? "held" : null);
+      dot.setAttribute("aria-hidden", "true");
+      item.appendChild(dot);
+      item.appendChild(document.createTextNode(held ? name + " · " + (l.holder || "held") : name + " free"));
+      if (held && l.since) item.title = name + " lock held since " + new Date(l.since).toLocaleTimeString();
+      box.appendChild(item);
+    });
+  }
   function renderFooter(s) {
     var f = $("footer");
     f.textContent = "";
-    ["live", "suite", "commit"].forEach(function (name) {
-      var l = s.locks && s.locks[name];
-      var d = h("div");
-      d.appendChild(h("span", "k", name + " lock"));
-      d.appendChild(h("b", null, l && l.held ? (l.holder || "held") : "free"));
-      f.appendChild(d);
-    });
     var pd = h("div");
     pd.appendChild(h("span", "k", "ports"));
     var list = (s.ports || []).map(function (p) { return p.id + ": " + portsText(p.ports); });
@@ -336,7 +425,7 @@
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !/^(TEXTAREA|INPUT)$/.test((e.target && e.target.tagName) || "")) closeDrawer(); });
 
   // ---- poll ----
-  function setConn(ok, text) { var c = $("conn"); c.textContent = text; c.className = "conn" + (ok ? "" : " bad"); }
+  function setConn(ok, text) { var c = $("conn"); c.textContent = text; c.className = "conn" + (ok ? " ok" : " bad"); }
   function refreshDrawer() {
     var job = snap.jobs.filter(function (j) { return j.id === drawerJob; })[0];
     if (!job) { closeDrawer(); return; }
@@ -352,6 +441,7 @@
         $("project").textContent = s.project || "";
         $("demo").classList.toggle("on", !!s.demo);
         renderCards(s);
+        renderLocks(s);
         renderFooter(s);
         if (drawerJob) refreshDrawer();
         setConn(true, "updated " + new Date(s.generatedAt).toLocaleTimeString());
@@ -367,15 +457,48 @@
   }
   document.addEventListener("visibilitychange", function () { if (!document.hidden) poll(); });
 
-  // ---- theme ----
-  function applyTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
-  try { applyTheme(localStorage.getItem("board-theme")); } catch (e) { /* storage may be blocked */ }
+  // ---- theme: smoked glass unless the viewer chose porcelain ----
+  var theme = "dark";
+  function applyTheme(t) {
+    var dark = t !== "light";
+    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    $("theme").textContent = dark ? "Light" : "Dark";
+    $("theme").setAttribute("aria-label", dark ? "Switch to the light theme" : "Switch to the dark theme");
+  }
+  try { theme = localStorage.getItem("board-theme") === "light" ? "light" : "dark"; } catch (e) { /* storage may be blocked */ }
+  applyTheme(theme);
   $("theme").addEventListener("click", function () {
-    var cur = document.documentElement.getAttribute("data-theme");
-    var light = cur ? cur === "light" : window.matchMedia("(prefers-color-scheme: light)").matches;
-    var next = light ? "dark" : "light";
-    applyTheme(next);
-    try { localStorage.setItem("board-theme", next); } catch (e) { /* ignore */ }
+    theme = theme === "light" ? "dark" : "light";
+    applyTheme(theme);
+    try { localStorage.setItem("board-theme", theme); } catch (e) { /* ignore */ }
+  });
+
+  // ---- views: Board and Activity ----
+  function viewFromUrl() {
+    try {
+      var v = new URLSearchParams(location.search).get("view");
+      return v === null ? null : v === "activity" ? "activity" : "board";
+    } catch (e) { return null; }
+  }
+  function showView(v, remember) {
+    $("board").hidden = v !== "board";
+    $("activity").hidden = v !== "activity";
+    document.querySelectorAll("#tabs [data-view]").forEach(function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-view") === v ? "true" : "false"); });
+    try {
+      var u = new URL(location.href);
+      if (v === "activity") u.searchParams.set("view", "activity"); else u.searchParams.delete("view");
+      history.replaceState(history.state, "", u.pathname + u.search + u.hash);
+    } catch (e) { /* ignore */ }
+    if (remember) { try { localStorage.setItem("board-view", v); } catch (e) { /* ignore */ } }
+  }
+  var startView = viewFromUrl();
+  if (startView === null) {
+    startView = "board";
+    try { if (localStorage.getItem("board-view") === "activity") startView = "activity"; } catch (e) { /* storage may be blocked */ }
+  }
+  showView(startView, false);
+  document.querySelectorAll("#tabs [data-view]").forEach(function (b) {
+    b.addEventListener("click", function () { showView(b.getAttribute("data-view"), true); });
   });
 
   poll().then(schedule);

@@ -5,16 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Job board</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Instrument+Serif&display=swap">
 <link rel="stylesheet" href="/assets/board.css">
 </head>
 <body>
 <header class="top">
-  <h1>Job board</h1>
+  <span class="brand">sfactory</span>
   <span class="project" id="project"></span>
+  <nav id="tabs" aria-label="Views">
+    <button type="button" data-view="board" aria-pressed="true">Board</button>
+    <button type="button" data-view="activity" aria-pressed="false">Activity</button>
+  </nav>
   <span class="spacer"></span>
-  <span class="conn" id="conn">connecting</span>
-  <button id="theme" type="button" aria-label="Toggle theme">Theme</button>
+  <div class="locks" id="locks" aria-label="Locks"></div>
+  <span class="conn" id="conn" role="status">connecting</span>
+  <button id="theme" type="button" aria-label="Switch to the light theme">Light</button>
 </header>
 <div id="demo" role="status">Demo data: nothing here is a real job, and the controls are off.</div>
 
@@ -31,6 +36,10 @@
   <section class="col" data-column="Done"><h2>Done <span class="n"></span></h2><div class="cards"></div></section>
   <section class="col" data-column="Stopped" hidden><h2>Stopped <span class="n"></span></h2><div class="cards"></div></section>
 </main>
+
+<section id="activity" aria-label="Activity" hidden>
+  <p class="empty">Activity loads here</p>
+</section>
 
 <footer id="footer"></footer>
 

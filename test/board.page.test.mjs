@@ -32,9 +32,16 @@ test("page: no lockToken, no external script, no inline handlers, no brand", () 
   assert.equal(js.includes("innerHTML"), false);
 });
 
-test("page: both light theme blocks", () => {
-  assert.match(html, /prefers-color-scheme: light\)\s*\{\s*:root:not\(\[data-theme="dark"\]\)/);
-  assert.match(html, /:root\[data-theme="light"\]/);
+test("page: smoked glass is the default, porcelain the light theme, no OS switch", () => {
+  assert.equal(/prefers-color-scheme/.test(css), false);
+  for (const sel of [':root {', ':root[data-theme="dark"]', ':root[data-theme="light"]']) assert.ok(css.includes(sel), sel);
+  const light = css.split(':root[data-theme="light"] {')[1].split("}")[0];
+  for (const t of ["--bg:", "--panel:", "--card:", "--ink:", "--you:", "--live:", "--danger:", "--pulse:", "--focus:"]) assert.ok(light.includes(t), `light theme defines ${t}`);
+  assert.match(css, /backdrop-filter: blur\(22px\)/);
+  assert.match(css, /@supports not \(backdrop-filter/);
+  assert.match(css, /:focus-visible/);
+  assert.match(shell, /Instrument\+Serif/);
+  assert.match(js, /board-theme/);
 });
 
 test("page: fix round 1 behaviours are in the source", () => {
@@ -44,18 +51,15 @@ test("page: fix round 1 behaviours are in the source", () => {
   assert.match(html, /#board\.has-cards \.col\.is-empty/);
   assert.match(html, /"tag you", "needs you"/);
   assert.match(html, /function required/);
-  assert.equal(/#[0-9a-f]{3,8}\b/i.test(css.split(/:root\[data-theme="light"\]/)[1].split("* {")[1]), false);
 });
 
 test("page: pulse keyframes with a reduced-motion static frame, danger token in every theme block, review chips", () => {
   assert.match(html, /@keyframes pulse/);
   assert.match(html, /prefers-reduced-motion: no-preference\)\s*\{\s*\.card\.active\s*\{\s*animation: pulse/);
   assert.match(html, /prefers-reduced-motion: reduce\)\s*\{\s*\.card\.active\s*\{\s*animation: none; box-shadow/);
-  const darkDefault = css.split("@media (prefers-color-scheme: light)")[0];
-  const lightMedia = css.split("@media (prefers-color-scheme: light)")[1].split(':root[data-theme="light"]')[0];
-  const lightAttr = css.split(':root[data-theme="light"] {')[1].split("* {")[0];
-  const darkAttr = css.split(':root[data-theme="dark"] {')[1].split("}")[0];
-  for (const [name, block] of Object.entries({ darkDefault, lightMedia, lightAttr, darkAttr })) {
+  const smoked = css.split(":root {")[1].split("}")[0];
+  const porcelain = css.split(':root[data-theme="light"] {')[1].split("}")[0];
+  for (const [name, block] of Object.entries({ smoked, porcelain })) {
     assert.match(block, /--danger:/, name + " defines --danger");
     assert.match(block, /--pulse:/, name + " defines --pulse");
   }
@@ -108,4 +112,15 @@ test("page: a section per board column, the start gate and the number pill", () 
   assert.match(html, /"start"/);
   assert.match(html, /Starts on the next \/sfactory run/);
   assert.match(html, /"M" \+ job\.number/);
+});
+
+test("page: top bar, tabs, Done collapse and the running line", () => {
+  assert.match(shell, /class="brand"[^>]*>sfactory</);
+  assert.match(shell, /id="tabs"/);
+  assert.match(shell, /id="activity"/);
+  assert.match(js, /board-done-all/);
+  assert.match(js, /Show all/);
+  assert.match(js, /board-view/);
+  assert.match(js, /\.running/);
+  assert.match(js, /view=activity|"activity"/);
 });
