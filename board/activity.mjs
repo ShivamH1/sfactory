@@ -50,7 +50,7 @@ export function mountActivity(root, { getSnapshot } = {}) {
   const focusedKey = (parent) => (parent.contains(document.activeElement) && document.activeElement.dataset ? document.activeElement.dataset.key ?? null : null);
 
   // ---- state ----
-  let feed = { events: [], cursor: null, running: [] }, loaded = false, dropped = 0, failures = 0;
+  let feed = { events: [], seq: 0, cursor: null, running: [] }, loaded = false, failures = 0;
   let live = false, pollTimer = null, pollCtl = null, tickTimer = null;
   let skew = 0, skewFrom = null;
   const filter = { card: null, group: null };
@@ -141,13 +141,17 @@ export function mountActivity(root, { getSnapshot } = {}) {
         const b = button("act-tile" + (t.suite ? " suite" : ""));
         b.dataset.key = t.key;
         const top = h("span", "act-row");
-        top.appendChild(dot(t.suite ? "you on" : "on"));
+        top.appendChild(dot("on"));
         top.appendChild(h("span", "num", pillOf(t.id)));
         const name = titleOf(t.id);
         if (name) top.appendChild(h("span", "act-name", name));
         b.appendChild(top);
         b.appendChild(h("span", "act-who", whoOf(t)));
-        b.appendChild(h("span", "act-meta"));
+        // the meta line ticks every second: the static label is what a screen reader announces, once
+        const meta = h("span", "act-meta");
+        meta.setAttribute("aria-hidden", "true");
+        b.appendChild(meta);
+        b.setAttribute("aria-label", [pillOf(t.id), name, whoOf(t)].filter(has).join(" · "));
         if (name) b.title = name;
         b.addEventListener("click", () => choose(t, true));
         ui.running.appendChild(b);
@@ -248,12 +252,12 @@ export function mountActivity(root, { getSnapshot } = {}) {
     const now = nowMs();
     const s = snapshot();
     const names = s && Array.isArray(s.jobs) ? s.jobs.map((j) => j.id + ":" + (j.number ?? "")).join(",") : "";
-    const sig = [loaded, dropped, feed.events.length, filter.card, filter.group, dayKey(now), names].join("|");
+    const sig = [loaded, feed.seq, feed.events.length, filter.card, filter.group, dayKey(now), names].join("|");
     if (sig !== feedSig) {
       feedSig = sig;
       const want = [], keep = new Set(), keepDays = new Set();
-      // ordered by `at`, not by arrival (an imported card's history arrives late); keys stay arrival positions
-      for (const g of timelineGroups(feed.events, filter, now, dropped)) {
+      // ordered by `at`, not by arrival (an imported card's history arrives late); each row is keyed by its event's seq
+      for (const g of timelineGroups(feed.events, filter, now)) {
         keepDays.add(g.day);
         want.push(dayNode(g.day, g.label));
         for (const { key, e } of g.rows) {
@@ -317,7 +321,7 @@ export function mountActivity(root, { getSnapshot } = {}) {
       ui.head.textContent = "";
       if (!sel) ui.head.appendChild(h("span", "act-head-t quiet", "No agent selected"));
       else {
-        ui.head.appendChild(dot(sel.suite ? (running ? "you on" : "idle") : running ? "on" : "idle"));
+        ui.head.appendChild(dot(running ? "on" : "idle"));
         const t = h("span", "act-head-t", pillOf(sel.id) + " · " + (sel.suite ? "Suite" : [vendorName(sel.vendor), sel.role].filter(has).join(" ") + (sel.task !== null ? " · task " + sel.task : "")));
         const name = titleOf(sel.id);
         if (name) t.title = name;
@@ -415,7 +419,7 @@ export function mountActivity(root, { getSnapshot } = {}) {
     dollar.setAttribute("aria-hidden", "true");
     line.appendChild(dollar);
     line.appendChild(h("code", "act-cmdtext", b.command));
-    const [word, tone] = b.status === "running" ? ["running", "you"]
+    const [word, tone] = b.status === "running" ? ["running", "live"]
       : Number.isInteger(b.exit) ? ["exit " + b.exit, b.exit === 0 ? "ok" : "bad"]
       : b.status === "failed" ? ["failed", "bad"] : ["done", "ok"];
     line.appendChild(h("span", "act-exit act-" + tone, word));
@@ -566,16 +570,14 @@ export function mountActivity(root, { getSnapshot } = {}) {
     pollCtl = null;
     let wait = pollMs();
     if (body) {
-      const before = feed.events.length;
       const n = Array.isArray(body.events) ? body.events.length : 0;
       feed = foldActivity(feed, body);
-      dropped += before + n - feed.events.length;
       loaded = true;
       failures = 0;
       setStatus("");
       if (n >= PAGE) wait = 0;
     } else {
-      if (code === "BAD_ARGS" && feed.cursor) { feed = { events: [], cursor: null, running: [] }; dropped = 0; feedSig = ""; rows.clear(); } // a cursor this board no longer takes: start again
+      if (code === "BAD_ARGS" && feed.cursor) { feed = { events: [], seq: feed.seq, cursor: null, running: [] }; feedSig = ""; rows.clear(); } // a cursor this board no longer takes: start again (seq counts on, so no old key returns)
       failures += 1;
       wait = Math.min(MAX_WAIT_MS, pollMs() * 2 ** failures);
       setStatus((code ? "Activity error " + code : "Activity unreachable") + ", retrying in " + Math.ceil(wait / 1000) + "s");

@@ -67,8 +67,8 @@
   #tabs button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: inset 0 0 0 1px var(--card-line); }
   .locks { display: flex; gap: 16px; flex-wrap: wrap; font-family: var(--mono); font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
   .locks i, .conn::before { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--live); }
-  .locks i.held { background: var(--you); }
-  .locks .held-by { color: var(--you); }
+  .locks i.held { background: var(--ink-2); }
+  .locks .held-by { color: var(--ink); }
   .conn { font-family: var(--mono); font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
   .conn::before { content: ""; background: var(--ink-3); }
   .conn.ok::before { background: var(--live); }
@@ -93,14 +93,11 @@
   /* ---- cards ---- */
   .card { background: var(--card); border: 1px solid var(--card-line); border-radius: 11px; padding: 11px 12px 12px; display: flex; flex-direction: column; gap: 6px; box-shadow: inset 0 1px 0 var(--panel-hi); }
   .col[data-column="Done"] .card { background: var(--panel); }
-  .card.run { border-color: color-mix(in srgb, var(--live) 40%, transparent); }
+  /* a working card is a sage border; live work itself is the breathing dot on its running line, never a ring */
+  .card.run, .card.active { border-color: color-mix(in srgb, var(--live) 40%, transparent); }
   .card.ext { border-style: dashed; border-color: color-mix(in srgb, var(--you) 45%, transparent); }
   .card.needs { border-color: var(--you); }
   .card.stopped { border-color: var(--danger); }
-  .card.active { box-shadow: 0 0 0 2px var(--pulse); }
-  @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 var(--pulse); } 50% { box-shadow: 0 0 0 4px var(--pulse); } }
-  @media (prefers-reduced-motion: no-preference) { .card.active { animation: pulse 2s ease-in-out infinite; } }
-  @media (prefers-reduced-motion: reduce) { .card.active { animation: none; box-shadow: 0 0 0 2px var(--pulse); } }
   .card .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 11px; font-weight: 500; padding: 1px 7px; border-radius: 6px; background: var(--pill); color: var(--pill-ink); }
   .kind { font-size: 12px; font-variant-caps: all-small-caps; letter-spacing: .06em; color: var(--ink-2); }
@@ -112,6 +109,7 @@
   .bar { height: 2px; border-radius: 2px; overflow: hidden; background: var(--card-line); }
   .bar b { display: block; height: 100%; background: var(--live); }
   .live { font-size: 11.5px; color: var(--live); display: flex; align-items: flex-start; gap: 7px; font-variant-numeric: tabular-nums; }
+  .live .el { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
   .live i { width: 6px; height: 6px; margin-top: 6px; border-radius: 50%; flex: none; background: var(--live); opacity: 1; }
   @keyframes breathe { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
   @media (prefers-reduced-motion: no-preference) { .live i { animation: breathe 2.2s ease-in-out infinite; } }
@@ -144,16 +142,13 @@
   .act-tile { flex: 0 0 280px; max-width: calc(100vw - 48px); display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; text-align: left; cursor: pointer; color: var(--ink); }
   .act-tile:hover { border-color: color-mix(in srgb, var(--ink) 18%, transparent); }
   .act-tile[aria-pressed="true"] { border-color: color-mix(in srgb, var(--live) 45%, transparent); background: color-mix(in srgb, var(--live) 8%, var(--panel)); }
-  .act-tile.suite[aria-pressed="true"] { border-color: color-mix(in srgb, var(--you) 45%, transparent); background: color-mix(in srgb, var(--you) 8%, var(--panel)); }
   .act-row { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
   .act-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
   .act-who { font-size: 12.5px; color: var(--live); }
-  .act-tile.suite .act-who { color: var(--you); }
   .act-meta { font-family: var(--mono); font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .act-quiet { margin: 0; padding: 6px 2px; color: var(--ink-2); font-size: 12.5px; }
   .act-status { margin: 0; font-family: var(--mono); font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
   .act-dot { display: inline-block; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--live); }
-  .act-dot.you { background: var(--you); }
   .act-dot.idle { background: var(--ink-3); }
   @media (prefers-reduced-motion: no-preference) { .act-dot.on { animation: breathe 2.2s ease-in-out infinite; } }
   @media (prefers-reduced-motion: reduce) { .act-dot.on { animation: none; opacity: 1; } }
@@ -184,7 +179,7 @@
   .act-sub { display: block; margin-top: 1px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); overflow-wrap: anywhere; }
   .act-ok { color: var(--live); }
   .act-bad { color: var(--danger); }
-  .act-you { color: var(--you); }
+  .act-live { color: var(--live); }
 
   .act-oh { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--card-line); }
   .act-head { flex: 1 1 220px; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 26px; }
@@ -238,7 +233,7 @@
   /* ---- footer ---- */
   footer { border-top: 1px solid var(--panel-line); padding: 12px 24px 16px; display: flex; gap: 24px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
   footer b { color: var(--ink); font-weight: 500; font-family: var(--mono); font-variant-numeric: tabular-nums; }
-  footer .k { color: var(--ink-3); font-family: var(--mono); font-size: 11px; margin-right: 6px; }
+  footer .k { color: var(--ink-2); font-family: var(--mono); font-size: 11px; margin-right: 6px; }
 
   /* ---- drawer ---- */
   #drawer { position: fixed; top: 8px; right: 8px; bottom: 8px; width: min(560px, calc(100vw - 16px)); display: none; flex-direction: column; z-index: 10; }

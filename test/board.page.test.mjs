@@ -56,10 +56,17 @@ test("page: fix round 1 behaviours are in the source", () => {
   assert.match(html, /function required/);
 });
 
-test("page: pulse keyframes with a reduced-motion static frame, danger token in every theme block, review chips", () => {
-  assert.match(html, /@keyframes pulse/);
-  assert.match(html, /prefers-reduced-motion: no-preference\)\s*\{\s*\.card\.active\s*\{\s*animation: pulse/);
-  assert.match(html, /prefers-reduced-motion: reduce\)\s*\{\s*\.card\.active\s*\{\s*animation: none; box-shadow/);
+test("page: no ring on an active card, only its sage border and the breathing dot (static under reduced motion); danger token in every theme block, review chips", () => {
+  assert.equal(/@keyframes pulse/.test(css), false, "no pulse keyframes");
+  for (const chunk of css.split("}")) { // "a { b { body" inside a media query: the selector is the piece before the body
+    const parts = chunk.split("{");
+    if (parts.length < 2) continue;
+    const [sel, body] = parts.slice(-2);
+    if (/\.card\.active\b/.test(sel)) assert.equal(/box-shadow|animation/.test(body), false, `no ring or animation on .card.active: ${chunk.trim()}`);
+  }
+  assert.match(css, /\.card\.run, \.card\.active \{ border-color: color-mix\(in srgb, var\(--live\) 40%, transparent\); \}/);
+  assert.match(css, /prefers-reduced-motion: no-preference\)\s*\{\s*\.live i\s*\{\s*animation: breathe/);
+  assert.match(css, /prefers-reduced-motion: reduce\)\s*\{\s*\.live i\s*\{\s*animation: none; opacity: 1;/);
   const smoked = css.split(":root {")[1].split("}")[0];
   const porcelain = css.split(':root[data-theme="light"] {')[1].split("}")[0];
   for (const [name, block] of Object.entries({ smoked, porcelain })) {
@@ -161,7 +168,8 @@ test("activity: the view mounts from the board and uses the pure modules", () =>
 });
 
 test("activity: review fixes — time-ordered timeline, shared helpers, unclipped focus rings, paced tails", () => {
-  assert.match(act, /timelineGroups\(feed\.events, filter, now, dropped\)/);
+  assert.match(act, /timelineGroups\(feed\.events, filter, now\)/);
+  assert.equal(/\bdropped\b/.test(act), false, "rows are keyed by seq, not by a count of dropped events");
   for (const name of ["function fmtElapsed", "function elapsed(", "function dayLabel", "function reviewFor", "function reportPath", "function vendorName", "const vendorName ="]) {
     assert.equal(act.includes(name) || js.includes(name), false, `${name} is not duplicated in the views`);
   }
@@ -171,4 +179,43 @@ test("activity: review fixes — time-ordered timeline, shared helpers, unclippe
   assert.match(act, /function tailEvery/);
   assert.match(act, /startNearEnd\(body\.size, KEEP_LOG_BYTES\)/);
   assert.match(act, /createTextNode\(text\.slice\(plainLen\)\)/);
+});
+
+/** Every CSS rule as [selector, body], media-query rules included (the selector is the piece just before the body). */
+const rules = css.split("}").map((chunk) => chunk.split("{")).filter((p) => p.length >= 2).map((p) => [p[p.length - 2].trim(), p[p.length - 1].trim()]);
+const ruleFor = (sel) => rules.filter(([s]) => s === sel).map(([, b]) => b).join(" ");
+
+test("page: the Milestones column is ordered by number (29.1 between 29 and 30), unnumbered after, by id as the fallback", () => {
+  assert.match(js, /import \{[^}]*byMilestoneNumber[^}]*\} from "\.\/activity-state\.mjs"/);
+  assert.match(js, /if \(name === "Milestones"\) milestones\.push\(job\);/);
+  assert.match(js, /function renderMilestones\(list\) \{[^}]*list\.slice\(\)\.sort\(byMilestoneNumber\)/);
+  assert.match(js, /renderMilestones\(milestones\);/);
+  assert.match(js, /cols\["Milestones"\]\.querySelector\("\.cards"\)/);
+});
+
+test("page: champagne means only that the person is needed (a running command, the suite tile and a held lock are not)", () => {
+  assert.match(act, /b\.status === "running" \? \["running", "live"\]/);
+  assert.match(ruleFor(".act-live"), /color: var\(--live\)/);
+  assert.equal(act.includes('"you on"'), false, "the suite's dot is the live dot");
+  assert.equal(/\.act-tile\.suite/.test(css), false, "the suite tile has no tint of its own: it takes the live one");
+  assert.match(ruleFor('.act-tile[aria-pressed="true"]'), /var\(--live\)/);
+  assert.match(ruleFor(".locks i.held"), /background: var\(--ink-2\)/);
+  assert.match(ruleFor(".locks .held-by"), /color: var\(--ink\)/);
+  assert.match(js, /held \? name \+ " · " \+ \(l\.holder \|\| "held"\)/);
+  for (const [sel, body] of rules) {
+    if (!/var\(--you\)/.test(body) || sel.startsWith(":root")) continue;
+    assert.ok(!/act-|locks|held|\.live|suite/.test(sel), `${sel} is not a thing that needs the person, yet uses --you`);
+  }
+  for (const sel of ['.col[data-column="Needs you"] h2', ".card.needs", ".card.ext", ".tag.you", ".tag.ext", ".btn.go"]) assert.match(ruleFor(sel), /var\(--you\)/, `${sel} keeps --you`);
+});
+
+test("page: cheap fixes: footer labels legible, the running line's time in mono, tiles that do not re-announce each second", () => {
+  assert.match(ruleFor("footer .k"), /color: var\(--ink-2\)/);
+  assert.match(ruleFor(".col h2 .n"), /color: var\(--ink-3\)/);
+  assert.match(ruleFor(".empty"), /color: var\(--ink-3\)/);
+  assert.match(ruleFor(".live .el"), /font-family: var\(--mono\)/);
+  assert.match(ruleFor(".live .el"), /font-variant-numeric: tabular-nums/);
+  assert.match(js, /sp\.appendChild\(h\("span", "el", el\)\)/);
+  assert.match(act, /b\.setAttribute\("aria-label", \[pillOf\(t\.id\), name, whoOf\(t\)\]\.filter\(has\)\.join\(" · "\)\)/);
+  assert.match(act, /const meta = h\("span", "act-meta"\);\s*meta\.setAttribute\("aria-hidden", "true"\);/);
 });

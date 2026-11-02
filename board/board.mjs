@@ -1,5 +1,5 @@
 import { mountActivity } from "./activity.mjs";
-import { fmtElapsed, vendorName, taskLabel } from "./activity-state.mjs";
+import { fmtElapsed, vendorName, taskLabel, byMilestoneNumber } from "./activity-state.mjs";
 
 (function () {
   "use strict";
@@ -154,13 +154,14 @@ import { fmtElapsed, vendorName, taskLabel } from "./activity-state.mjs";
     if (m < 60) return m + "m";
     return Math.floor(m / 60) + "h " + (m % 60) + "m";
   }
-  function runLine(r, job, genAt) {
+  // the running line: who and which task, then the elapsed time in its own span (mono, tabular figures)
+  function fillRun(sp, r, job, genAt) {
     var parts = [vendorName(r.vendor), r.role];
     var task = taskLabel(r.task, job);
     if (task) parts.push(task);
     var el = fmtShort(genAt - Date.parse(r.startedAt));
-    if (el) parts.push(el);
-    return parts.join(" · ");
+    sp.textContent = parts.join(" · ") + (el ? " · " : "");
+    if (el) sp.appendChild(h("span", "el", el));
   }
   function buildCard(job, demo, runs, genAt) {
     var ext = job.stage === "external";
@@ -197,7 +198,8 @@ import { fmtElapsed, vendorName, taskLabel } from "./activity-state.mjs";
       var dot = h("i");
       dot.setAttribute("aria-hidden", "true");
       line.appendChild(dot);
-      var txt = h("span", null, runLine(r, job, genAt));
+      var txt = h("span");
+      fillRun(txt, r, job, genAt);
       txt.setAttribute("data-run", String(i));
       line.appendChild(txt);
       card.appendChild(line);
@@ -232,6 +234,15 @@ import { fmtElapsed, vendorName, taskLabel } from "./activity-state.mjs";
     if (!demo) { var g = gateFor(card, job); if (g) card.appendChild(g); }
     return card;
   }
+  // put a column's cards in `want`'s order, moving them only when the order differs, so a focused card is not moved
+  function placeInOrder(box, want) {
+    var have = [].filter.call(box.children, function (e) { return e.classList.contains("card"); });
+    if (want.length !== have.length || want.some(function (el, i) { return have[i] !== el; })) want.forEach(function (el) { box.appendChild(el); });
+  }
+  // ---- Milestones: by number (29.1 between 29 and 30), cards with no number after, then by id read numerically ----
+  function renderMilestones(list) {
+    placeInOrder(cols["Milestones"].querySelector(".cards"), list.slice().sort(byMilestoneNumber).map(function (j) { return cards[j.id].el; }));
+  }
   // ---- Done: the newest eight by `ended`, the rest behind "Show all N" (a per-viewer choice) ----
   var DONE_SHOWN = 8, doneAll = false;
   try { doneAll = localStorage.getItem("board-done-all") === "1"; } catch (e) { /* storage may be blocked */ }
@@ -240,9 +251,7 @@ import { fmtElapsed, vendorName, taskLabel } from "./activity-state.mjs";
     var sorted = list.slice().sort(function (a, b) { return String(b.ended || "").localeCompare(String(a.ended || "")); });
     var want = sorted.map(function (j) { return cards[j.id].el; });
     want.forEach(function (el, i) { var hide = !doneAll && i >= DONE_SHOWN; if (el.hidden !== hide) el.hidden = hide; });
-    var have = [].filter.call(box.children, function (e) { return e.classList.contains("card"); });
-    // reorder only when the order differs, so a focused card is not moved
-    if (want.length !== have.length || want.some(function (el, i) { return have[i] !== el; })) want.forEach(function (el) { box.appendChild(el); });
+    placeInOrder(box, want);
     var more = box.querySelector(".more");
     if (sorted.length > DONE_SHOWN) {
       if (!more) {
@@ -264,7 +273,7 @@ import { fmtElapsed, vendorName, taskLabel } from "./activity-state.mjs";
     return JSON.stringify([o, demo, runs.map(function (r) { return [r.vendor, r.role, r.task, r.startedAt]; })]);
   }
   function renderCards(s) {
-    var demo = !!s.demo, seen = {}, counts = {}, runsBy = {}, done = [];
+    var demo = !!s.demo, seen = {}, counts = {}, runsBy = {}, done = [], milestones = [];
     var genAt = Date.parse(s.generatedAt);
     (s.running || []).forEach(function (r) { (runsBy[r.id] = runsBy[r.id] || []).push(r); });
     s.jobs.forEach(function (job) {
@@ -274,6 +283,7 @@ import { fmtElapsed, vendorName, taskLabel } from "./activity-state.mjs";
       seen[job.id] = true;
       counts[name] = (counts[name] || 0) + 1;
       if (name === "Done") done.push(job);
+      if (name === "Milestones") milestones.push(job);
       var sig = sigOf(job, demo, runs), cur = cards[job.id];
       if (!cur || cur.sig !== sig) {
         var fresh = buildCard(job, demo, runs, genAt);
@@ -299,13 +309,14 @@ import { fmtElapsed, vendorName, taskLabel } from "./activity-state.mjs";
       if (span) span.textContent = fmtElapsed(job.elapsedMs);
       cur.el.querySelectorAll("[data-run]").forEach(function (sp) {
         var r = runs[Number(sp.getAttribute("data-run"))];
-        if (r) sp.textContent = runLine(r, job, genAt);
+        if (r) fillRun(sp, r, job, genAt);
       });
       var box = col.querySelector(".cards");
       if (cur.el.parentNode !== box) box.appendChild(cur.el);
       if (name !== "Done" && cur.el.hidden) cur.el.hidden = false;
     });
     Object.keys(cards).forEach(function (id) { if (!seen[id]) { cards[id].el.remove(); delete cards[id]; } });
+    renderMilestones(milestones);
     renderDone(done);
     s.jobs.forEach(function (job) {
       var v = viewed[job.id];

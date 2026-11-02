@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import {
   KEEP_EVENTS, foldActivity, foldTail, describe, matches,
   timelineGroups, dayKey, dayLabel, fmtElapsed, vendorName, taskLabel, reviewFor, reportPath, startNearEnd, dropPartialLine,
+  byMilestoneNumber,
 } from "../board/activity-state.mjs";
 
-const ev = (i) => ({ id: "m-1", at: `2026-01-05T10:00:${String(i % 60).padStart(2, "0")}.000Z`, kind: "note", text: `n${i}` });
+const ev = (i) => ({ id: "m-1", at: new Date(Date.UTC(2026, 0, 5, 10, 0, i)).toISOString(), kind: "note", text: `n${i}` }); // later i, later at
 
 test("state: foldActivity appends, keeps the newest, replaces cursor and running", () => {
   let s = foldActivity(null, { events: [ev(1), ev(2)], cursor: "c1", running: [{ id: "m-1" }] });
@@ -60,6 +61,9 @@ test("state: describe never throws on hostile fields and never prints undefined"
   assert.equal(describe({ kind: "stage", from: "a" }).title, "Moved");
   assert.equal(describe({ kind: "commit" }).title, "Committed");
   assert.equal(describe({ kind: { toString: 1 } }).title, "Event");
+  assert.equal(describe({ kind: "note" }).title, "Note");
+  assert.equal(describe({ kind: "note", text: "" }).title, "Note");
+  assert.equal(describe({ kind: "note", text: { toString: 1 } }).title, "Note");
 });
 
 test("state: describe agent sub is its log, suite signal and agent exit are named", () => {
@@ -97,8 +101,55 @@ test("state: timelineGroups orders by time, not arrival, newest first", () => {
   assert.equal(g.length, 1);
   assert.equal(g[0].label, "Today");
   assert.deepEqual(g[0].rows.map((r) => r.e.text), ["b", "a", "imported"]);
-  assert.deepEqual(g[0].rows.map((r) => r.key), ["e1", "e0", "e2"]); // keys are arrival positions
-  assert.deepEqual(timelineGroups(events, {}, NOW, 40)[0].rows.map((r) => r.key), ["e41", "e40", "e42"]);
+  assert.deepEqual(g[0].rows.map((r) => r.key), ["e1", "e0", "e2"]); // with no seq, keys are positions in the list
+  const folded = events.map((e, i) => ({ ...e, seq: 40 + i }));
+  assert.deepEqual(timelineGroups(folded, {}, NOW)[0].rows.map((r) => r.key), ["e41", "e40", "e42"]); // a folded event's key is its seq
+});
+
+test("state: foldActivity trims by time, not arrival: an import while the view is open never evicts today", () => {
+  const today = Array.from({ length: 200 }, (_, i) => ({ id: "m-1", kind: "note", text: "t" + i, at: new Date(2026, 0, 6, 8, i).toISOString() }));
+  const old = Array.from({ length: 750 }, (_, i) => ({ id: "m-2", kind: "stage", text: "o" + i, at: new Date(2026, 0, 4, 23, -i).toISOString() })); // o0 newest
+  const keysOf = (st) => new Map(timelineGroups(st.events, {}, NOW).flatMap((g) => g.rows).map((r) => [r.e.text, r.key]));
+  let s = foldActivity(null, { events: today, cursor: "c0", running: [] });
+  const before = keysOf(s);
+  for (let p = 0; p < old.length; p += 200) {
+    s = foldActivity(s, { events: old.slice(p, p + 200), cursor: "c" + p, running: [] });
+    for (const [text, key] of before) assert.equal(keysOf(s).get(text), key, `${text} keeps its key after the page at ${p}`);
+  }
+  s = foldActivity(s, { events: [{ id: "m-1", kind: "note", text: "live", at: new Date(2026, 0, 6, 11, 50).toISOString() }], cursor: "c-live", running: [] });
+  assert.equal(s.events.length, KEEP_EVENTS);
+  const g = timelineGroups(s.events, {}, NOW);
+  assert.equal(g[0].label, "Today");
+  assert.equal(g[0].rows.length, 201, "all 200 of today's events and the live one");
+  assert.equal(g[0].rows[0].e.text, "live");
+  const kept = s.events.filter((e) => e.id === "m-2").map((e) => e.text);
+  assert.deepEqual(new Set(kept), new Set(old.slice(0, KEEP_EVENTS - 201).map((e) => e.text)), "the newest back-dated events fill the rest");
+  const seqs = s.events.map((e) => e.seq);
+  assert.ok(seqs.every((q, i) => Number.isInteger(q) && (i === 0 || q > seqs[i - 1])), "the state keeps arrival order");
+  const after = keysOf(s);
+  for (const [text, key] of before) assert.equal(after.get(text), key, `${text} keeps its key`);
+});
+
+test("state: foldActivity evicts an unparseable at first, then the oldest, the earlier arrival first on a tie", () => {
+  const at = new Date(2026, 0, 6, 10).toISOString();
+  const fill = Array.from({ length: KEEP_EVENTS - 2 }, (_, i) => ({ kind: "note", text: "f" + i, at: new Date(2026, 0, 6, 11, 0, i).toISOString() }));
+  let s = foldActivity(null, { events: fill, cursor: "c1", running: [] });
+  s = foldActivity(s, { events: [{ kind: "note", text: "tie1", at }, { kind: "note", text: "bad", at: "not a time" }, null, { kind: "note", text: "tie2", at }, { kind: "note", text: "new", at: new Date(2026, 0, 6, 11, 30).toISOString() }], cursor: "c2", running: [] });
+  const texts = s.events.map((e) => e.text);
+  assert.equal(s.events.length, KEEP_EVENTS);
+  assert.equal(texts.includes("bad"), false);
+  assert.equal(texts.includes("tie1"), false);
+  assert.ok(texts.includes("tie2") && texts.includes("new") && texts.includes("f0"));
+  assert.deepEqual(texts.slice(-2), ["tie2", "new"], "still in arrival order");
+  assert.equal(new Set(s.events.map((e) => e.seq)).size, KEEP_EVENTS, "every kept event has its own seq");
+});
+
+test("state: byMilestoneNumber orders by number, 29.1 between 29 and 30, unnumbered after, then by id numerically", () => {
+  const jobs = [
+    { id: "m-10" }, { id: "m-3", number: "30" }, { id: "m-2" }, { id: "m-7", number: "29.1" }, { id: "m-9", number: "29" },
+    { id: "m-11", number: "4" }, { id: "m-1", number: "4" }, { id: "m-12", number: "" }, { id: "m-13", number: null },
+  ];
+  assert.deepEqual(jobs.slice().sort(byMilestoneNumber).map((j) => j.id), ["m-1", "m-11", "m-9", "m-7", "m-3", "m-2", "m-10", "m-12", "m-13"]);
 });
 
 test("state: timelineGroups gives one header per day when days arrive interleaved", () => {

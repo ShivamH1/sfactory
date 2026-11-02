@@ -1,10 +1,35 @@
 /** The Activity view's state, kept pure so the browser and the test suite run the same code. */
 export const KEEP_EVENTS = 500;
 
-/** One /activity.json answer folded in: events appended (the newest KEEP_EVENTS kept), cursor and running replaced. */
+/** Newest `at` first, the later arrival first on a tie; an `at` that does not parse ranks last. */
+function byNewest(a, b) {
+  const at = Date.parse(a.at), bt = Date.parse(b.at);
+  const an = Number.isNaN(at), bn = Number.isNaN(bt);
+  if (an !== bn) return an ? 1 : -1;
+  if (!an && at !== bt) return bt - at;
+  return b.seq - a.seq;
+}
+
+/**
+ * One /activity.json answer folded in: each event copied with its arrival number (`seq`, counted on across folds in
+ * `state.seq`), cursor and running replaced. The window keeps the KEEP_EVENTS newest by `at`, not by arrival, so an
+ * imported card's back-dated history never pushes today out; an unparseable `at` goes first. The kept events stay in
+ * arrival order, so the newest arrival is still the last one.
+ */
 export function foldActivity(state, answer) {
-  const events = [...(state?.events ?? []), ...(Array.isArray(answer?.events) ? answer.events : [])];
-  return { events: events.slice(-KEEP_EVENTS), cursor: answer?.cursor ?? state?.cursor ?? null, running: Array.isArray(answer?.running) ? answer.running : [] };
+  let seq = Number.isInteger(state?.seq) ? state.seq : 0;
+  const fresh = [];
+  for (const e of Array.isArray(answer?.events) ? answer.events : []) {
+    if (!e || typeof e !== "object") continue;
+    fresh.push({ ...e, seq });
+    seq += 1;
+  }
+  let events = [...(Array.isArray(state?.events) ? state.events : []), ...fresh];
+  if (events.length > KEEP_EVENTS) {
+    const keep = new Set([...events].sort(byNewest).slice(0, KEEP_EVENTS));
+    events = events.filter((e) => keep.has(e));
+  }
+  return { events, seq, cursor: answer?.cursor ?? state?.cursor ?? null, running: Array.isArray(answer?.running) ? answer.running : [] };
 }
 
 /** One tail answer folded into a log view: appended when the server read from where we asked, replaced when it restarted (the file was replaced). */
@@ -74,9 +99,24 @@ export function describe(e) {
       const sha = txt(e.sha).slice(0, 7);
       return { title: `Committed${sha ? ` ${sha}` : ""}`, sub: Number.isInteger(e.files) ? `${e.files} file${e.files === 1 ? "" : "s"}` : null, tone: null };
     }
-    case "note": return { title: txt(e.text), sub: null, tone: null };
+    case "note": return { title: txt(e.text) || "Note", sub: null, tone: null };
     default: return { title: txt(e?.kind) || "Event", sub: null, tone: null };
   }
+}
+
+/** A card's milestone number as a number ("29.1" is 29.1), or null when it has none. */
+function milestoneNumber(job) {
+  const s = typeof job?.number === "string" ? job.number.trim() : Number.isFinite(job?.number) ? String(job.number) : "";
+  const n = Number(s);
+  return s !== "" && Number.isFinite(n) ? n : null;
+}
+
+/** The Milestones column's order: by number (29.1 between 29 and 30), cards with no number after, then by id read numerically. */
+export function byMilestoneNumber(a, b) {
+  const x = milestoneNumber(a), y = milestoneNumber(b);
+  if ((x === null) !== (y === null)) return x === null ? 1 : -1;
+  if (x !== null && x !== y) return x - y;
+  return String(a?.id ?? "").localeCompare(String(b?.id ?? ""), "en", { numeric: true });
 }
 
 /** The timeline's kind filters. */
@@ -141,12 +181,13 @@ export function dayLabel(t, now) {
 /**
  * The timeline: the events passing `filter`, newest `at` first, grouped by local day (one group per day). Events
  * with the same time keep the list's direction, the later arrival above; an `at` that does not parse sorts last,
- * under "Undated". Each row's key is its arrival position (`offset` plus its index), so it never changes.
+ * under "Undated". Each row's key is the event's arrival number (`seq`, from foldActivity), so it never changes
+ * while the window trims; an event with no seq is keyed by its place in the list.
  */
-export function timelineGroups(events, filter = {}, now = Date.now(), offset = 0) {
+export function timelineGroups(events, filter = {}, now = Date.now()) {
   const rows = [];
   (Array.isArray(events) ? events : []).forEach((e, i) => {
-    if (e && typeof e === "object" && matches(e, filter)) rows.push({ key: "e" + (offset + i), e, t: Date.parse(e.at), i });
+    if (e && typeof e === "object" && matches(e, filter)) rows.push({ key: "e" + (Number.isInteger(e.seq) ? e.seq : i), e, t: Date.parse(e.at), i });
   });
   rows.sort((a, b) => {
     const an = Number.isNaN(a.t), bn = Number.isNaN(b.t);
