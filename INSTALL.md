@@ -30,7 +30,9 @@ To let the board's messages reach the session live, start the session with the p
 claude --dangerously-load-development-channels plugin:sfactory@sfactory
 ```
 
-Without it, board messages still arrive: the session reads them at the factory's next step.
+Claude Code starts the plugin's channel server in every session where the plugin is enabled, so the board's "Channel running" indicator means only that the server runs; its pushes reach the session only when the session was started with this flag. Without it, board messages still arrive: the session reads them at the factory's next step, and a session idle at a gate reads them when the person runs `/sfactory run` again. A message the channel server has offered shows *offered to the session*, which is not proof it was read.
+
+Keep one channel-flagged session per repo: another flagged session in the same repo would also receive, and may answer, the person's messages.
 
 ## 2. From npm
 

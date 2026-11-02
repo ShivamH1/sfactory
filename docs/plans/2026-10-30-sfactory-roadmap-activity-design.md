@@ -151,6 +151,8 @@ A composer bar fixed to the bottom of both views lets the person write to **the 
 
 **How the session treats a message.** The person's own words, from their own machine: the same standing as the board's gate buttons. The session answers every message. It acts on one only through the factory's normal commands, and a message never stands in for a gate (an approval is still the *Approve* button or `/sfactory approve`). A message tagged to a card that is mid-task is answered at once; what it asks for is applied at that card's next step, and the reply says so. The channel accepts nothing but the thread file, and the file is written only by the board (localhost, Host-checked) and the CLI.
 
+*Note (2026-11-02, Part 4 final review):* "written only by the board and the CLI" was wrong as built: the channel server writes to the thread too — its push marks and the replies its `reply` tool takes. The writers are the board (person messages), the CLI (read marks and replies) and the channel server (push marks and replies). A board message is written from the sfactory board on this machine, with the standing of the board's buttons. Claude Code starts the channel server in every session where the plugin is enabled, and a session started without the channel flag drops its pushes, so "connected" means the server runs, and a push mark means the message was offered, not delivered.
+
 ### 6.5 Accessibility and narrow screens
 
 Every control reachable by keyboard with a visible focus ring; colour never the only signal (verdicts carry ✓ or ✕ and words); the split stacks below 900 px (tiles, then output, then timeline); the board keeps its horizontal scroll.
