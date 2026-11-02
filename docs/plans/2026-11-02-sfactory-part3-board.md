@@ -319,6 +319,8 @@ export function splitOutput(text, max = 12) {
 }
 ```
 
+*Dated 2026-11-02 (review fix, under the owner's standing OK for robustness fixes):* every string field goes through a safe `str(v)` (`typeof v === "string" ? v : v == null ? "" : JSON.stringify(v)`, falling back to `""` if that throws), so a crafted value never throws and blanks the pane; items merge by id only when the id is a string and the kinds match, and `thread.started` clears the id map (a log may hold more than one run); a files block's `status` is normalised like a command's (`running`, `completed`, `failed`). Tests cover an object without `toString`, a reused id across two runs, `item: null`, `changes` not an array and string usage fields.
+
 - [ ] **Step 4: Run the test, then the full suite** — `node --test test/board.render.test.mjs`, then `node --test`. Expected: PASS.
 
 - [ ] **Step 5: Commit**

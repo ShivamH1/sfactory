@@ -11,7 +11,8 @@ export function renderCodexStream(text) {
     let e;
     try { e = JSON.parse(line); } catch { blocks.push({ kind: "raw", text: line }); continue; }
     if (!e || typeof e !== "object" || Array.isArray(e)) { blocks.push({ kind: "raw", text: line }); continue; }
-    if (e.type === "thread.started" || e.type === "turn.started") continue;
+    if (e.type === "thread.started") { byId.clear(); continue; } // item ids are numbered per run
+    if (e.type === "turn.started") continue;
     if (e.type === "turn.completed" && e.usage && typeof e.usage === "object") {
       blocks.push({ kind: "usage", input: num(e.usage.input_tokens), cached: num(e.usage.cached_input_tokens), output: num(e.usage.output_tokens) });
       continue;
@@ -20,8 +21,9 @@ export function renderCodexStream(text) {
       const b = blockOf(e.item);
       if (!b) { blocks.push({ kind: "raw", text: line }); continue; }
       const id = e.item.id;
-      if (id !== undefined && byId.has(id)) Object.assign(byId.get(id), b);
-      else { blocks.push(b); if (id !== undefined) byId.set(id, b); }
+      const prior = typeof id === "string" ? byId.get(id) : undefined;
+      if (prior && prior.kind === b.kind) Object.assign(prior, b);
+      else { blocks.push(b); if (typeof id === "string") byId.set(id, b); }
       continue;
     }
     blocks.push({ kind: "raw", text: line });
@@ -31,16 +33,24 @@ export function renderCodexStream(text) {
 
 const num = (v) => (Number.isFinite(v) ? v : null);
 
+/** Any JSON value as display text, never throwing. */
+const str = (v, fallback = "") => {
+  if (typeof v === "string") return v;
+  if (v == null) return fallback;
+  try { return JSON.stringify(v) ?? fallback; } catch { return fallback; }
+};
+
+const statusOf = (s) => (s === "completed" || s === "failed" ? s : "running");
+
 function blockOf(it) {
-  if (it.type === "agent_message") return { kind: "message", text: String(it.text ?? "") };
-  if (it.type === "reasoning") return { kind: "reasoning", text: String(it.text ?? "") };
+  if (it.type === "agent_message") return { kind: "message", text: str(it.text) };
+  if (it.type === "reasoning") return { kind: "reasoning", text: str(it.text) };
   if (it.type === "command_execution") {
-    const status = it.status === "completed" || it.status === "failed" ? it.status : "running";
-    return { kind: "command", command: String(it.command ?? ""), output: String(it.aggregated_output ?? ""), exit: Number.isInteger(it.exit_code) ? it.exit_code : null, status };
+    return { kind: "command", command: str(it.command), output: str(it.aggregated_output), exit: Number.isInteger(it.exit_code) ? it.exit_code : null, status: statusOf(it.status) };
   }
   if (it.type === "file_change") {
-    const changes = (Array.isArray(it.changes) ? it.changes : []).map((ch) => ({ path: String(ch?.path ?? ""), change: String(ch?.kind ?? "update") }));
-    return { kind: "files", changes, status: typeof it.status === "string" ? it.status : null };
+    const changes = (Array.isArray(it.changes) ? it.changes : []).map((ch) => ({ path: str(ch?.path), change: str(ch?.kind, "update") }));
+    return { kind: "files", changes, status: statusOf(it.status) };
   }
   return null;
 }
