@@ -67,3 +67,14 @@ test("cli: job import reads a BOM-prefixed file, and names a read error by its c
   r = await run(r0, ["job", "import", "bad.json"]);
   assert.match(r.err, /BAD_IMPORT/);
 });
+
+test("cli: job touch --agent records an agent event", async () => {
+  const r0 = repo();
+  await run(r0, ["job", "add", "milestone", "x"]);
+  await run(r0, ["job", "set", "m-1", "planning"]);
+  const r = await run(r0, ["job", "touch", "m-1", "--agent", "start", "--role", "implementer", "--vendor", "codex", "--task", "1", "--model", "implement"]);
+  assert.equal(r.code, 0, r.err);
+  const show = JSON.parse((await run(r0, ["job", "show", "m-1"])).out);
+  assert.equal(show.activity.note, "start codex implementer task 1 implement");
+  assert.notEqual((await run(r0, ["job", "touch", "m-1", "--agent", "start", "--role", "x", "--vendor", "nope"])).code, 0);
+});

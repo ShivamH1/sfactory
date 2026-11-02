@@ -40,6 +40,26 @@ function assertParallelAnswered(c, job) {
 
 const isWhole = (n) => /^\d+$/.test(String(n));
 
+const AGENT_PHASES = ["start", "finish"], VENDORS = ["claude", "codex"], VERDICTS = ["ok", "fixes"];
+const short = (v, max) => typeof v === "string" && v.trim() !== "" && v.length <= max;
+
+/** An agent touch's fields, checked and trimmed: phase, role and vendor required; task, model and a finish's verdict optional. */
+export function checkAgent(a) {
+  if (!AGENT_PHASES.includes(a?.phase)) fail("BAD_ARGS", '--agent must be "start" or "finish"');
+  if (!short(a.role, 40)) fail("BAD_ARGS", "--role needs text of at most 40 characters");
+  if (!VENDORS.includes(a.vendor)) fail("BAD_ARGS", '--vendor must be "claude" or "codex"');
+  if (a.task !== undefined && !short(String(a.task), 40)) fail("BAD_ARGS", "--task needs text of at most 40 characters");
+  if (a.model !== undefined && !short(a.model, 80)) fail("BAD_ARGS", "--model needs text of at most 80 characters");
+  if (a.verdict !== undefined && (a.phase !== "finish" || !VERDICTS.includes(a.verdict))) fail("BAD_ARGS", '--verdict is "ok" or "fixes", on a finish only');
+  return {
+    phase: a.phase, role: a.role.trim(), vendor: a.vendor,
+    ...(a.task !== undefined ? { task: String(a.task).trim() } : {}),
+    ...(a.model !== undefined ? { model: a.model.trim() } : {}),
+    ...(a.verdict !== undefined ? { verdict: a.verdict } : {}),
+  };
+}
+const agentLabel = (a) => [a.phase, a.vendor, a.role, a.task !== undefined ? `task ${a.task}` : null, a.model ?? null].filter(Boolean).join(" ");
+
 export const actions = {
   add(c, { kind, title, logOf, number, roadmap, after }) {
     if (!kind || !title) fail("BAD_ARGS", 'usage: sfactory job add <milestone|fix> "<title>"');
@@ -208,12 +228,16 @@ Write the answer to decisions/${k}-answer.md, then run: sfactory job answer ${jo
    * Marks a working card as live (updated + activity). Outside a working stage it writes nothing and returns
    * the job unchanged: re-stamping awaiting-approval would re-gate the board's Approve-after-viewing.
    */
-  touch(c, { id, note, by = "session" }) {
+  touch(c, { id, note, by = "session", agent }) {
+    if (note !== undefined && (typeof note !== "string" || note.length > 200)) fail("BAD_ARGS", "the note must be text of at most 200 characters");
+    const a = agent === undefined ? null : checkAgent(agent);
     return locked(c, id, (job) => {
-      if (note !== undefined && (typeof note !== "string" || note.length > 200)) fail("BAD_ARGS", "the note must be text of at most 200 characters");
+      if (a) appendEvent(c, job.id, { kind: "agent", by, ...a });
+      else if (note) appendEvent(c, job.id, { kind: "note", by, text: note });
       if (!WORKING.includes(job.stage)) return job;
+      const label = note ?? (a ? agentLabel(a) : undefined);
       const next = structuredClone(job);
-      next.activity = { at: new Date().toISOString(), ...(note ? { note } : {}), by };
+      next.activity = { at: new Date().toISOString(), ...(label ? { note: label.slice(0, 200) } : {}), by };
       return writeJob(c, next);
     });
   },

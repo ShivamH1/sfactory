@@ -46,14 +46,23 @@ const sub = {
   external: (p, f) => ({ id: p[0], note: str(f.note) }),
   rework: (p, f) => ({ id: p[0], notes: f.notes }),
   "request-changes": (p, f) => ({ id: p[0], notes: f.notes }),
-  touch: (p, f) => { if (f.note === true) fail("BAD_ARGS", '--note needs a value: sfactory job touch <id> --note "<text>"'); return { id: p[0], note: str(f.note) }; },
+  touch: (p, f) => {
+    if (f.note === true) fail("BAD_ARGS", '--note needs a value: sfactory job touch <id> --note "<text>"');
+    const agent = f.agent === undefined ? undefined : {
+      phase: str(f.agent), role: str(f.role), vendor: str(f.vendor),
+      ...(f.task !== undefined ? { task: str(f.task) } : {}),
+      ...(f.model !== undefined ? { model: str(f.model) } : {}),
+      ...(f.verdict !== undefined ? { verdict: str(f.verdict) } : {}),
+    };
+    return { id: p[0], note: str(f.note), ...(agent ? { agent } : {}) };
+  },
   show: (p) => ({ id: p[0] }),
   list: () => ({}),
   import: (p) => ({ file: p[0] }),
 };
 
 /** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
-export const ACCEPTS = { verbs: Object.keys(sub), flags: ["by", "json", "reason", "pending", "yes", "no", "notes", "notes-file", "note", "log", "with", "number", "roadmap", "after"] };
+export const ACCEPTS = { verbs: Object.keys(sub), flags: ["by", "json", "reason", "pending", "yes", "no", "notes", "notes-file", "note", "log", "with", "number", "roadmap", "after", "agent", "role", "task", "vendor", "model", "verdict"] };
 
 register("job", async ({ positional, flags }, io) => {
   const [name, ...rest] = positional;
