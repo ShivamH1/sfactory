@@ -19,7 +19,7 @@ register("chat", async ({ positional, flags }, io) => {
 
   if (verb === "reply") {
     const id = positional[1];
-    const text = [...positional.slice(2), ...(flags.rest ?? [])].join(" ");
+    const text = [...positional.slice(2), ...(Array.isArray(flags.rest) ? flags.rest : [])].join(" ");
     if (!id || !text.trim()) fail("BAD_ARGS", `usage: sfactory chat ${REPLY_USAGE}`);
     io.stdout(`${reply(c, { replyTo: id, text }).id}\n`);
     return 0;
