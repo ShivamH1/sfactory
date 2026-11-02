@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { fail } from "./errors.mjs";
 import { acquireSync, status } from "./lock.mjs";
 import { newJob } from "./job.mjs";
+import { appendEvent } from "./events.mjs";
 
 /** One per process: the holder every job lock of this process is taken under. */
 export const HOLDER = `sfactory:${process.pid}:${randomUUID()}`;
@@ -71,14 +72,23 @@ export function atomicWrite(f, text) {
   }
 }
 
-/** Called inside withJobLock by the job commands (src/job-actions.mjs, src/commands/*) and by addJob. Atomic via atomicWrite. */
+/**
+ * Called inside withJobLock by the job commands (src/job-actions.mjs, src/commands/*) and by addJob. Atomic via
+ * atomicWrite. Each history entry this write adds that moves the card (from !== to) is appended to the card's event
+ * log, with the entry's own time and author; a rewrite that adds no history adds no event.
+ */
 export function writeJob(c, job) {
   const s = status(c, `job:${job.id}`);
   if (!s.held || s.holder !== HOLDER) fail("JOB_LOCK_REQUIRED", `writeJob(${job.id}) needs withJobLock`);
   mkdirSync(jobDir(c, job.id), { recursive: true });
-  job.updated = new Date().toISOString();
   const f = jobFile(c, job.id);
+  let before = 0;
+  if (existsSync(f)) { try { before = JSON.parse(readFileSync(f, "utf8")).history?.length ?? 0; } catch { before = 0; } }
+  job.updated = new Date().toISOString();
   atomicWrite(f, JSON.stringify(job, null, 2) + "\n");
+  for (const h of (job.history ?? []).slice(before)) {
+    if (h.from !== h.to) appendEvent(c, job.id, { kind: "stage", at: h.at, by: h.by ?? "session", from: h.from ?? null, to: h.to, reason: h.reason ?? null });
+  }
   return job;
 }
 

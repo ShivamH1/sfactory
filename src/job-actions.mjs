@@ -3,6 +3,7 @@ import { transition, park, release, queue, stop, resume, WORKING, NUMBER_RE } fr
 import { fail } from "./errors.mjs";
 import { removeVerifyCopies, verifyCopiesLeft } from "./verify-copies.mjs";
 import { withRecordLock } from "./record.mjs";
+import { appendEvent } from "./events.mjs";
 
 /** The gates as functions: each takes (c, args), runs under the job's lock, re-reads the job there and returns the written job. */
 const nextNo = (c, id, rel) => { let k = 1; while (jobFileExists(c, id, rel(k))) k++; return k; };
@@ -219,3 +220,14 @@ Write the answer to decisions/${k}-answer.md, then run: sfactory job answer ${jo
   show(c, { id }) { return readJob(c, id); },
   list(c) { return listJobs(c); },
 };
+
+/** The person's gates: each successful one is also a gate event, after the stage event its write made. */
+const GATES = { approve: "approve", requestChanges: "request-changes", answer: "answer", parallel: "parallel", merged: "merged", rework: "rework", start: "start", external: "external" };
+for (const [name, action] of Object.entries(GATES)) {
+  const run = actions[name];
+  actions[name] = (c, args = {}) => {
+    const job = run(c, args);
+    appendEvent(c, job.id, { kind: "gate", by: args.by ?? "session", action, ...(name === "parallel" ? { yes: args.yes } : {}) });
+    return job;
+  };
+}

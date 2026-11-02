@@ -8,6 +8,7 @@ import { newJob } from "../src/job.mjs";
 import { createJobFolder, listJobs } from "../src/store.mjs";
 import { readJob, jobFileExists, readJobFile, writeJobFile, withJobLock, writeJob } from "../src/store.mjs";
 import { acquireSync, status } from "../src/lock.mjs";
+import { readAllEvents } from "../src/events.mjs";
 
 const cfg = () => ({ stateDir: tmpDir("sf-ja-"), limits: { lockStaleMs: 60_000 } });
 const unheld = (c, id) => assert.equal(status(c, `job:${id}`).held, false, `job:${id} is still held`);
@@ -359,4 +360,28 @@ test("actions: external from roadmap or backlog with a note; merged closes it", 
   throwsCode(() => actions.external(c, { id: "m-3" }), "BAD_ARGS");
   throwsCode(() => actions.external(c, { id: "m-3", note: "x".repeat(201) }), "BAD_ARGS");
   assert.equal(actions.merged(c, { id: "m-1" }).stage, "merged");
+});
+
+test("actions: each gate appends a gate event after its stage event", () => {
+  const c = cfg();
+  actions.add(c, { kind: "milestone", title: "later", roadmap: true });
+  actions.start(c, { id: "m-1", by: "board" });
+  actions.set(c, { id: "m-1", to: "planning" });
+  actions.set(c, { id: "m-1", to: "awaiting-approval" });
+  actions.requestChanges(c, { id: "m-1", notes: "shorter" });
+  actions.approve(c, { id: "m-1", by: "board" });
+  const ev = readAllEvents(c, "m-1").map((e) => e.kind === "gate" ? `gate ${e.action} ${e.by}` : `stage ${e.from}->${e.to}`);
+  assert.deepEqual(ev, [
+    "stage null->roadmap", "stage roadmap->backlog", "gate start board",
+    "stage backlog->planning", "stage planning->awaiting-approval",
+    "gate request-changes session",
+    "stage awaiting-approval->building", "gate approve board",
+  ]);
+});
+
+test("actions: a refused gate writes no gate event", () => {
+  const c = cfg();
+  actions.add(c, { kind: "milestone", title: "x" });
+  throwsCode(() => actions.start(c, { id: "m-1" }), "ILLEGAL_TRANSITION");
+  assert.equal(readAllEvents(c, "m-1").filter((e) => e.kind === "gate").length, 0);
 });
