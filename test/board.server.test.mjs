@@ -265,3 +265,20 @@ test("server: the demo board shows a running Codex agent with a log it can tail"
     assert.match(t.text, /"type":"item\.completed"/);
   });
 });
+
+test("server: POST /chat and GET /chat.json", async () => {
+  const c = mk();
+  const j = addJob(c, "milestone", "One");
+  await withBoard(c, {}, async (b) => {
+    let r = await post(b, "chat", { text: "How is it going?", card: j.id });
+    assert.equal(r.status, 200);
+    const { message } = await r.json();
+    assert.equal(message.card, j.id);
+    const s = await (await fetch(`${b.url}chat.json`)).json();
+    assert.deepEqual(s.messages.map((m) => [m.id, m.status]), [[message.id, "sent"]]);
+    assert.deepEqual(s.channel, { connected: false, at: null });
+    assert.equal((await post(b, "chat", { text: "" })).status, 400);
+    assert.equal((await post(b, "chat", { text: "hi", card: "m-9" })).status, 404);
+    assert.equal((await post(b, "chat", { text: "hi" }, { "Content-Type": "application/json" })).status, 403);
+  });
+});
