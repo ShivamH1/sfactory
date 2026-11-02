@@ -236,10 +236,13 @@ test("planning happens in the card's worktree: brainstorming and writing-plans w
   assert.match(read(join(skillsRoot, "sdd", "SKILL.md")), /cut when the card entered `planning`/);
 });
 
-test("every agent start and finish is a job touch; no agents.log", () => {
+test("every Claude agent's start and finish is a structured touch; a Codex run records itself; no agents.log", () => {
   const t = read(join(skillsRoot, "sdd", "SKILL.md"));
-  assert.match(t, /sfactory job touch <JOB> --note "<start\|finish> <role> task <n> <alias\|profile>"/);
+  assert.match(t, /sfactory job touch <JOB> --agent <start\|finish> --role <role> --task <n\|branch> --vendor claude --model <alias>/);
+  assert.match(t, /A Codex run given `--job` records its own start and finish/);
+  assert.match(t, /sfactory codex exec [^\n]*--role implementer --task <n>/);
   assert.ok(!t.includes("agents.log"), "the agents.log stand-in is gone");
+  assert.match(read(join(skillsRoot, "sfactory", "SKILL.md")), /sfactory job touch <id> --agent <start\|finish> --role <role> --vendor claude --model <alias>/);
   for (const s of ["brainstorming", "writing-plans"]) assert.match(read(join(skillsRoot, s, "SKILL.md")), /sfactory job touch <JOB> --note/, `${s}: touches the job`);
 });
 
@@ -437,7 +440,7 @@ test("skills/sfactory: every move is a legal from -> to edge and every park is a
 
 test("skills/sfactory: the rulings, the stops and the amendment's rules are stated", () => {
   for (const s of ["never merges", "limits.parallelMilestones", "--pending parallel", "sfactory independence milestones", "Parallel tasks need no ask",
-    "main checkout", "Request changes", "plan/changes-<k>.md", "`sfactory job touch <id> --note \"<start|finish> <role> <alias|profile>\"`",
+    "main checkout", "Request changes", "plan/changes-<k>.md", "`sfactory job touch <id> --agent <start|finish> --role <role> --vendor claude --model <alias>`",
     "Per-dispatch effort cannot be set", "Codex never commits", "sfactory tree <WORKTREE>", "task wrote outside its declared files",
     "reviews/<k>-<stage>.md", "FIX_ROUNDS_EXHAUSTED", "NOT ADDRESSED", "sfactory lock acquire live --holder <id>", "sfactory services up <id>",
     "sfactory services down <id>", "sfactory push --cwd <WORKTREE>", "pr.md", "sfactory fixcard <PLAN>",

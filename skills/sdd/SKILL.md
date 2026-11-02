@@ -66,11 +66,11 @@ Every artifact of this card's run lives in JOB_DIR, never in the worktree:
 
 Read-only agents (spec reviewer, code reviewer, judge, triage) have Read, Grep and Glob only: they cannot run git or write a file. So you write every input they read into JOB_DIR first (the diff, the findings, the report, the suite log) and pass the paths; **their final message is the report**, and you store it at the REPORT path you named, unchanged. A report whose first line is not exactly `✅ Approved` or `❌ Needs fixes` is not a verdict: dispatch the reviewer once more; a second miss parks the card.
 
-**Touch the job at every agent start and every agent finish** — each implementer, reviewer, judge, triage and Codex run — so the board's live pulse is honest:
+**Touch the job at every Claude agent's start and finish** — each Claude implementer, reviewer, judge and triage — so the board's live pulse is honest:
 
-`sfactory job touch <JOB> --note "<start|finish> <role> task <n> <alias|profile>"`
+`sfactory job touch <JOB> --agent <start|finish> --role <role> --task <n|branch> --vendor claude --model <alias>`, adding `--verdict ok` or `--verdict fixes` to a reviewer's finish.
 
-(the note is at most 200 characters; for a branch-level agent write `branch` for `task <n>`). A touch is best-effort: if it is refused, carry on — a missed touch never stops the work.
+A Codex run given `--job` records its own start and finish (with its stream's path, which the board follows live): do not touch for it. Pass it `--role` and `--task` so the board names it. A touch is best-effort: if it is refused, carry on — a missed touch never stops the work.
 
 ## Setup
 
@@ -117,7 +117,7 @@ Then, below the fields: (1) one line on where this task fits in the card; (2) "r
 
 **Codex (`codex` and `mixed` modes): `sfactory codex exec`.** Render `prompts/codex-implement.md` (see Rendering a Codex Prompt) to `<JOB_DIR>/tasks/<n>/prompt-0.md` and run:
 
-`sfactory codex exec --cwd <WORKTREE> --profile <agents.codex.implement> --out <JOB_DIR>/tasks/<n>/codex-<r> --job <JOB> --stage building < <JOB_DIR>/tasks/<n>/prompt-<r>.md`
+`sfactory codex exec --cwd <WORKTREE> --profile <agents.codex.implement> --out <JOB_DIR>/tasks/<n>/codex-<r> --job <JOB> --stage building --role implementer --task <n> < <JOB_DIR>/tasks/<n>/prompt-<r>.md`
 
 It prints one JSON line (`ok`, `exitCode`, `usage`, `lastMessagePath`, `timedOut` when it timed out) and records the usage against the job. Codex never commits and runs only focused tests: its final message is its report and ends with the files it changed. Copy that final message (`lastMessagePath`) to `<JOB_DIR>/tasks/<n>/report.md`. Then, yourself:
 
@@ -219,7 +219,7 @@ OFF_LIMITS: <the description above>
 REPORT: <JOB_DIR>/reviews/<k>-task-<n>-code.md
 ```
 
-Codex and mixed: render `prompts/codex-review.md` (`{{task_text}}` the task brief, `{{findings_text}}` and `{{implementer_report_text}}` empty) to `<JOB_DIR>/tasks/<n>/review-prompt-0.md` and run `sfactory codex review --cwd <WORKTREE> --commit <the task's code commit> --profile <agents.codex.review> --out <JOB_DIR>/tasks/<n>/codex-review-0 --job <JOB> --stage building < <JOB_DIR>/tasks/<n>/review-prompt-0.md`. It prints the review; store it as `reviews/<k>-task-<n>-code.md`.
+Codex and mixed: render `prompts/codex-review.md` (`{{task_text}}` the task brief, `{{findings_text}}` and `{{implementer_report_text}}` empty) to `<JOB_DIR>/tasks/<n>/review-prompt-0.md` and run `sfactory codex review --cwd <WORKTREE> --commit <the task's code commit> --profile <agents.codex.review> --out <JOB_DIR>/tasks/<n>/codex-review-0 --job <JOB> --stage building --role code-reviewer --task <n> < <JOB_DIR>/tasks/<n>/review-prompt-0.md`. It prints the review; store it as `reviews/<k>-task-<n>-code.md`.
 
 Store each final message as named, then write `tasks/<n>/review.md`: one line per stored review (`<file>: <its verdict line>`), then `## Open findings` — every Critical and Important finding and every spec gap, copied verbatim, one per bullet.
 
@@ -240,9 +240,9 @@ Before the loop starts, two routes leave it immediately:
 
 Everything else enters the loop. A fix round is one fix dispatch plus one scoped re-review. **The cap is `limits.taskRounds` rounds per task:**
 
-**Every round but the last — the original implementer.** Claude: resume the implementer you recorded (send it the open findings verbatim; its context is intact). If your harness cannot send another message to a live subagent, dispatch a fresh `sfactory:implementer` with the same fields and the findings — the report file is the persistent memory either way. Codex keeps no session: run `sfactory codex exec` again with `prompts/codex-implement.md` rendered with the open findings in `{{findings_text}}` (`prompt-<r>.md`, `--out <JOB_DIR>/tasks/<n>/codex-<r>`), append its final message to `report.md` under `## Fix round <r>`, then the files check, the suite and the commits of step 2.
+**Every round but the last — the original implementer.** Claude: resume the implementer you recorded (send it the open findings verbatim; its context is intact). If your harness cannot send another message to a live subagent, dispatch a fresh `sfactory:implementer` with the same fields and the findings — the report file is the persistent memory either way. Codex keeps no session: run `sfactory codex exec` again with `prompts/codex-implement.md` rendered with the open findings in `{{findings_text}}` (`prompt-<r>.md`, `--out <JOB_DIR>/tasks/<n>/codex-<r>`, `--role fixer --task <n>`), append its final message to `report.md` under `## Fix round <r>`, then the files check, the suite and the commits of step 2.
 
-**The last round (when `limits.taskRounds` is 2 or more) — a fresh implementer.** Claude: a fresh `sfactory:implementer` on `agents.claude.plan`'s alias, with the fields, the open findings, and this framing: "A prior implementer attempted this task [N] times; you own it now. Read the report file for what was tried." Codex: a fresh `sfactory codex exec` run with the same framing in the findings (the config names no stronger Codex profile). A loop that survives every resume usually means the implementer cannot see its own problem — fresh eyes, and a capability bump where the config offers one.
+**The last round (when `limits.taskRounds` is 2 or more) — a fresh implementer.** Claude: a fresh `sfactory:implementer` on `agents.claude.plan`'s alias, with the fields, the open findings, and this framing: "A prior implementer attempted this task [N] times; you own it now. Read the report file for what was tried." Codex: a fresh `sfactory codex exec` run (`--role fixer --task <n>`) with the same framing in the findings (the config names no stronger Codex profile). A loop that survives every resume usually means the implementer cannot see its own problem — fresh eyes, and a capability bump where the config offers one.
 
 **Every round, either way:** the implementer fixes, re-runs the tests covering the amended code, and its fix report lands in `report.md`. Before re-dispatching the reviewer, confirm the fix report contains the covering tests, the command run, and the output. Name the covering test files in the fix message — a one-line fix does not need the whole suite (a Codex round still gets the full suite from you, step 2).
 
@@ -265,7 +265,7 @@ OFF_LIMITS: <the description above>
 REPORT: <JOB_DIR>/reviews/<k>-task-<n>-rereview-<r>.md
 ```
 
-Codex and mixed: `sfactory codex review --cwd <WORKTREE> --commit <the fix commit> --profile <agents.codex.review> --out <JOB_DIR>/tasks/<n>/codex-review-<r> --job <JOB> --stage building` with `prompts/codex-review.md` rendered with `{{findings_text}}` (the open findings) and `{{implementer_report_text}}` (`report.md`) on standard input. The re-reviewer verdicts each finding ADDRESSED or NOT ADDRESSED and flags new breakage in the fix diff only. New Critical/Important breakage in the fix diff joins the open findings list. Out-of-scope observations go to the ledger as deferred minors — they never extend the loop. Rewrite `tasks/<n>/review.md` with the findings still open.
+Codex and mixed: `sfactory codex review --cwd <WORKTREE> --commit <the fix commit> --profile <agents.codex.review> --out <JOB_DIR>/tasks/<n>/codex-review-<r> --job <JOB> --stage building --role re-reviewer --task <n>` with `prompts/codex-review.md` rendered with `{{findings_text}}` (the open findings) and `{{implementer_report_text}}` (`report.md`) on standard input. The re-reviewer verdicts each finding ADDRESSED or NOT ADDRESSED and flags new breakage in the fix diff only. New Critical/Important breakage in the fix diff joins the open findings list. Out-of-scope observations go to the ledger as deferred minors — they never extend the loop. Rewrite `tasks/<n>/review.md` with the findings still open.
 
 **After each round,** append to the ledger:
 `Task <N>: fix round <R>/<limits.taskRounds> (<X> addressed, <Y> open — <finding one-liners>; commits <a7>..<b7>)`
@@ -344,7 +344,7 @@ When every task is complete, the card leaves `building`: `sfactory job set <JOB>
    REPORT: <JOB_DIR>/reviews/<k>-bug-hunt.md
    ```
 
-   Codex and mixed: `sfactory codex review --cwd <WORKTREE> --base <BRANCH_BASE> --profile <agents.codex.review> --out <JOB_DIR>/review/codex-bug-hunt --job <JOB> --stage reviewing` with `prompts/codex-review.md` rendered (`{{task_text}}` the brief's text plus `review/carried.md`) on standard input; store it as `reviews/<k>-bug-hunt.md`. A Codex bug-hunt's raw claims go through `sfactory:triage` before any enters a fix (the triage block of step 2, with RAW that file, BASE BRANCH_BASE, HEAD, DIFF the branch package, REPORT `review/triage-bug-hunt.md`).
+   Codex and mixed: `sfactory codex review --cwd <WORKTREE> --base <BRANCH_BASE> --profile <agents.codex.review> --out <JOB_DIR>/review/codex-bug-hunt --job <JOB> --stage reviewing --role bug-hunter --task branch` with `prompts/codex-review.md` rendered (`{{task_text}}` the brief's text plus `review/carried.md`) on standard input; store it as `reviews/<k>-bug-hunt.md`. A Codex bug-hunt's raw claims go through `sfactory:triage` before any enters a fix (the triage block of step 2, with RAW that file, BASE BRANCH_BASE, HEAD, DIFF the branch package, REPORT `review/triage-bug-hunt.md`).
 3. **The judge — the vendor that did not write the code, except in `codex` mode**, where Codex wrote the code and the config offers no other vendor, so a Codex judge reads it in a read-only sandbox. `claude` and `mixed`: `sfactory:judge`, model `agents.claude.judge`'s alias:
 
    ```
@@ -363,10 +363,10 @@ When every task is complete, the card leaves `building`: `sfactory job set <JOB>
    REPORT: <JOB_DIR>/reviews/<k>-judge.md
    ```
 
-   `codex`: render `prompts/codex-judge.md` to `<JOB_DIR>/review/judge-prompt.md` and run `sfactory codex exec --cwd <WORKTREE> --profile <agents.codex.review> --sandbox read-only --out <JOB_DIR>/review/codex-judge --job <JOB> --stage reviewing < <JOB_DIR>/review/judge-prompt.md`; store its final message as `reviews/<k>-judge.md`.
+   `codex`: render `prompts/codex-judge.md` to `<JOB_DIR>/review/judge-prompt.md` and run `sfactory codex exec --cwd <WORKTREE> --profile <agents.codex.review> --sandbox read-only --out <JOB_DIR>/review/codex-judge --job <JOB> --stage reviewing --role judge --task branch < <JOB_DIR>/review/judge-prompt.md`; store its final message as `reviews/<k>-judge.md`.
 4. **The verdict — one rule.** The judge ✅, no confirmed Critical or Important bug-hunt finding, and — after a fix round — no finding the scoped re-review marks NOT ADDRESSED: `sfactory job set <JOB> verifying --reason "judge approved"` and hand back. Anything else: `sfactory job set <JOB> fixing --reason "<count> findings"`. When that command refuses with `FIX_ROUNDS_EXHAUSTED` (the branch has used `limits.fixRounds`), park the card for the person with every open finding and their options (answer, then `/sfactory rework` with notes, or `/sfactory stop`): `sfactory job park <JOB> --reason "<the open findings>; options: rework or stop"` — it goes to `decision-needed` — and hand back. Never move the card to `verifying` while the latest judge verdict is ❌ or the latest scoped re-review leaves a finding NOT ADDRESSED (it blocks like a ❌), and never park a branch finding in the ledger to get past the cap: at the branch level the person decides.
 
-**Fixing.** Dispatch ONE fix with the complete findings list — not one fixer per finding; per-finding fixers each rebuild context and re-run suites, and a real session's final-review fix wave cost more than all its tasks combined. `<r>` is the job's `round`, which `sfactory job set <JOB> fixing` raised (1 for the first branch fix round); `<k>` is, as everywhere, the next stored review's number. Write the findings to `<JOB_DIR>/review/round-<r>/brief.md` — that file is the fixer's TASK — and name `<JOB_DIR>/review/round-<r>/report.md` as its REPORT. The fixer is chosen by mode (design §3): `claude` and `mixed`: a fresh `sfactory:implementer` on `agents.claude.implement`'s alias, with the implementer block of step 2 (TASK and REPORT as just named, TEST_COMMAND `sfactory suite --cwd <WORKTREE> --job <JOB> --log <JOB_DIR>/review/round-<r>/suite-<r>.log`); `codex`: `sfactory codex exec` with `prompts/codex-implement.md` rendered (`{{task_text}}` and `{{findings_text}}` the findings, `--out <JOB_DIR>/review/round-<r>/codex`, `--stage fixing`), its final message stored as that REPORT. Its FILES are the files the findings name, all of them files the plan declared (a fix that needs any other file is a park). Then the files check, `sfactory suite --cwd <WORKTREE> --job <JOB> --log <JOB_DIR>/review/round-<r>/suite-<r>.log`, the commits through `sfactory commit` (the Codex fixer's, by you), the porcelain check, and `sfactory job set <JOB> reviewing --reason "fix round <r>"`. Back in `reviewing`, run one scoped re-review of the fix range FIX_BASE..HEAD (FIX_BASE = the head the judge last saw), packaged to `<JOB_DIR>/review/round-<r>/diff-<fix7>..<head7>.diff`. At the branch level its TASK is the BRIEF and its FINDINGS are `<JOB_DIR>/review/round-<r>/brief.md`. `claude`: the re-review block (`sfactory:code-reviewer` re-review, REPORT `reviews/<k>-rereview-<r>.md`); `codex` and `mixed`: `sfactory codex review --cwd <WORKTREE> --base <FIX_BASE> --profile <agents.codex.review> --out <JOB_DIR>/review/round-<r>/codex-review --job <JOB> --stage reviewing` with `prompts/codex-review.md` rendered (`{{task_text}}` the brief's text, `{{findings_text}}` the round's brief, `{{implementer_report_text}}` the round's report) on standard input, stored as `reviews/<k>-rereview-<r>.md`. Then the judge again over the whole branch, and the verdict rule above.
+**Fixing.** Dispatch ONE fix with the complete findings list — not one fixer per finding; per-finding fixers each rebuild context and re-run suites, and a real session's final-review fix wave cost more than all its tasks combined. `<r>` is the job's `round`, which `sfactory job set <JOB> fixing` raised (1 for the first branch fix round); `<k>` is, as everywhere, the next stored review's number. Write the findings to `<JOB_DIR>/review/round-<r>/brief.md` — that file is the fixer's TASK — and name `<JOB_DIR>/review/round-<r>/report.md` as its REPORT. The fixer is chosen by mode (design §3): `claude` and `mixed`: a fresh `sfactory:implementer` on `agents.claude.implement`'s alias, with the implementer block of step 2 (TASK and REPORT as just named, TEST_COMMAND `sfactory suite --cwd <WORKTREE> --job <JOB> --log <JOB_DIR>/review/round-<r>/suite-<r>.log`); `codex`: `sfactory codex exec` with `prompts/codex-implement.md` rendered (`{{task_text}}` and `{{findings_text}}` the findings, `--out <JOB_DIR>/review/round-<r>/codex`, `--stage fixing`, `--role fixer --task branch`), its final message stored as that REPORT. Its FILES are the files the findings name, all of them files the plan declared (a fix that needs any other file is a park). Then the files check, `sfactory suite --cwd <WORKTREE> --job <JOB> --log <JOB_DIR>/review/round-<r>/suite-<r>.log`, the commits through `sfactory commit` (the Codex fixer's, by you), the porcelain check, and `sfactory job set <JOB> reviewing --reason "fix round <r>"`. Back in `reviewing`, run one scoped re-review of the fix range FIX_BASE..HEAD (FIX_BASE = the head the judge last saw), packaged to `<JOB_DIR>/review/round-<r>/diff-<fix7>..<head7>.diff`. At the branch level its TASK is the BRIEF and its FINDINGS are `<JOB_DIR>/review/round-<r>/brief.md`. `claude`: the re-review block (`sfactory:code-reviewer` re-review, REPORT `reviews/<k>-rereview-<r>.md`); `codex` and `mixed`: `sfactory codex review --cwd <WORKTREE> --base <FIX_BASE> --profile <agents.codex.review> --out <JOB_DIR>/review/round-<r>/codex-review --job <JOB> --stage reviewing --role re-reviewer --task branch` with `prompts/codex-review.md` rendered (`{{task_text}}` the brief's text, `{{findings_text}}` the round's brief, `{{implementer_report_text}}` the round's report) on standard input, stored as `reviews/<k>-rereview-<r>.md`. Then the judge again over the whole branch, and the verdict rule above.
 
 ## Finish
 
@@ -397,18 +397,17 @@ You: I'm using sfactory:sdd to build card m-7.
 
 Task 1 (mixed mode)
 [sfactory brief -> tasks/1/brief.md; render codex-implement -> tasks/1/prompt-0.md]
-[job touch: start codex-implementer task 1 <profile>]
-[sfactory codex exec ... --stage building < tasks/1/prompt-0.md -> ok; report.md stored; job touch: finish]
+[sfactory codex exec ... --stage building --role implementer --task 1 < tasks/1/prompt-0.md -> ok; the run records its own start and finish; report.md stored]
 [porcelain: only declared files; sfactory suite -> ok, its line added to the log entry; two sfactory commit calls; porcelain empty]
 [package tasks/1/diff-a1b2c3d..d4e5f6a.diff]
-[job touch: start for each; sfactory:spec-reviewer and sfactory codex review --commit d4e5f6a --stage building at once; job touch: finish for each]
+[job touch --agent start for the Claude spec reviewer; it and sfactory codex review --commit d4e5f6a --stage building --role code-reviewer --task 1 (which records itself) run at once; job touch --agent finish --verdict ok for the spec reviewer]
 Spec: ✅ Approved -> reviews/1-task-1-spec.md. Code: ✅ Approved -> reviews/2-task-1-code.md
 [Ledger: Task 1: complete (commits a1b2c3d..d4e5f6a, review clean)]
 
 Tasks 2 and 3 (one batch)
 [both rendered and run at once; files check, suite and commits task by task; porcelain once]
 Task 3 code review: ❌ Needs fixes — Important: error swallowed (src/x.js:41)
-[Fix round 1/3: codex exec with the finding in findings_text; suite; commit; re-review: ADDRESSED]
+[Fix round 1/3: codex exec --role fixer --task 3 with the finding in findings_text; suite; commit; re-review: ADDRESSED]
 [Ledger: Task 3: fix round 1/3 (1 addressed, 0 open; commits ...); Task 3: complete (...)]
 
 [sfactory job set m-7 reviewing; branch package; codex review --base <BRANCH_BASE> --stage reviewing; triage; sfactory:judge (mixed: Claude judges Codex's code)]

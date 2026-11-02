@@ -38,6 +38,7 @@ To try the board with no repo and no config: `sfactory board --demo` (read-only,
 - **The gates:** each button calls the same gate function the `sfactory job` commands call, so an illegal move, a missing approval or a busy job is refused with the same reason. Each write is made under the job lock, and a POST must carry the `X-Sfactory-Board: 1` header. The board starts no agent.
 - **Local only:** the server binds to 127.0.0.1 and refuses any Host header other than `127.0.0.1:<port>` or `localhost:<port>`. It is not reachable from another machine.
 - **Service logs:** the drawer also lists a card's service logs (`verify/<name>.log`); they are read from the job folder on your machine and shown only there.
+- **Activity:** every card keeps an append-only `events.jsonl` (stage moves, gates, agent starts and finishes, suite runs, services, locks, commits). The board serves the recent events across all cards and the agents running now at `/activity.json`, and the tail of any log in a card's folder at `/jobs/<id>/tail?path=<file>&from=<offset>`. A Codex run records itself; a Claude agent is recorded by `sfactory job touch <id> --agent start|finish --role <role> --vendor claude`.
 - **Demo:** `--demo` reads `examples/jobs`, needs no config, and is read-only: the page renders no gate controls and a hand-sent POST answers 403.
 
 ## The three modes
@@ -78,7 +79,7 @@ In a Claude Code session (each is a thin call into the CLI with the skill around
 
 The CLI (npm users run `sfactory <command>`; plugin users also get an `sfactory-<command>` shim for each):
 
-- `sfactory job` — create, move and inspect cards (`add`, `set`, `approve`, `park`, `answer`, `parallel`, `stop`, `resume`, `merged`, `rework`, `request-changes`, `touch`, `show`, `list`, `start`, `external`, `import`)
+- `sfactory job` — create, move and inspect cards (`add`, `set`, `approve`, `park`, `answer`, `parallel`, `stop`, `resume`, `merged`, `rework`, `request-changes`, `touch` (with `--agent`, `--role`, `--task`, `--vendor`, `--model`, `--verdict`), `show`, `list`, `start`, `external`, `import`)
 - `sfactory lock` — take and release the suite and resource locks
 - `sfactory worktree` — cut, remove and merge job worktrees; `worktree base` prints the base branch
 - `sfactory ports` — allocate and free a job's port block
@@ -89,7 +90,7 @@ The CLI (npm users run `sfactory <command>`; plugin users also get an `sfactory-
 - `sfactory independence` — check that planned tasks or milestones do not overlap
 - `sfactory cost` — record and report token cost
 - `sfactory doctor` — check the environment and config
-- `sfactory codex` — run Codex `exec` and `review` with usage capture
+- `sfactory codex` — run Codex `exec` and `review` with usage capture (`--role` and `--task` name a run on the board)
 - `sfactory fixcard` — check a fix card's plan against `fixCardRefusals`
 - `sfactory brief` — extract one task of a plan into its brief (`sfactory brief <plan> <n> --out <file>`)
 - `sfactory diff` — a worktree's review package, changed files or commits between two refs (`--out <file>`, `--names`, `--commits`; head `WORKTREE` is the working tree, new files included)
