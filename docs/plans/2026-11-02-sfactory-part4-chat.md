@@ -510,6 +510,8 @@ Add one end-to-end test that spawns `node src/channel/server.mjs` with `cwd` a t
 
 - [ ] **Step 3: Implement** `src/channel/server.mjs`: `createChannel` as the interface and protocol say (track pushed ids in a `Set`; read the version from `package.json` once); then the program part, guarded by `if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url)`: load the config (`try { loadConfig(findRepoRoot(process.cwd())) } catch { null }`), `send = (m) => process.stdout.write(JSON.stringify(m) + "\n")`, a `readline` on stdin feeding `handle` (a line that does not parse is logged to stderr and skipped), the heartbeat every 10 s and once at `initialize` (only with a config), `fs.watch` on the chat folder (created if missing) plus a 1 s `setInterval` calling `pushNew()`, every timer `unref`'d, and `process.exit(0)` when stdin ends. Add the `mcpServers` entry to `.claude-plugin/plugin.json`.
 
+  > **Dated note, 2026-11-02 (standing OK, Task 4 review):** the guard above compares an unresolved argv path with the real path in `import.meta.url`, so a server launched through a symlink or junction silently ran nothing. It uses `src/cli.mjs`'s `isMain()` pattern instead (both sides through `realpathSync`). The `initialize` heartbeat cannot block the handshake's answer; a watch error is logged; a pushed id is remembered only after `send` returns.
+
 - [ ] **Step 4: Run the tests, then the full suite.** Expected: PASS.
 
 - [ ] **Step 5: Commit**
