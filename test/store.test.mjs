@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers.mjs";
-import { slugify, jobDir, listJobs, readJob, writeJob as rawWriteJob, withJobLock, nextId, writeJobFile, readJobFile, jobFileExists } from "../src/store.mjs";
+import { newJob } from "../src/job.mjs";
+import { addJob, addJobWith, resolveId, slugify, jobDir, listJobs, readJob, writeJob as rawWriteJob, withJobLock, nextId, writeJobFile, readJobFile, jobFileExists } from "../src/store.mjs";
 
 const cfg = () => ({ stateDir: tmpDir("sf-state-") });
 const writeJob = (c, job) => withJobLock(c, job.id, () => rawWriteJob(c, job));
@@ -76,4 +77,23 @@ test("store: a drive-less absolute stateDir (Windows) still reads and writes job
   assert.equal(readJobFile(c, "m-1", "plan/approval.md"), "ok\n");
   assert.equal(jobFileExists(c, "m-1", "plan/approval.md"), true);
   assert.throws(() => writeJobFile(c, "m-1", "../escape.md", "x"), (e) => e.code === "BAD_PATH");
+});
+
+test("store: addJobWith writes the job make() builds under the next id", () => {
+  const c = { stateDir: tmpDir("sf-st-"), limits: { lockStaleMs: 60_000 } };
+  const j = addJobWith(c, "milestone", (id) => ({ ...newJob({ id, kind: "milestone", title: "x" }), stage: "merged" }));
+  assert.equal(j.id, "m-1"); assert.equal(readJob(c, "m-1").stage, "merged");
+  assert.equal(addJob(c, "milestone", "y", { stage: "roadmap", number: "7", after: "M6" }).id, "m-2");
+  assert.equal(readJob(c, "m-2").stage, "roadmap");
+});
+
+test("store: resolveId maps M<n> to the card carrying that number", () => {
+  const c = { stateDir: tmpDir("sf-st-"), limits: { lockStaleMs: 60_000 } };
+  addJob(c, "milestone", "a", { number: "14" });
+  addJob(c, "milestone", "b", { number: "29.1" });
+  assert.equal(resolveId(c, "M14"), "m-1");
+  assert.equal(resolveId(c, "m29.1"), "m-2");
+  assert.equal(resolveId(c, "m-2"), "m-2");
+  assert.equal(resolveId(c, "f-9"), "f-9");
+  assert.throws(() => resolveId(c, "M99"), (e) => e.code === "JOB_NOT_FOUND" && /M99/.test(e.message));
 });

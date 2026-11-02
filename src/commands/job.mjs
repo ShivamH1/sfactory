@@ -5,8 +5,9 @@ import { findRepoRoot, loadConfig } from "../config.mjs";
 import { actions } from "../job-actions.mjs";
 import { fail } from "../errors.mjs";
 import { WORKING } from "../job.mjs";
-import { jobDir } from "../store.mjs";
+import { jobDir, resolveId } from "../store.mjs";
 import { assertNotSecret } from "../commit.mjs";
+import { importCards } from "../import.mjs";
 
 /**
  * The person's notes for request-changes: exactly one of --notes "<text>" and --notes-file <path> (read relative to
@@ -26,7 +27,13 @@ const str = (v) => (typeof v === "string" ? v : undefined);
 
 /** Flag parsing only: positional + flags -> the args object of the action of the same name. */
 const sub = {
-  add: (p, f) => ({ kind: p[0], title: p.slice(1).join(" "), ...(f.log !== undefined ? { logOf: f.log } : {}) }),
+  add: (p, f) => ({
+    kind: p[0], title: p.slice(1).join(" "),
+    ...(f.log !== undefined ? { logOf: f.log } : {}),
+    ...(f.number !== undefined ? { number: f.number } : {}),
+    ...(f.roadmap === true ? { roadmap: true } : {}),
+    ...(f.after !== undefined ? { after: f.after } : {}),
+  }),
   set: (p, f) => ({ id: p[0], to: p[1], reason: str(f.reason) ?? null }),
   approve: (p) => ({ id: p[0] }),
   park: (p, f) => ({ id: p[0], reason: f.reason, pending: f.pending, ...(f.with !== undefined ? { with: f.with } : {}) }),
@@ -35,23 +42,45 @@ const sub = {
   stop: (p, f) => ({ id: p[0], reason: str(f.reason) }),
   resume: (p) => ({ id: p[0] }),
   merged: (p) => ({ id: p[0] }),
+  start: (p) => ({ id: p[0] }),
+  external: (p, f) => ({ id: p[0], note: str(f.note) }),
   rework: (p, f) => ({ id: p[0], notes: f.notes }),
   "request-changes": (p, f) => ({ id: p[0], notes: f.notes }),
   touch: (p, f) => { if (f.note === true) fail("BAD_ARGS", '--note needs a value: sfactory job touch <id> --note "<text>"'); return { id: p[0], note: str(f.note) }; },
   show: (p) => ({ id: p[0] }),
   list: () => ({}),
+  import: (p) => ({ file: p[0] }),
 };
 
 /** What this command accepts (test/cli.test.mjs checks it against the flags read below). */
-export const ACCEPTS = { verbs: Object.keys(sub), flags: ["by", "json", "reason", "pending", "yes", "no", "notes", "notes-file", "note", "log", "with"] };
+export const ACCEPTS = { verbs: Object.keys(sub), flags: ["by", "json", "reason", "pending", "yes", "no", "notes", "notes-file", "note", "log", "with", "number", "roadmap", "after"] };
 
 register("job", async ({ positional, flags }, io) => {
   const [name, ...rest] = positional;
   if (!Object.hasOwn(sub, name ?? "")) fail("UNKNOWN_COMMAND", `job ${name ?? ""}; one of ${Object.keys(sub).join(", ")}`);
   const c = loadConfig(findRepoRoot(io.cwd));
   const args = { ...sub[name](rest, flags), ...(typeof flags.by === "string" ? { by: flags.by } : {}) };
-  if (name === "add" && (!args.kind || !rest.slice(1).length)) fail("BAD_ARGS", 'usage: sfactory job add <milestone|fix> "<title>" [--log <n>, fix only]');
+  if (typeof args.id === "string") args.id = resolveId(c, args.id);
+  if (name === "add" && (!args.kind || !rest.slice(1).length)) fail("BAD_ARGS", 'usage: sfactory job add <milestone|fix> "<title>" [--log <n>, fix only] [--number <n>] [--roadmap] [--after "<text>"]');
   if (name === "request-changes") args.notes = changeNotes(c, flags, io.cwd);
+  if (name === "import") {
+    if (typeof args.file !== "string") fail("BAD_ARGS", "usage: sfactory job import <file.json>");
+    assertNotSecret(c, [args.file], { cwd: io.cwd });
+    let text;
+    try { text = readFileSync(resolve(io.cwd, args.file), "utf8"); }
+    catch (e) { fail("BAD_ARGS", `${args.file}: ${e.code === "ENOENT" ? "no such file" : (e.code ?? "unreadable")}`); }
+    // Windows PowerShell writes a UTF-8 byte-order mark; JSON.parse refuses it.
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    let doc;
+    try { doc = JSON.parse(text); }
+    catch { fail("BAD_IMPORT", `${args.file}: not valid JSON`); }
+    const r = importCards(c, doc);
+    if (flags.json) { io.stdout(JSON.stringify(r, null, 2) + "\n"); return 0; }
+    for (const x of r.created) io.stdout(`created ${x.id}${x.number ? ` M${x.number}` : ""} ${x.stage}\n`);
+    for (const x of r.skipped) io.stdout(`skipped #${x.index}: ${x.reason}\n`);
+    io.stdout(`${r.created.length} created, ${r.skipped.length} skipped\n`);
+    return 0;
+  }
   const out = actions[name === "request-changes" ? "requestChanges" : name](c, args);
   if (name === "request-changes") { io.stdout(`${out.id} ${out.stage} ${join(jobDir(c, out.id), out.history.at(-1).file)}\n`); return 0; }
   if (name === "list") {

@@ -62,6 +62,13 @@ export function jobs() {
     files: { "plan/questionnaire.md": "# Questions before building\n\n1. Should a trusted device skip the second step? If so, for how many days?\n2. Which second factor comes first: a code by email or an authenticator app?\n3. May an admin turn the second step off for one account?\n" },
   });
 
+  const m5 = newJob({ id: "m-5", kind: "milestone", title: "Notifications digest", now: T(8, 5), stage: "roadmap", number: "5", after: "M4" });
+  out.push({ job: finish(m5, {}), files: {} });
+
+  let m6 = start("m-6", "milestone", "Billing export", T(8, 6));
+  m6 = walk(m6, [["external", T(8, 7)]]);
+  out.push({ job: finish(m6, { number: "4", externalNote: "pairing session", pr: 12 }), files: {} });
+
   let f1 = start("f-1", "fix", "Fix the date shown on the receipt", T(8, 40));
   f1 = walk(f1, [["planning", T(8, 45)], ["building", T(9)]]);
   f1 = park(f1, { by: "session", reason: "two readings of the bug are possible", now: T(9, 20) });

@@ -1,0 +1,38 @@
+{
+  "id": "m-5",
+  "kind": "milestone",
+  "title": "Notifications digest",
+  "stage": "roadmap",
+  "returnStage": null,
+  "previousStage": null,
+  "pending": null,
+  "branch": null,
+  "base": null,
+  "worktree": null,
+  "ports": null,
+  "record": null,
+  "tasks": {
+    "total": 0,
+    "done": 0,
+    "parallel": []
+  },
+  "round": 0,
+  "rework": 0,
+  "parallel": null,
+  "agents": null,
+  "cost": 0,
+  "started": "2026-01-05T08:05:00.000Z",
+  "updated": "2026-01-05T08:05:00.000Z",
+  "ended": null,
+  "number": "5",
+  "after": "M4",
+  "history": [
+    {
+      "at": "2026-01-05T08:05:00.000Z",
+      "from": null,
+      "to": "roadmap",
+      "by": "session",
+      "reason": "created"
+    }
+  ]
+}

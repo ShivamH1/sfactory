@@ -1,5 +1,5 @@
 import { readJob, writeJob, addJob, withJobLock, listJobs, writeJobFile, jobFileExists, readJobFile } from "./store.mjs";
-import { transition, park, release, queue, stop, resume, WORKING } from "./job.mjs";
+import { transition, park, release, queue, stop, resume, WORKING, NUMBER_RE } from "./job.mjs";
 import { fail } from "./errors.mjs";
 import { removeVerifyCopies, verifyCopiesLeft } from "./verify-copies.mjs";
 import { withRecordLock } from "./record.mjs";
@@ -8,18 +8,20 @@ import { withRecordLock } from "./record.mjs";
 const nextNo = (c, id, rel) => { let k = 1; while (jobFileExists(c, id, rel(k))) k++; return k; };
 const locked = (c, id, fn) => withJobLock(c, id, () => fn(readJob(c, id)));
 
+/** Stages that never count toward limits.parallelMilestones: not started, outside the factory, or finished. */
+export const OFF_STAGES = ["roadmap", "backlog", "external", "pushed", "merged", "stopped"];
+
 /**
  * The milestones that count toward limits.parallelMilestones: from planning until pushed, merged or stopped. A card
- * in backlog does not count, a queued one (parallel: queued) included, nor one parked for a parallel proposal from
- * backlog (it has not started).
+ * in roadmap, backlog or external does not count, a queued one (parallel: queued) included, nor one parked for a
+ * parallel proposal from backlog (it has not started).
  */
 export function activeMilestones(c, exceptId = null) {
-  const off = ["backlog", "pushed", "merged", "stopped"];
-  return listJobs(c).filter((j) => j.id !== exceptId && j.kind === "milestone" && !off.includes(j.stage) && !(j.stage === "decision-needed" && j.returnStage === "backlog"));
+  return listJobs(c).filter((j) => j.id !== exceptId && j.kind === "milestone" && !OFF_STAGES.includes(j.stage) && !(j.stage === "decision-needed" && j.returnStage === "backlog"));
 }
 
 /** Is a card resting at `stage` one that counts toward the cap? (the same rule as activeMilestones, for a stage not yet written) */
-const countsAt = (job, stage) => !["backlog", "pushed", "merged", "stopped"].includes(stage) && !(stage === "decision-needed" && job.returnStage === "backlog");
+const countsAt = (job, stage) => !OFF_STAGES.includes(stage) && !(stage === "decision-needed" && job.returnStage === "backlog");
 
 /** Throws CAP_REACHED when starting `id` would exceed limits.parallelMilestones. Call under the record lock. */
 function assertCap(c, id, verb) {
@@ -35,14 +37,29 @@ function assertParallelAnswered(c, job) {
   if (act.length && !paired) fail("PARALLEL_UNANSWERED", `${act.map((j) => j.id).join(", ")} ${act.length > 1 ? "are" : "is"} active and ${job.id} has no approved parallel answer (parallel: ${job.parallel ?? "none"}); ask with "sfactory job park ${job.id} --pending parallel --with <id> --reason ..." and approve once it is answered yes`);
 }
 
+const isWhole = (n) => /^\d+$/.test(String(n));
+
 export const actions = {
-  add(c, { kind, title, logOf }) {
+  add(c, { kind, title, logOf, number, roadmap, after }) {
     if (!kind || !title) fail("BAD_ARGS", 'usage: sfactory job add <milestone|fix> "<title>"');
     if (kind !== "milestone" && kind !== "fix") fail("BAD_ARGS", 'kind must be "milestone" or "fix"');
-    if (logOf === undefined) return addJob(c, kind, title);
-    if (kind !== "fix") fail("BAD_ARGS", "--log is for a fix card: the milestone whose log takes the fix's dated note");
-    if (!/^[1-9]\d*$/.test(String(logOf))) fail("BAD_ARGS", "--log needs a positive whole number");
-    return addJob(c, kind, title, { logOf: Number(logOf) });
+    if (kind === "fix" && (number !== undefined || roadmap || after !== undefined)) fail("BAD_ARGS", "--number, --roadmap and --after are for a milestone card");
+    if (after !== undefined && (typeof after !== "string" || !after.trim() || after.length > 80)) fail("BAD_ARGS", "--after needs text of at most 80 characters");
+    if (number !== undefined && !NUMBER_RE.test(String(number))) fail("BAD_NUMBER", `"${number}" is not a milestone number (a whole number, or one like 29.1)`);
+    if (number !== undefined && !roadmap && !isWhole(number)) fail("BAD_NUMBER", `M${number} is history only: add it with --roadmap, or import it as external, pushed or merged`);
+    if (logOf !== undefined) {
+      if (kind !== "fix") fail("BAD_ARGS", "--log is for a fix card: the milestone whose log takes the fix's dated note");
+      if (!/^[1-9]\d*$/.test(String(logOf))) fail("BAD_ARGS", "--log needs a positive whole number");
+      return addJob(c, kind, title, { logOf: Number(logOf) });
+    }
+    const opts = { ...(roadmap ? { stage: "roadmap" } : {}), ...(number !== undefined ? { number: String(number) } : {}), ...(after !== undefined ? { after } : {}) };
+    if (number === undefined) return addJob(c, kind, title, opts);
+    // The duplicate check and the write share the record lock, so two adds cannot both take one number.
+    return withRecordLock(c, "add", () => {
+      const held = listJobs(c).find((j) => j.number === String(number));
+      if (held) fail("NUMBER_TAKEN", `M${number} is ${held.id} ("${held.title}")`);
+      return addJob(c, kind, title, opts);
+    });
   },
   set(c, { id, to, by = "session", reason = null }) {
     return locked(c, id, (job) => {
@@ -54,6 +71,7 @@ export const actions = {
       if (to === "building" && ["reviewing", "pushed"].includes(job.stage)) fail("ILLEGAL_TRANSITION", `${id} goes back to building only through "sfactory job rework ${id} --notes <what to change>"`);
       const next = transition(job, to, { by, reason, limits: c.limits });
       if (!(to === "planning" && job.kind === "milestone")) return writeJob(c, next);
+      if (job.number !== undefined && job.number !== null && !isWhole(job.number)) fail("BAD_NUMBER", `${id} is M${job.number}, history only; a whole-number milestone is the only one that can start`);
       // The cap is read and the start written under the shared record lock, so two starts cannot both pass it.
       return withRecordLock(c, id, () => {
         assertCap(c, id, "stays in backlog");
@@ -148,6 +166,23 @@ Write the answer to decisions/${k}-answer.md, then run: sfactory job answer ${jo
     });
   },
   merged(c, { id, by = "session" }) { return locked(c, id, (job) => writeJob(c, transition(job, "merged", { by, reason: "merged" }))); },
+  /** A card waiting in roadmap joins the backlog; the next run starts it. */
+  start(c, { id, by = "session" }) {
+    return locked(c, id, (job) => {
+      const next = transition(job, "backlog", { by, reason: "started" });
+      if (job.number !== undefined && job.number !== null && !isWhole(job.number)) fail("BAD_NUMBER", `${id} is M${job.number}, history only; a whole-number milestone is the only one that can start`);
+      return writeJob(c, next);
+    });
+  },
+  /** A card worked outside the factory: run never touches it; merged or stop closes it. */
+  external(c, { id, note, by = "session" }) {
+    return locked(c, id, (job) => {
+      if (typeof note !== "string" || !note.trim() || note.length > 200) fail("BAD_ARGS", 'external needs --note "<who is doing it>" of at most 200 characters');
+      const next = transition(job, "external", { by, reason: "external" });
+      next.externalNote = note.trim();
+      return writeJob(c, next);
+    });
+  },
   rework(c, { id, notes, by = "session" }) {
     return locked(c, id, (job) => {
       if (typeof notes !== "string" || !notes.trim()) fail("BAD_ARGS", "rework needs --notes");

@@ -71,6 +71,8 @@ Only `bin/job` writes `job.json`, and only along these edges.
 | `decision-needed` | Needs you | parked from any working stage with a return stage (a parallel proposal also from `backlog` or `planning`) | `decisions/<k>.md`; `plan/parallel.md` for a parallel proposal | the return stage · `backlog` when a parallel proposal is answered no (queued; planning → backlog through the park, amended 2026-10-28) |
 | `stopped` | its column, red | usage limit, a round over the limit, a failed worktree cut, a lock held too long | `stopped.md` | the previous stage |
 
+*Amendment (2026-10-30):* two stages, `roadmap` (Milestones) and `external` (External running), neither working nor counted toward the cap; cards may carry an M-number; `sfactory job import` creates cards in bulk. See `docs/plans/2026-10-30-sfactory-roadmap-activity-design.md`.
+
 `job.json` fields: `id`, `kind`, `title`, `stage`, `returnStage`, `branch`, `base`, `worktree`, `ports`, `record` (paths of the brief, plan, log), `tasks` (n, done, parallel), `round`, `agents` (mode and the resolved models), `cost`, `started`, `updated`, `ended`, `history` (every transition with a timestamp and a reason).
 
 ## 5. The task loop

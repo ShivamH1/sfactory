@@ -5,7 +5,7 @@ import { readCost } from "../cost.mjs";
 import { status } from "../lock.mjs";
 import { COLUMNS } from "../job.mjs";
 
-export const BOARD_COLUMNS = ["Backlog", "Plan", "Needs you", "In process", "Review", "Fixed", "Pushed / PR", "Done", "Stopped"];
+export const BOARD_COLUMNS = ["Milestones", "Backlog", "Plan", "Needs you", "In process", "Review", "Fixed", "Pushed / PR", "External running", "Done", "Stopped"];
 
 /** Every .md and .log under the job folder, relative with forward slashes, sorted; temp files and job.json left out. */
 function collectFiles(root) {
@@ -83,6 +83,7 @@ export function jobView(c, j, now = new Date().toISOString()) {
     id: j.id, kind: j.kind, title: j.title, stage: j.stage, column: COLUMNS[j.stage] ?? null,
     pending: j.pending ?? null, returnStage: j.returnStage ?? null, branch: j.branch ?? null, base: j.base ?? null,
     worktree: j.worktree ?? null, ports: j.ports ?? null, slug: j.slug ?? null,
+    number: j.number ?? null, after: j.after ?? null, externalNote: j.externalNote ?? null, pr: j.pr ?? null, prUrl: j.prUrl ?? null,
     tasks: j.tasks ?? null, round: j.round ?? 0, rework: j.rework ?? 0, parallel: j.parallel ?? null,
     started: j.started ?? null, updated: j.updated ?? null, ended: j.ended ?? null,
     elapsedMs: Date.parse(j.ended ?? now) - Date.parse(j.started),

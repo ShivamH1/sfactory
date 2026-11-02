@@ -3,7 +3,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tmpDir } from "./helpers.mjs";
-import { actions } from "../src/job-actions.mjs";
+import { actions, OFF_STAGES, activeMilestones } from "../src/job-actions.mjs";
+import { newJob } from "../src/job.mjs";
+import { createJobFolder, listJobs } from "../src/store.mjs";
 import { readJob, jobFileExists, readJobFile, writeJobFile, withJobLock, writeJob } from "../src/store.mjs";
 import { acquireSync, status } from "../src/lock.mjs";
 
@@ -296,4 +298,65 @@ test("N4: resume re-checks the cap and, past approval, the parallel answer; a ca
   actions.stop(c, { id: "f-1" });
   assert.equal(actions.resume(c, { id: "f-1" }).stage, "planning");
   unheld(c, "m-1");
+});
+
+const put = (c, job) => { createJobFolder(c, job.id); withJobLock(c, job.id, () => writeJob(c, job)); };
+
+test("actions: roadmap and external milestones never count toward the cap", () => {
+  const c = { ...cfg(), limits: { lockStaleMs: 60_000, parallelMilestones: 1 } };
+  assert.ok(OFF_STAGES.includes("roadmap") && OFF_STAGES.includes("external"));
+  put(c, newJob({ id: "m-1", kind: "milestone", title: "later", stage: "roadmap" }));
+  put(c, { ...newJob({ id: "m-2", kind: "milestone", title: "elsewhere" }), stage: "external" });
+  assert.deepEqual(activeMilestones(c), []);
+  actions.add(c, { kind: "milestone", title: "now" });
+  assert.equal(actions.set(c, { id: "m-3", to: "planning" }).stage, "planning");
+});
+
+test("actions: add with a number, in roadmap, with an after line", () => {
+  const c = cfg();
+  const j = actions.add(c, { kind: "milestone", title: "Audit log", number: "14", roadmap: true, after: "M13" });
+  assert.equal(j.stage, "roadmap"); assert.equal(j.number, "14"); assert.equal(j.after, "M13");
+  throwsCode(() => actions.add(c, { kind: "milestone", title: "again", number: "14" }), "NUMBER_TAKEN", /M14 is m-1/);
+  throwsCode(() => actions.add(c, { kind: "milestone", title: "bad", number: "1.2.3" }), "BAD_NUMBER");
+  throwsCode(() => actions.add(c, { kind: "fix", title: "f", number: "3" }), "BAD_ARGS");
+  throwsCode(() => actions.add(c, { kind: "fix", title: "f", roadmap: true }), "BAD_ARGS");
+  throwsCode(() => actions.add(c, { kind: "milestone", title: "long", after: "x".repeat(81) }), "BAD_ARGS");
+  assert.equal(actions.add(c, { kind: "milestone", title: "plain" }).stage, "backlog");
+});
+
+test("actions: a decimal number is history only: add needs --roadmap, start and planning refuse it", () => {
+  const c = cfg();
+  throwsCode(() => actions.add(c, { kind: "milestone", title: "d", number: "29.1" }), "BAD_NUMBER", /history only/);
+  assert.equal(listJobs(c).length, 0);
+  assert.equal(actions.add(c, { kind: "milestone", title: "d", number: "29.1", roadmap: true }).stage, "roadmap");
+  throwsCode(() => actions.start(c, { id: "m-1" }), "BAD_NUMBER");
+  assert.equal(readJob(c, "m-1").stage, "roadmap");
+  // a backlog card hand-edited to a decimal number cannot enter planning
+  put(c, newJob({ id: "m-2", kind: "milestone", title: "h", number: "29.2" }));
+  throwsCode(() => actions.set(c, { id: "m-2", to: "planning" }), "BAD_NUMBER");
+  assert.equal(readJob(c, "m-2").stage, "backlog");
+  unheld(c, "m-1"); unheld(c, "m-2");
+});
+
+test("actions: start moves a roadmap card to backlog; nothing else starts", () => {
+  const c = cfg();
+  actions.add(c, { kind: "milestone", title: "later", number: "14", roadmap: true });
+  const j = actions.start(c, { id: "m-1", by: "board" });
+  assert.equal(j.stage, "backlog");
+  assert.deepEqual({ ...j.history.at(-1), at: undefined }, { at: undefined, from: "roadmap", to: "backlog", by: "board", reason: "started" });
+  throwsCode(() => actions.start(c, { id: "m-1" }), "ILLEGAL_TRANSITION");
+  unheld(c, "m-1");
+});
+
+test("actions: external from roadmap or backlog with a note; merged closes it", () => {
+  const c = cfg();
+  actions.add(c, { kind: "milestone", title: "a", roadmap: true });
+  actions.add(c, { kind: "milestone", title: "b" });
+  assert.equal(actions.external(c, { id: "m-1", note: "pairing session" }).externalNote, "pairing session");
+  assert.equal(actions.external(c, { id: "m-2", note: "another agent" }).stage, "external");
+  throwsCode(() => actions.external(c, { id: "m-1", note: "x" }), "ILLEGAL_TRANSITION");
+  actions.add(c, { kind: "milestone", title: "c" });
+  throwsCode(() => actions.external(c, { id: "m-3" }), "BAD_ARGS");
+  throwsCode(() => actions.external(c, { id: "m-3", note: "x".repeat(201) }), "BAD_ARGS");
+  assert.equal(actions.merged(c, { id: "m-1" }).stage, "merged");
 });

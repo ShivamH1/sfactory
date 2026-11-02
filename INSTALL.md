@@ -71,6 +71,7 @@ sfactory board     # serves the kanban board on http://127.0.0.1:4317
 - `doctor` must exit 0 before any card moves; it prints a `FAIL` row for each problem and what fixes it.
 - **Secrets.** List credential files in `secrets.neverHandToAgents`. Agents work in a card's worktree from planning on, so `worktrees.copyFromBase` (copied at the cut) never carries one: the cut refuses it with `SECRET_PATH`, and `doctor` warns. A file the verify stage needs (an API's `.env`, say) goes in `worktrees.copyForVerify`: `sfactory services copy <id>` or `sfactory services up <id>` copies it into the worktree, and `sfactory services down <id>`, `sfactory job stop <id>` and `sfactory worktree remove <id>` remove it.
 - `board` stays up until Ctrl+C (or SIGTERM); in a Claude Code session, where `/sfactory board` runs it as a background task, stop that task. The port is `board.port` in the config (default 4317); `--port n` overrides it. `sfactory board --demo` needs no config and shows sample cards, read-only.
+- An existing project can import its finished and planned work once: see README, "Bringing an existing project".
 
 In a Claude Code session the same three are `/sfactory init`, `/sfactory doctor` and `/sfactory board`. Then add a card with `/sfactory add milestone "<title>"` or `/sfactory add fix "<title>"` and start with `/sfactory run`.
 

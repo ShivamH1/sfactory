@@ -579,3 +579,19 @@ test("Plan C final review minors: a stranded live lock, the options at the fix-r
   const sec = design.slice(design.indexOf("## 12. Guardrails"), design.indexOf("## 13."));
   for (const s of ["`limits.parallelMilestones`", "parks the card for the person", "`fixcard` names", "`copyFromBase`", "any tree but a card's worktree"]) assert.ok(sec.includes(s), `§12 names ${s}`);
 });
+
+test("sfactory skill: start, external and import are commands, and the run loop never works roadmap or external cards", () => {
+  const t = readFileSync(join(skillsRoot, "sfactory", "SKILL.md"), "utf8");
+  for (const row of ["`/sfactory start <id>`", "`/sfactory external <id> \"<note>\"`", "`/sfactory import <file>`", "--roadmap"]) assert.ok(t.includes(row), row);
+  assert.match(t, /never works a `roadmap` or `external` card/);
+  assert.match(t, /nothing is left but `roadmap`, `external`, `pushed`, `merged` and `stopped` cards/);
+});
+
+test("sfactory skill: a person's M<n> is resolved with job show before any path is built", () => {
+  const t = readFileSync(join(skillsRoot, "sfactory", "SKILL.md"), "utf8");
+  assert.ok(t.includes("sfactory job show M<n>"), "names the resolve step");
+  assert.match(t, /every person-facing command accepts/);
+  const desc = /^description: "(.*)"$/m.exec(t)[1];
+  for (const w of ["start", "external", "import"]) assert.ok(desc.includes(w), `description names ${w}`);
+  assert.match(t, /`BAD_NUMBER` or `NUMBER_TAKEN`/);
+});

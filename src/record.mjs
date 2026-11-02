@@ -97,24 +97,49 @@ function fixRecord(c, job, worktree) {
   return out;
 }
 
+/** Another milestone card (not `job`, not a fix), of any stage. */
+const otherMilestone = (job, o) => o.id !== job.id && o.kind !== "fix";
+
 /**
  * The card's record paths: { brief, plan, log, stories, n }. A milestone's are relative to its worktree; a fix
  * card's are its own (fixRecord), and any of them in its job folder is absolute.
  * {n} (milestones): "next-milestone-number" is one more than the highest {n} of a brief in the worktree and of
  * every other unmerged milestone's record (a fix never counts); any other numbering is the number in the card's id.
+ * A numbered milestone (`job.number`) takes its own number under every numbering, refused when it is not whole or
+ * another unmerged card or a brief already holds it.
  */
 export function resolveRecord(c, job, worktree, others = []) {
   if (job.kind === "fix") return fixRecord(c, job, worktree);
   const r = c.record;
   const idNo = Number(/\d+$/.exec(job.id)?.[0] ?? NaN);
   let n;
-  if (r.numbering === "next-milestone-number") {
+  if (job.number !== undefined && job.number !== null) {
+    if (!/^\d+$/.test(String(job.number))) fail("BAD_NUMBER", `${job.id} is M${job.number}; only a whole-number milestone can be cut`);
+    n = Number(job.number);
+    const holder = others.find((o) => otherMilestone(job, o) && o.stage !== "merged" && o.record?.n === n && !Number.isInteger(o.logOf));
+    if (holder) fail("NUMBER_TAKEN", `M${n} is already the record number of ${holder.id}`);
+    // Only a brief pattern with {n} can hold a brief "at that number"; compare by value, so 01-a.md is number 1.
+    if (r.brief.includes("{n}")) {
+      const re = patternRegex(r.brief);
+      const brief = filesUnder(worktree, r.brief).find((f) => { const m = re.exec(f); return m?.groups?.n !== undefined && Number(m.groups.n) === n; });
+      if (brief) fail("NUMBER_TAKEN", `a brief for M${n} is already in the worktree: ${brief}`);
+    }
+  } else if (r.numbering === "next-milestone-number") {
     const re = patternRegex(r.brief);
     let max = 0;
     for (const f of filesUnder(worktree, r.brief)) { const m = re.exec(f); if (m?.groups?.n) max = Math.max(max, Number(m.groups.n)); }
-    for (const o of others) if (o.id !== job.id && o.kind !== "fix" && o.stage !== "merged" && Number.isInteger(o.record?.n) && !Number.isInteger(o.logOf)) max = Math.max(max, o.record.n);
+    for (const o of others) {
+      if (!otherMilestone(job, o)) continue;
+      // An unmerged card's record number counts; so does any card's planned whole number, merged or not.
+      if (o.stage !== "merged" && Number.isInteger(o.record?.n) && !Number.isInteger(o.logOf)) max = Math.max(max, o.record.n);
+      if (/^\d+$/.test(String(o.number ?? ""))) max = Math.max(max, Number(o.number));
+    }
     n = max + 1;
-  } else n = Number.isInteger(idNo) ? idNo : null;
+  } else {
+    n = Number.isInteger(idNo) ? idNo : null;
+    const taken = n === null ? undefined : others.find((o) => otherMilestone(job, o) && String(o.number ?? "") === String(n));
+    if (taken) fail("NUMBER_TAKEN", `M${n} is planned for ${taken.id}; give this card its own --number`);
+  }
   const v = { id: job.id, slug: job.slug, n };
   const out = { brief: fill(r.brief, v), plan: fill(r.plan, v), log: fill(r.log, v), stories: r.stories ?? null, n };
   checkInside(out, ["brief", "plan", "log", "stories"]);

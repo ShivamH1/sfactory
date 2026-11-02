@@ -1,0 +1,46 @@
+{
+  "id": "m-6",
+  "kind": "milestone",
+  "title": "Billing export",
+  "stage": "external",
+  "returnStage": null,
+  "previousStage": null,
+  "pending": null,
+  "branch": null,
+  "base": null,
+  "worktree": null,
+  "ports": null,
+  "record": null,
+  "tasks": {
+    "total": 0,
+    "done": 0,
+    "parallel": []
+  },
+  "round": 0,
+  "rework": 0,
+  "parallel": null,
+  "agents": null,
+  "cost": 0,
+  "started": "2026-01-05T08:06:00.000Z",
+  "updated": "2026-01-05T08:07:00.000Z",
+  "ended": null,
+  "history": [
+    {
+      "at": "2026-01-05T08:06:00.000Z",
+      "from": null,
+      "to": "backlog",
+      "by": "session",
+      "reason": "created"
+    },
+    {
+      "at": "2026-01-05T08:07:00.000Z",
+      "from": "backlog",
+      "to": "external",
+      "by": "session",
+      "reason": null
+    }
+  ],
+  "number": "4",
+  "externalNote": "pairing session",
+  "pr": 12
+}
