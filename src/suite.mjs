@@ -1,6 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createWriteStream, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, relative, isAbsolute, sep } from "node:path";
+import { jobDir } from "./store.mjs";
+import { appendEvent } from "./events.mjs";
 import { acquire, setLockChild } from "./lock.mjs";
 
 /**
@@ -98,13 +100,24 @@ function spawnToLog(command, cwd, logPath, { onSpawn } = {}) {
 }
 
 export async function runSuite(c, { cwd, jobId, logPath, command = c.commands.suite }) {
-  if (c.commands.suiteSerial === false) return spawnToLog(command, cwd, logPath);
+  // The run's start and finish go to the card's event log, the log path relative to its folder when it lies inside.
+  const rel = (() => { try { const r = relative(jobDir(c, jobId), logPath); return r !== "" && !r.startsWith("..") && !isAbsolute(r) ? r.split(sep).join("/") : null; } catch { return null; } })();
+  const suiteEvent = (phase, extra = {}) => appendEvent(c, jobId, { kind: "suite", phase, ...(rel ? { log: rel } : {}), ...extra });
+  const ended = (r) => ({ ok: !!r?.ok, ...(Number.isInteger(r?.code) ? { exit: r.code } : {}), ...(r?.signal ? { signal: r.signal } : {}), ...(Number.isInteger(r?.durationMs) ? { durationMs: r.durationMs } : {}) });
+  if (c.commands.suiteSerial === false) {
+    suiteEvent("start");
+    let r;
+    try { r = await spawnToLog(command, cwd, logPath); return r; } finally { suiteEvent("finish", ended(r)); }
+  }
   const lock = await acquire(c, "suite", { holder: jobId, waitMs: c.limits.suiteWaitMs, pollMs: 100 });
   // The lock names the suite's child too, so it stays held while the suite runs even if this process is killed
   // (a Bash tool timeout, say): a second suite must never start beside an orphaned one.
   const onSpawn = (pid) => { try { setLockChild(c, "suite", { holder: jobId, token: lock.token, childPid: pid }); } catch (e) { console.error(`sfactory: suite lock child not recorded: ${e.message}`); } };
-  try { return await spawnToLog(command, cwd, logPath, { onSpawn }); }
+  suiteEvent("start");
+  let r;
+  try { r = await spawnToLog(command, cwd, logPath, { onSpawn }); return r; }
   finally {
+    suiteEvent("finish", ended(r));
     try { lock.release(); } catch (e) { console.error(`sfactory: suite lock release failed: ${e.message}`); }
   }
 }

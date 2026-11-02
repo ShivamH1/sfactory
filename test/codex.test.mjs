@@ -8,6 +8,8 @@ import { tmpRepo, tmpDir, writeConfig } from "./helpers.mjs";
 import { loadConfig } from "../src/config.mjs";
 import { filterEnv, runCodexExec, runCodexReview, usageOf, profileModel, quoteWin } from "../src/codex.mjs";
 import { readCost } from "../src/cost.mjs";
+import { readAllEvents } from "../src/events.mjs";
+import { jobDir } from "../src/store.mjs";
 import { main } from "../src/cli.mjs";
 import { runDoctor } from "../src/doctor.mjs";
 
@@ -218,6 +220,31 @@ test("cli codex: records cost (model from the profile file), validates --job bef
   errs.length = 0;
   assert.equal(await main(["codex", "review", "--cwd", ".", "--base", "main", "--out", "o"], io({ runners: timedRunners })), 1);
   assert.match(errs.join(""), /timed out/);
+});
+
+test("cli codex: --job records the run's start and finish as agent events, with the stream's path", async () => {
+  const root = tmpRepo();
+  const stateDir = tmpDir("sf-cli-");
+  writeConfig(root, { project: "p", agents: { mode: "codex" }, commands: { suite: "npm test" }, stateDir, worktrees: { dir: tmpDir("sf-clw-") }, ports: { base: 47950 } });
+  const outs = [], errs = [];
+  const io = (extra = {}) => ({ cwd: root, stdout: (s) => outs.push(s), stderr: (s) => errs.push(s), stdin: async () => "prompt text", ...extra });
+  assert.equal(await main(["job", "add", "milestone", "t", "--json"], io()), 0, errs.join(""));
+  const jid = JSON.parse(outs.join("")).id;
+  const c = loadConfig(root);
+  const out = join(jobDir(c, jid), "tasks", "1", "codex-0");
+  const runners = {
+    exec: async () => ({ ok: true, exitCode: 0, usage: null, logPath: "l", lastMessagePath: "m", durationMs: 42 }),
+    review: async () => { throw new Error("boom"); },
+  };
+  assert.equal(await main(["codex", "exec", "--cwd", ".", "--profile", "implement", "--out", out, "--job", jid, "--task", "1"], io({ runners })), 0, errs.join(""));
+  await main(["codex", "review", "--cwd", ".", "--base", "main", "--profile", "review", "--out", tmpDir("sf-cro-"), "--job", jid, "--role", "code-reviewer"], io({ runners })).catch(() => {});
+  const ev = readAllEvents(c, jid).filter((e) => e.kind === "agent").map(({ at, end, by, kind, ...e }) => e);
+  assert.deepEqual(ev, [
+    { phase: "start", role: "implementer", vendor: "codex", model: "implement", task: "1", log: "tasks/1/codex-0/codex.jsonl" },
+    { phase: "finish", role: "implementer", vendor: "codex", model: "implement", task: "1", log: "tasks/1/codex-0/codex.jsonl", ok: true, exit: 0, durationMs: 42 },
+    { phase: "start", role: "code-reviewer", vendor: "codex", model: "review" },
+    { phase: "finish", role: "code-reviewer", vendor: "codex", model: "review", ok: false },
+  ]);
 });
 
 test("doctor honours CODEX_HOME for the profile files", () => {

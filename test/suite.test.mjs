@@ -6,7 +6,8 @@ import { tmpDir, tmpRepo, writeConfig } from "./helpers.mjs";
 import { existsSync, readdirSync } from "node:fs";
 import { main } from "../src/cli.mjs";
 import { findRepoRoot, loadConfig } from "../src/config.mjs";
-import { jobDir, writeJob as rawWriteJob, withJobLock } from "../src/store.mjs";
+import { jobDir, writeJob as rawWriteJob, withJobLock, addJob } from "../src/store.mjs";
+import { readAllEvents } from "../src/events.mjs";
 const writeJob = (c, job) => withJobLock(c, job.id, () => rawWriteJob(c, job));
 import { newJob } from "../src/job.mjs";
 import { runSuite } from "../src/suite.mjs";
@@ -20,6 +21,17 @@ test("suite: green run logs and returns ok", async () => {
   const r = await runSuite(c, { cwd: process.cwd(), jobId: "m-1", logPath: log });
   assert.equal(r.ok, true); assert.equal(r.code, 0);
   assert.match(readFileSync(log, "utf8"), /=== .* node -e/); assert.match(r.tail, /12 passing/);
+});
+
+test("suite: a run for a card records its start and finish", async () => {
+  const c = cfg('node -e "process.exit(0)"');
+  const j = addJob(c, "milestone", "t");
+  const log = join(tmpDir(), "s.log");
+  const r = await runSuite(c, { cwd: process.cwd(), jobId: j.id, logPath: log });
+  assert.equal(r.ok, true);
+  const ev = readAllEvents(c, j.id).filter((e) => e.kind === "suite");
+  assert.deepEqual(ev.map((e) => e.phase), ["start", "finish"]);
+  assert.equal(ev[1].ok, true); assert.equal(ev[1].exit, 0); assert.ok(Number.isInteger(ev[1].durationMs));
 });
 
 test("suite: red run returns ok=false with the exit code, no throw", async () => {
