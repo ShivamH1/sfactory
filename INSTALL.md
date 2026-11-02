@@ -24,6 +24,14 @@ The plugin gives you the `/sfactory` command (and `/sfactory:sfactory`), the fac
 /sfactory doctor
 ```
 
+To let the board's messages reach the session live, start the session with the plugin's channel. While Claude Code's channels are a research preview, that takes a flag (interactive sessions only, signed in with claude.ai or the Console):
+
+```text
+claude --dangerously-load-development-channels plugin:sfactory@sfactory
+```
+
+Without it, board messages still arrive: the session reads them at the factory's next step.
+
 ## 2. From npm
 
 The npm package is **the CLI and the Codex skills**: for CI, for scripting the state and the board, and for a Codex-only user. **Claude Code gets the factory from the plugin (section 1)**, which namespaces its skills and agents as `sfactory:<name>`; the skills call each other and the agents by those names, so copies under `.claude/` are not a working Claude Code setup.

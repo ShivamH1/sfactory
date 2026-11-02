@@ -61,6 +61,20 @@ To try the board with no repo and no config: `sfactory board --demo` (read-only,
 
 In `mixed`, the judge is the vendor that did not write the code. Model names, effort levels and Codex profile names are config, never constants. A mode whose tool is missing fails at `doctor`, not mid-run.
 
+## Talking to the session
+
+The composer at the bottom of the board sends a message to the orchestrator session: General, or about one card. The thread shows each message with a status: *sent*, *handed to the session*, *seen* or *answered*. "Handed to the session" means the channel took it, not that the session has read it. An indicator says how messages travel: "Channel running" when the session was started with the channel, otherwise "Read at the factory's next step".
+
+Messages travel live through the channel when the session runs with it, and always at the factory's next step: the session runs `sfactory chat unread` at every step and before it ends a turn at a gate. A message never stands in for a gate; approvals stay *Approve* or `/sfactory approve`.
+
+While Claude Code's channels are a research preview, start the session with:
+
+```text
+claude --dangerously-load-development-channels plugin:sfactory@sfactory
+```
+
+Interactive sessions only, signed in with claude.ai or the Console.
+
 ## Commands
 
 In a Claude Code session (each is a thin call into the CLI with the skill around it):
@@ -79,10 +93,12 @@ In a Claude Code session (each is a thin call into the CLI with the skill around
 - `/sfactory board` — start the board and print its link
 - `/sfactory rework <id> "<notes>"` — send a reviewed or pushed card back to building
 - `/sfactory stop <id>`, `/sfactory clean <id>`, `/sfactory merged <id>`
+- `/sfactory chat` — the conversation with the board, newest last
 
 The CLI (npm users run `sfactory <command>`; plugin users also get an `sfactory-<command>` shim for each):
 
 - `sfactory job` — create, move and inspect cards (`add`, `set`, `approve`, `park`, `answer`, `parallel`, `stop`, `resume`, `merged`, `rework`, `request-changes`, `touch` (with `--agent`, `--role`, `--task`, `--vendor`, `--model`, `--verdict`), `show`, `list`, `start`, `external`, `import`)
+- `sfactory chat` — read and answer the board's messages (`unread [--card <id>] [--json]`, `reply <id> "<text>"`, `list [--card <id>] [--json]`)
 - `sfactory lock` — take and release the suite and resource locks
 - `sfactory worktree` — cut, remove and merge job worktrees; `worktree base` prints the base branch
 - `sfactory ports` — allocate and free a job's port block

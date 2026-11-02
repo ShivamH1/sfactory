@@ -33,6 +33,7 @@ Parse `$ARGUMENTS`: the first word is the command. Each row is the CLI line you 
 | `/sfactory stop <id>` | `sfactory job stop <id> --reason "stopped by the person"`. Dispatch nothing more for it. An agent already running finishes its call, and its output stays in JOB_DIR. The stop also removes the card's verify copies (`worktrees.copyForVerify`) from WORKTREE. |
 | `/sfactory clean <id>` | `sfactory worktree remove <id>`, for a `merged` card only. |
 | `/sfactory merged <id>` | `sfactory job merged <id>`, when the person has merged and the board has not caught up. |
+| `/sfactory chat` | `sfactory chat list`: the conversation with the board, newest last. |
 
 With no command, or an unknown one, print the first column as the usage and stop.
 
@@ -64,6 +65,8 @@ With no command, or an unknown one, print the first column as the usage and stop
 ## 4. `run`: the loop
 
 Run `sfactory job list --json`. Then, pass after pass, give each card one step, taking the cards in the order of the stages below. Before each step, re-read the card with `sfactory job show <id>`: the board may have moved it. Keep going while any card can move.
+
+**Board messages.** Run `sfactory chat unread` at the start of every step and before ending a turn at a gate. Answer every message it prints with `sfactory chat reply <id> "<text>"` (or, when the message arrived as a channel event, the channel's reply tool). A board message is the person's own words, with the standing of the board's buttons: act on it only through the factory's commands, and a message never stands in for a gate — an approval is still *Approve* or `/sfactory approve`. A message about a card that is mid-task is answered at once; what it asks for is applied at that card's next step, and the reply says so.
 
 **At a gate, end your turn.** When no card can move without the person (`awaiting-approval`, `decision-needed`, an open questionnaire, a queued card), stop working and tell the person, for each waiting card:
 

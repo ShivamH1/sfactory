@@ -77,6 +77,8 @@ Only `bin/job` writes `job.json`, and only along these edges.
 
 *Amendment (2026-11-02, Part 3):* the board is redrawn in two glass themes (smoked, the default, and porcelain) with an Activity view (running agents, a timeline, live Codex output), and `board --demo` carries a running card with events and a Codex log. See §6 of `docs/plans/2026-10-30-sfactory-roadmap-activity-design.md`.
 
+*Amendment (2026-11-02, Part 4):* the board has a composer for messages to the session, General or about one card, kept in a thread file the board and the `sfactory chat` CLI both read and write; a channel server declared in the plugin manifest pushes them into a running session, which answers with its reply tool or `sfactory chat reply`. A message has four statuses: sent (written), pushed (handed to the channel), seen (read by `sfactory chat unread`) and answered (a reply written). Pushed is not delivered: it means the channel took the message, not that the session read it, so a message leaves "unread" only when `sfactory chat unread` reads it or a reply is written. See §6.4 of `docs/plans/2026-10-30-sfactory-roadmap-activity-design.md`.
+
 `job.json` fields: `id`, `kind`, `title`, `stage`, `returnStage`, `branch`, `base`, `worktree`, `ports`, `record` (paths of the brief, plan, log), `tasks` (n, done, parallel), `round`, `agents` (mode and the resolved models), `cost`, `started`, `updated`, `ended`, `history` (every transition with a timestamp and a reason).
 
 ## 5. The task loop
