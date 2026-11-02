@@ -25,37 +25,37 @@
   "parallel": null,
   "agents": null,
   "cost": 0,
-  "started": "2026-01-05T13:00:00.000Z",
+  "started": "2026-01-05T14:01:00.000Z",
   "updated": "2026-01-05T15:00:00.000Z",
   "ended": null,
   "history": [
     {
-      "at": "2026-01-05T13:00:00.000Z",
+      "at": "2026-01-05T14:01:00.000Z",
       "from": null,
       "to": "backlog",
       "by": "session",
       "reason": "created"
     },
     {
-      "at": "2026-01-05T13:05:00.000Z",
+      "at": "2026-01-05T14:02:00.000Z",
       "from": "backlog",
       "to": "planning",
       "by": "session",
       "reason": null
     },
     {
-      "at": "2026-01-05T13:20:00.000Z",
+      "at": "2026-01-05T14:05:00.000Z",
       "from": "planning",
       "to": "awaiting-approval",
       "by": "session",
       "reason": null
     },
     {
-      "at": "2026-01-05T13:30:00.000Z",
+      "at": "2026-01-05T14:08:00.000Z",
       "from": "awaiting-approval",
       "to": "building",
-      "by": "session",
-      "reason": null
+      "by": "board",
+      "reason": "approved"
     }
   ],
   "number": "6"

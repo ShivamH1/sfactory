@@ -58,6 +58,16 @@ test("m-7 is a building card with an events log that parses and a Codex log with
   assert.ok(codex?.log);
   assert.ok(Date.parse(job.updated) - Date.parse(codex.at) < 3600000, "the Codex start is within the hour before updated");
   assert.ok(readFileSync(join(dir, codex.log), "utf8").includes('"type":"item.completed"'));
+  // The stage events are what writeJob (src/store.mjs) writes from the job's own history.
+  const want = job.history.filter((h) => h.from !== h.to).map((h) => ({ at: h.at, by: h.by ?? "session", from: h.from ?? null, to: h.to, reason: h.reason ?? null }));
+  const got = events.filter((e) => e.kind === "stage").map(({ at, by, from, to, reason }) => ({ at, by, from, to, reason }));
+  assert.deepEqual(got, want);
+  assert.deepEqual(got[0], { at: got[0].at, by: "session", from: null, to: "backlog", reason: "created" });
+  const approveStage = events.findIndex((e) => e.kind === "stage" && e.to === "building");
+  assert.equal(events[approveStage].by, "board");
+  assert.equal(events[approveStage].reason, "approved");
+  assert.deepEqual(events[approveStage + 1], { kind: "gate", at: events[approveStage].at, by: "board", action: "approve" }, "the gate follows its stage event");
+  for (const e of events) assert.ok(Date.parse(job.updated) - Date.parse(e.at) <= 3600000, `${e.at} is within the hour before updated`);
   for (const other of ["m-1", "m-2", "m-3", "m-4", "m-5", "m-6", "f-1", "f-2"]) {
     const o = JSON.parse(readFileSync(join(committed, other, "job.json"), "utf8"));
     assert.ok(o.updated <= job.updated, `${other} is not later than m-7`);

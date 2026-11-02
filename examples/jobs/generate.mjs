@@ -85,26 +85,37 @@ export function jobs() {
 
   // m-7 is the demo's latest moment and holds a Codex agent started a few minutes before it, so `board --demo`
   // shows a running tile; its log is the test fixture's stream minus the closing line (the turn is still going).
-  let m7 = start("m-7", "milestone", "Saved searches", T(13));
-  m7 = walk(m7, [["planning", T(13, 5)], ["awaiting-approval", T(13, 20)], ["building", T(13, 30)]]);
-  const ev = (at, kind, rest) => encodeEvent({ kind, at, by: kind === "gate" ? "board" : "session", ...rest });
+  // The whole card sits inside the hour before its `updated` (15:00). Its stage events are built from its own history
+  // with writeJob's mapping (src/store.mjs), and the approve is made as a real one: by the board, reason "approved",
+  // with the gate event after the stage event it caused.
+  let m7 = start("m-7", "milestone", "Saved searches", T(14, 1));
+  m7 = walk(m7, [["planning", T(14, 2)], ["awaiting-approval", T(14, 5)]]);
+  m7 = transition(m7, "building", { now: T(14, 8), by: "board", reason: "approved" });
+  const ev = (at, kind, rest) => encodeEvent({ kind, at, by: "session", ...rest });
   const codexLog = "tasks/3/codex-0/codex.jsonl";
+  const stageEvents = m7.history.filter((h) => h.from !== h.to).map((h) => {
+    const line = encodeEvent({ kind: "stage", at: h.at, by: h.by ?? "session", from: h.from ?? null, to: h.to, reason: h.reason ?? null });
+    return h.to === "building" ? line + encodeEvent({ kind: "gate", at: h.at, by: "board", action: "approve" }) : line;
+  });
   const events = [
-    ev(T(13, 5), "stage", { from: "backlog", to: "planning", reason: "" }),
-    ev(T(13, 20), "stage", { from: "planning", to: "awaiting-approval", reason: "" }),
-    ev(T(13, 30), "gate", { action: "approve" }),
-    ev(T(13, 30), "stage", { from: "awaiting-approval", to: "building", reason: "approved" }),
-    ev(T(14, 5), "agent", { phase: "start", vendor: "claude", role: "spec-reviewer", task: "2" }),
-    ev(T(14, 20), "agent", { phase: "finish", vendor: "claude", role: "spec-reviewer", task: "2", verdict: "ok" }),
-    ev(T(14, 25), "commit", { sha: "a1b2c3d", files: 4 }),
+    ...stageEvents,
+    ev(T(14, 15), "agent", { phase: "start", vendor: "claude", role: "spec-reviewer", task: "2" }),
+    ev(T(14, 25), "agent", { phase: "finish", vendor: "claude", role: "spec-reviewer", task: "2", verdict: "ok" }),
+    ev(T(14, 28), "commit", { sha: "a1b2c3d", files: 4 }),
     ev(T(14, 30), "suite", { phase: "start" }),
     ev("2026-01-05T14:32:41.000Z", "suite", { phase: "finish", ok: true, exit: 0, durationMs: 161000 }),
     ev(T(14, 50), "agent", { phase: "start", vendor: "codex", role: "implementer", task: "3", model: "implement", log: codexLog }),
   ].join("");
+  // Regenerating needs the repo checkout: the fixture below is not shipped in the npm package.
   const stream = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../test/fixtures/codex-stream.jsonl"), "utf8").replace(/\r\n/g, "\n").trimEnd().split("\n");
   out.push({
     job: finish(m7, { number: "6", branch: "feature/saved-searches", base: BASE, worktree: "../wt/saved-searches", tasks: { total: 5, done: 2, parallel: [] }, updated: T(15) }),
-    files: { "events.jsonl": events, [codexLog]: stream.slice(0, -1).join("\n") + "\n" },
+    files: {
+      "events.jsonl": events,
+      [codexLog]: stream.slice(0, -1).join("\n") + "\n",
+      "tasks/3/brief.md": "# Task 3: Save a search\n\nAdd a *Save this search* button beside the search box. It stores the current query under a name the person types, and the saved searches appear in a menu under the box.\n\n- Names are unique per person; saving an existing name replaces it.\n- A saved search runs the same query as typing it.\n- Cover the replace case and an empty name with tests.\n",
+      "reviews/1-task-2-spec.md": "✅ Approved\n\nThe search box keeps its query in the address, so a saved search can restore it.\n",
+    },
   });
 
   return out;
