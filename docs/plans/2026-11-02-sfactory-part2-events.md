@@ -64,7 +64,7 @@
 **Interfaces:**
 - Produces: `EVENTS_FILE = "events.jsonl"`, `MAX_LINE_BYTES = 1024`, `KINDS` (the eight kinds), `STALE_AGENT_MS = 21_600_000`; `eventsPath(c, id)`; `encodeEvent(event) → string` (one line ending `\n`); `appendEvent(c, id, event, { now, warn }) → boolean`; `readEvents(c, id, { from = 0, maxBytes = 262144 }) → { events, next, size }`, each event carrying `end` (the byte offset after its line); `readAllEvents(c, id) → events[]`; `runningAgents(c, jobs, { now, staleMs }) → [{ id, role, task, vendor, model, startedAt, log }]`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `test/events.test.mjs`:
 
@@ -162,12 +162,12 @@ test("events: runningAgents — an open start on a working card, within the stal
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `node --test test/events.test.mjs`
 Expected: FAIL — `../src/events.mjs` does not exist.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `src/events.mjs`:
 
@@ -298,11 +298,11 @@ export function runningAgents(c, jobs, { now = Date.now(), staleMs = STALE_AGENT
 }
 ```
 
-- [ ] **Step 4: Run the test, then the full suite**
+- [x] **Step 4: Run the test, then the full suite**
 
 Run: `node --test test/events.test.mjs` — Expected: PASS. Then `node --test` — Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/events.mjs test/events.test.mjs
@@ -325,7 +325,7 @@ git commit -m "feat(events): the per-card event log — append, read by offset, 
 - Consumes: `appendEvent`, `readAllEvents` (Task 1).
 - Produces: every history entry `writeJob` adds with `from !== to` becomes a `stage` event `{ kind: "stage", at, by, from, to, reason }` (the entry's own `at` and `by`); every successful gate action (`approve`, `requestChanges`, `answer`, `parallel`, `merged`, `rework`, `start`, `external`) appends `{ kind: "gate", by, action }` (`action` in the CLI's spelling: `request-changes`; `parallel` also carries `yes`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `test/store.test.mjs` (extend its imports: `addJob`, `withJobLock` and `writeJob as rawWriteJob` from the store are already there; add `readAllEvents` from `../src/events.mjs` and `transition` from `../src/job.mjs`):
 
@@ -372,12 +372,12 @@ test("actions: a refused gate writes no gate event", () => {
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `node --test test/store.test.mjs test/job-actions.test.mjs`
 Expected: FAIL — no events are written.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `src/store.mjs`, add `import { appendEvent } from "./events.mjs";` and replace `writeJob`:
 
@@ -418,11 +418,11 @@ for (const [name, action] of Object.entries(GATES)) {
 }
 ```
 
-- [ ] **Step 4: Run the touched tests, then the full suite**
+- [x] **Step 4: Run the touched tests, then the full suite**
 
 Run: `node --test test/store.test.mjs test/job-actions.test.mjs test/import.test.mjs` — Expected: PASS. Then `node --test` — Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/store.mjs src/job-actions.mjs test/store.test.mjs test/job-actions.test.mjs
@@ -445,7 +445,7 @@ git commit -m "feat(events): stage events from writeJob's history, gate events f
 - Consumes: `appendEvent` (Task 1).
 - Produces: `checkAgent(agent)` exported from `src/job-actions.mjs` (validates and normalises `{ phase, role, vendor, task?, model?, verdict? }`, `BAD_ARGS` on any bad field); `actions.touch(c, { id, note, by, agent })` — with `agent` it appends an `agent` event, with only `note` a `note` event `{ kind: "note", text }`, with neither no event; `job.activity` is set only in a working stage, its note the given note or the agent's own label; CLI `sfactory job touch <id> --agent start|finish --role <r> --vendor claude|codex [--task <t>] [--model <m>] [--verdict ok|fixes]`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `test/job-actions.test.mjs` (add `checkAgent` to its import from `../src/job-actions.mjs`):
 
@@ -500,12 +500,12 @@ test("cli: job touch --agent records an agent event", async () => {
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `node --test test/job-actions.test.mjs test/cli.job.test.mjs`
 Expected: FAIL — `checkAgent` is not exported; no agent or note events.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `src/job-actions.mjs`, add above `actions`:
 
@@ -566,11 +566,11 @@ In `src/commands/job.mjs`, replace the `touch` entry of `sub`:
 
 and add `"agent", "role", "task", "vendor", "model", "verdict"` to `ACCEPTS.flags`.
 
-- [ ] **Step 4: Run the touched tests, then the full suite**
+- [x] **Step 4: Run the touched tests, then the full suite**
 
 Run: `node --test test/job-actions.test.mjs test/cli.job.test.mjs test/board.snapshot.test.mjs` — Expected: PASS. Then `node --test` — Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/job-actions.mjs src/commands/job.mjs test/job-actions.test.mjs test/cli.job.test.mjs
@@ -593,7 +593,7 @@ git commit -m "feat(events): job touch --agent records agent starts and finishes
 - Consumes: `appendEvent`, `readAllEvents` (Task 1); `jobDir` (store).
 - Produces: `sfactory codex exec|review --job <id>` appends `{ kind: "agent", phase: "start", vendor: "codex", role, task?, model: <profile>, log? }` before the run and `{ ..., phase: "finish", ok, exit?, durationMs? }` after it, the finish written even when the run throws; `role` is `--role` or `implementer` (exec) / `reviewer` (review); `--task` is optional; `log` is the Codex stream (`codex.jsonl` or `codex-review.jsonl` in `--out`) relative to the card's folder, present only when it lies inside it. `runSuite` appends `{ kind: "suite", phase: "start", log? }` once it holds the lock and `{ kind: "suite", phase: "finish", log?, exit, ok, durationMs }` after the run.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `test/codex.test.mjs` (reuse the setup of the existing "cli codex: records cost" test; add `readAllEvents` from `../src/events.mjs` and `jobDir` from `../src/store.mjs` to its imports):
 
@@ -641,12 +641,12 @@ test("suite: a run for a card records its start and finish", async () => {
 
 (The `logPath` is outside the card's folder, so the events carry no `log` field.)
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `node --test test/codex.test.mjs test/suite.test.mjs`
 Expected: FAIL — no agent or suite events; `--role` and `--task` refused by `ACCEPTS`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `src/commands/codex.mjs`:
 - imports: add `relative, isAbsolute, sep, join` to the `node:path` import, `jobDir` to the store import, and `import { appendEvent } from "../events.mjs";`;
@@ -711,11 +711,11 @@ export async function runSuite(c, { cwd, jobId, logPath, command = c.commands.su
 
 (`jobDir` asserts the id's shape and throws for a non-card holder; the `try` above makes that "no log field", and `appendEvent` itself writes nothing for a non-card id.)
 
-- [ ] **Step 4: Run the touched tests, then the full suite**
+- [x] **Step 4: Run the touched tests, then the full suite**
 
 Run: `node --test test/codex.test.mjs test/suite.test.mjs` — Expected: PASS. Then `node --test` — Expected: PASS (rerun `test/suite.test.mjs` alone if a process-timing test fails under load).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/commands/codex.mjs src/suite.mjs test/codex.test.mjs test/suite.test.mjs
@@ -740,7 +740,7 @@ git commit -m "feat(events): Codex runs and suite runs record their start and fi
 - Consumes: `appendEvent`, `readAllEvents` (Task 1).
 - Produces: `{ kind: "service", phase: "up", name, port? }` for each service started and `{ kind: "service", phase: "down", name }` for each one killed; `{ kind: "lock", phase: "take"|"release", name }` when a `live`, `suite` or `commit` lock is taken or released by a holder that is a card id; `{ kind: "commit", sha, files }` after a commit whose holder is a card id.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `test/services.test.mjs`, at the end of the existing test "services: up substitutes ports into cmd and env, drops secrets, logs, records; down kills and clears", after its last `assert`, add (and import `readAllEvents` from `../src/events.mjs`):
 
@@ -779,12 +779,12 @@ test("commit: a commit held by a card records its sha and file count; a session 
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `node --test test/lock.test.mjs test/commit.test.mjs test/services.test.mjs`
 Expected: FAIL — no service, lock or commit events.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `src/services.mjs`, add `import { appendEvent } from "./events.mjs";`. `resolveEntries` drops the config's `port` name; keep the resolved number — change its returned object from `{ name: e.name, cmd: sub(e.cmd, "cmd"), env, live: e.live === true }` to:
 
@@ -822,11 +822,11 @@ In `src/commit.mjs`, add `import { appendEvent } from "./events.mjs";` and repla
     return sha;
 ```
 
-- [ ] **Step 4: Run the touched tests, then the full suite**
+- [x] **Step 4: Run the touched tests, then the full suite**
 
 Run: `node --test test/lock.test.mjs test/commit.test.mjs test/services.test.mjs` — Expected: PASS. Then `node --test` — Expected: PASS (rerun `test/services.test.mjs` alone if a process-timing test fails under load).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/services.mjs src/lock.mjs src/commit.mjs test/services.test.mjs test/lock.test.mjs test/commit.test.mjs
@@ -855,7 +855,7 @@ Semantics:
 - `running`: `runningAgents` over every card.
 - Tail: only `.log`, `.jsonl` and `.md` files inside the card's folder (`403 FORBIDDEN_FILE` otherwise, including any path that escapes it); a missing file is `404 FILE_NOT_FOUND`; an unknown card `404 JOB_NOT_FOUND`; `from` past the end starts at 0; at most `TAIL_MAX` bytes, cut after the last newline when the read is full and holds one.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `test/board.activity.test.mjs`:
 
@@ -948,12 +948,12 @@ test("server: GET /activity.json and /jobs/:id/tail", async () => {
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `node --test test/board.activity.test.mjs test/board.server.test.mjs`
 Expected: FAIL — `../src/board/activity.mjs` does not exist; the routes answer 404.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `src/board/activity.mjs`:
 
@@ -1072,11 +1072,11 @@ In `src/board/server.mjs`:
       }
 ```
 
-- [ ] **Step 4: Run the touched tests, then the full suite**
+- [x] **Step 4: Run the touched tests, then the full suite**
 
 Run: `node --test test/board.activity.test.mjs test/board.server.test.mjs` — Expected: PASS. Then `node --test` — Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/board/activity.mjs src/board/server.mjs test/board.activity.test.mjs test/board.server.test.mjs
@@ -1100,7 +1100,7 @@ git commit -m "feat(board): the activity feed and a log tail, read by offset"
 - Consumes: the touch flags (Task 3) and the Codex `--role`/`--task` flags (Task 4).
 - Produces: the build skill touches with the structured form for Claude agents only and passes `--role`/`--task` to Codex runs; version `0.4.0`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `test/skills.test.mjs`, replace the test "every agent start and finish is a job touch; no agents.log" with:
 
@@ -1116,11 +1116,11 @@ test("every Claude agent's start and finish is a structured touch; a Codex run r
 });
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `node --test test/skills.test.mjs` — Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `skills/sdd/SKILL.md`, replace the touch paragraph (the line with `sfactory job touch <JOB> --note "<start|finish> <role> task <n> <alias|profile>"` and the sentence after it) with:
 
@@ -1150,11 +1150,11 @@ In `docs/DESIGN.md`, below the 2026-10-30 amendment, add: "*Amendment (2026-11-0
 
 Change `"version": "0.3.0"` to `"version": "0.4.0"` in `package.json` and `.claude-plugin/plugin.json`, and the version the test in `test/cli.test.mjs` expects.
 
-- [ ] **Step 4: Run the tests, then the full suite**
+- [x] **Step 4: Run the tests, then the full suite**
 
 Run: `node --test test/skills.test.mjs test/docs.test.mjs test/cli.test.mjs` — Expected: PASS. Then `node --test` — Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/sdd/SKILL.md skills/sfactory/SKILL.md test/skills.test.mjs README.md docs/DESIGN.md package.json .claude-plugin/plugin.json test/cli.test.mjs
