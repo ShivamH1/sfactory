@@ -225,3 +225,19 @@ test("page: cheap fixes: footer labels legible, the running line's time in mono,
   assert.match(act, /b\.setAttribute\("aria-label", \[pillOf\(t\.id\), name, whoOf\(t\)\]\.filter\(has\)\.join\(" · "\)\)/);
   assert.match(act, /const meta = h\("span", "act-meta"\);\s*meta\.setAttribute\("aria-hidden", "true"\);/);
 });
+
+test("chat: the composer mounts on both views and talks to the chat routes", () => {
+  const chat = read("chat.mjs");
+  assert.match(js, /from "\.\/chat\.mjs"/);
+  assert.match(chat, /export function mountChat/);
+  assert.match(chat, /\/chat\.json/);
+  assert.match(chat, /"\/chat"/);
+  assert.match(chat, /X-Sfactory-Board/);
+  assert.match(chat, /Channel running/);
+  assert.match(chat, /Read at the factory's next step/);
+  assert.match(chat, /handed to the session/);
+  assert.match(chat, /document\.hidden/);
+  assert.match(chat, /Messages are off in the demo/);
+  assert.equal(chat.includes("innerHTML"), false);
+  assert.match(shell, /id="chat"/);
+});

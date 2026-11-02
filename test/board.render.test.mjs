@@ -79,3 +79,8 @@ test("render: the Activity view parses as a module and touches no document at im
   const mod = await import(new URL("../board/activity.mjs", import.meta.url));
   assert.equal(typeof mod.mountActivity, "function");
 });
+
+test("render: the composer parses as a module and touches no document at import", async () => {
+  const mod = await import(new URL("../board/chat.mjs", import.meta.url));
+  assert.equal(typeof mod.mountChat, "function");
+});

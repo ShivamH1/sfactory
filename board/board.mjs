@@ -1,4 +1,5 @@
 import { mountActivity } from "./activity.mjs";
+import { mountChat } from "./chat.mjs";
 import { fmtElapsed, vendorName, taskLabel, byMilestoneNumber } from "./activity-state.mjs";
 
 (function () {
@@ -511,6 +512,16 @@ import { fmtElapsed, vendorName, taskLabel, byMilestoneNumber } from "./activity
   document.querySelectorAll("#tabs [data-view]").forEach(function (b) {
     b.addEventListener("click", function () { showView(b.getAttribute("data-view"), true); });
   });
+
+  // ---- the composer, on both views: its default scope is the card open in the drawer, else the agent selected in Activity ----
+  var chatView = mountChat($("chat"), {
+    getSnapshot: function () { return snap; },
+    getContextCard: function () {
+      if (drawerJob) return drawerJob;
+      return $("activity").hidden ? null : activityView.selectedCard();
+    },
+  });
+  chatView.start();
 
   poll().then(schedule);
 })();
