@@ -48,6 +48,8 @@ const sub = {
   "request-changes": (p, f) => ({ id: p[0], notes: f.notes }),
   touch: (p, f) => {
     if (f.note === true) fail("BAD_ARGS", '--note needs a value: sfactory job touch <id> --note "<text>"');
+    for (const k of ["verdict", "task", "model"]) if (f[k] === true) fail("BAD_ARGS", `--${k} needs a value`);
+    if (f.agent === undefined && ["role", "vendor", "task", "model", "verdict"].some((k) => f[k] !== undefined)) fail("BAD_ARGS", "--role, --vendor, --task, --model and --verdict go with --agent");
     const agent = f.agent === undefined ? undefined : {
       phase: str(f.agent), role: str(f.role), vendor: str(f.vendor),
       ...(f.task !== undefined ? { task: str(f.task) } : {}),
@@ -68,6 +70,7 @@ register("job", async ({ positional, flags }, io) => {
   const [name, ...rest] = positional;
   if (!Object.hasOwn(sub, name ?? "")) fail("UNKNOWN_COMMAND", `job ${name ?? ""}; one of ${Object.keys(sub).join(", ")}`);
   const c = loadConfig(findRepoRoot(io.cwd));
+  if (typeof flags.by === "string" && flags.by.trim().length > 40) fail("BAD_ARGS", "--by must be at most 40 characters");
   const args = { ...sub[name](rest, flags), ...(typeof flags.by === "string" ? { by: flags.by } : {}) };
   if (typeof args.id === "string") args.id = resolveId(c, args.id);
   if (name === "add" && (!args.kind || !rest.slice(1).length)) fail("BAD_ARGS", 'usage: sfactory job add <milestone|fix> "<title>" [--log <n>, fix only] [--number <n>] [--roadmap] [--after "<text>"]');

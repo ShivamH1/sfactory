@@ -42,8 +42,9 @@ export function encodeEvent(event) {
  * says nothing (a lock or a suite run held by something that is not a card). Any other failure warns and returns false.
  */
 export function appendEvent(c, id, event, { now = new Date().toISOString(), warn = (m) => process.stderr.write(m) } = {}) {
-  if (!ID_RE.test(String(id)) || !existsSync(join(c.stateDir, "jobs", String(id)))) return false;
+  if (!ID_RE.test(String(id))) return false;
   try {
+    if (!existsSync(join(c.stateDir, "jobs", String(id)))) return false;
     if (!KINDS.includes(event?.kind)) throw new Error(`unknown event kind "${event?.kind}"`);
     const line = encodeEvent({ at: now, by: "session", ...event });
     if (line === null) throw new Error(`the event does not fit in ${MAX_LINE_BYTES} bytes`);

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tmpDir } from "./helpers.mjs";
 import { addJob, writeJobFile } from "../src/store.mjs";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, rmSync } from "node:fs";
 import { appendEvent, eventsPath, encodeEvent } from "../src/events.mjs";
 import { activity, tail, TAIL_MAX } from "../src/board/activity.mjs";
 
@@ -23,6 +23,14 @@ test("activity: first call gives the newest events oldest first and a cursor at 
   addJob(c, "fix", "c");
   appendEvent(c, "f-1", { kind: "note", text: "five" }, { now: t(5) });
   assert.deepEqual(notes(activity(c, { cursor: r.cursor })), ["m-2 four", "f-1 five"]);
+});
+
+test("activity: the cursor leaves out cards whose log is empty", () => {
+  const c = cfg(); addJob(c, "milestone", "a"); addJob(c, "milestone", "b"); addJob(c, "milestone", "c");
+  for (const id of ["m-1", "m-2", "m-3"]) rmSync(eventsPath(c, id), { force: true }); // cards with no history
+  appendEvent(c, "m-2", { kind: "note", text: "one" }, { now: t(1) });
+  const o = JSON.parse(Buffer.from(activity(c, {}).cursor, "base64url").toString("utf8"));
+  assert.deepEqual(Object.keys(o), ["m-2"]);
 });
 
 test("activity: a limit never skips an event; the rest comes on the next call", () => {

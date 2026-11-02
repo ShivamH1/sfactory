@@ -8,7 +8,8 @@ export const ACTIVITY_LIMIT = 200;
 export const ACTIVITY_MAX = 500;
 export const TAIL_MAX = 64 * 1024;
 
-const encodeCursor = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+/** A card at offset 0 is left out: a missing key already means 0, so a board of history cards keeps a short cursor. */
+const encodeCursor = (o) => Buffer.from(JSON.stringify(Object.fromEntries(Object.entries(o).filter(([, v]) => v > 0)))).toString("base64url");
 function decodeCursor(s) {
   try {
     const o = JSON.parse(Buffer.from(String(s), "base64url").toString("utf8"));

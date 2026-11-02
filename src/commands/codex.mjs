@@ -4,10 +4,11 @@ import { addCost } from "../cost.mjs";
 import { readJob, jobDir } from "../store.mjs";
 import { appendEvent } from "../events.mjs";
 import { fail } from "../errors.mjs";
-import { runCodexExec, runCodexReview, profileModel } from "../codex.mjs";
+import { checkAgent } from "../job-actions.mjs";
+import { runCodexExec, runCodexReview, profileModel, EXEC_STREAM, REVIEW_STREAM } from "../codex.mjs";
 import { resolve, relative, isAbsolute, sep, join } from "node:path";
 
-const USAGE = "usage: sfactory codex exec --cwd <dir> --profile <p> --out <dir> [--sandbox s] [--job id --stage s --model m] < prompt\n       sfactory codex review --cwd <dir> (--base <b>|--commit <sha>) --profile <p> --out <dir> [--job id --stage s --model m] < prompt";
+const USAGE = "usage: sfactory codex exec --cwd <dir> --profile <p> --out <dir> [--sandbox s] [--job id --stage s --model m] [--role r --task t] < prompt\n       sfactory codex review --cwd <dir> (--base <b>|--commit <sha>) --profile <p> --out <dir> [--job id --stage s --model m] [--role r --task t] < prompt";
 
 async function readStdin(io) {
   if (io.stdin) return io.stdin();
@@ -36,7 +37,8 @@ ${USAGE}`);
   if (typeof flags.job === "string") readJob(c, flags.job); // a bad job id fails before Codex is run
   // A run given --job is an agent the board can show: its start, then its finish, even when the run throws.
   const role = typeof flags.role === "string" ? flags.role : verb === "exec" ? "implementer" : "reviewer";
-  const stream = join(outDir, verb === "exec" ? "codex.jsonl" : "codex-review.jsonl");
+  const stream = join(outDir, verb === "exec" ? EXEC_STREAM : REVIEW_STREAM);
+  checkAgent({ phase: "start", role, vendor: "codex", ...(typeof flags.task === "string" ? { task: flags.task } : {}) }); // before anything runs
   const agentEvent = (phase, extra = {}) => {
     if (typeof flags.job !== "string") return;
     const rel = relative(jobDir(c, flags.job), stream);

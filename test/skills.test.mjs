@@ -244,6 +244,9 @@ test("every Claude agent's start and finish is a structured touch; a Codex run r
   assert.ok(!t.includes("agents.log"), "the agents.log stand-in is gone");
   assert.match(read(join(skillsRoot, "sfactory", "SKILL.md")), /sfactory job touch <id> --agent <start\|finish> --role <role> --vendor claude --model <alias>/);
   for (const s of ["brainstorming", "writing-plans"]) assert.match(read(join(skillsRoot, s, "SKILL.md")), /sfactory job touch <JOB> --note/, `${s}: touches the job`);
+  const orch = read(join(skillsRoot, "sfactory", "SKILL.md"));
+  assert.match(orch, /sfactory codex exec [^\n`]*--role planner --task plan/);
+  assert.match(orch, /sfactory codex review [^\n`]*--role bug-hunter --task branch/);
 });
 
 test("sdd: the branch fixer is chosen per design §3 and the branch cap has one rule", () => {

@@ -89,6 +89,7 @@ export function startBoard(c, { port = c.board.port, host = "127.0.0.1", demoDir
         const body = await readBody(req);
         for (const k of ["text", "notes", "reason", "by"]) if (body[k] !== undefined && typeof body[k] !== "string") throw new SfactoryError("BAD_ARGS", `"${k}" must be a string`);
         if (body.yes !== undefined && typeof body.yes !== "boolean") throw new SfactoryError("BAD_ARGS", '"yes" must be true or false');
+        if (body.by !== undefined && body.by.trim().length > 40) throw new SfactoryError("BAD_ARGS", '"by" must be at most 40 characters');
         const args = { id: parts[1], by: body.by?.trim() || "board" };
         for (const k of ["text", "notes", "yes", "reason"]) if (body[k] !== undefined) args[k] = body[k];
         // synchronous, under the job lock: nothing is awaited between here and the write

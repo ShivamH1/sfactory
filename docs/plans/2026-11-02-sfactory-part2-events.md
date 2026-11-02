@@ -18,6 +18,7 @@
 - An agent event is written even when the card is outside a working stage (a finish after the card moved on still belongs in the timeline); `job.activity` is still set only in a working stage. The running rule ignores cards outside the working stages.
 - A Codex run given `--job` records its own start and finish; the skills stop touching for Codex runs and touch only for Claude agents, so a Codex run is not recorded twice.
 - The import's per-card `stage` event (owed by Part 1) comes from `writeJob`, like every other stage move.
+- A tail read whose `from` is past the end re-reads from 0 and answers `from: 0` (spec §5 said empty with the size); a client compares the answer's `from` with what it asked for and replaces its text when they differ.
 
 ## Global Constraints
 

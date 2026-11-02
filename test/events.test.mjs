@@ -26,6 +26,12 @@ test("events: not a card, or no card folder, writes nothing and warns nothing", 
   assert.deepEqual(warned, []);
 });
 
+test("events: an odd stateDir warns and returns false, never throws", () => {
+  const warned = [];
+  assert.equal(appendEvent({ stateDir: 42 }, "m-1", { kind: "note", text: "x" }, { warn: (m) => warned.push(m) }), false);
+  assert.equal(warned.length, 1);
+});
+
 test("events: an unknown kind or a write failure warns once and never throws", () => {
   const c = cfg(); card(c, "m-1"); const warned = [];
   assert.equal(appendEvent(c, "m-1", { kind: "nope" }, { warn: (m) => warned.push(m) }), false);

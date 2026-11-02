@@ -222,6 +222,20 @@ test("cli codex: records cost (model from the profile file), validates --job bef
   assert.match(errs.join(""), /timed out/);
 });
 
+test("cli codex: an empty or over-long --role or --task is BAD_ARGS and nothing runs", async () => {
+  const root = tmpRepo();
+  writeConfig(root, { project: "p", agents: { mode: "codex" }, commands: { suite: "npm test" }, stateDir: tmpDir("sf-cli-"), worktrees: { dir: tmpDir("sf-clw-") }, ports: { base: 47950 } });
+  const errs = [];
+  let calls = 0;
+  const runners = { exec: async () => { calls++; return { ok: true, exitCode: 0, logPath: "l", lastMessagePath: "m", durationMs: 1 }; }, review: async () => { calls++; return { ok: true, text: "t", logPath: "l" }; } };
+  const io = { cwd: root, stdout: () => {}, stderr: (s) => errs.push(s), stdin: async () => "p", runners };
+  for (const extra of [["--role", ""], ["--role", "r".repeat(41)], ["--task", "t".repeat(41)]]) {
+    assert.notEqual(await main(["codex", "exec", "--cwd", ".", "--profile", "implement", "--out", "o", ...extra], io), 0, extra.join(" "));
+  }
+  assert.notEqual(await main(["codex", "review", "--cwd", ".", "--base", "main", "--profile", "review", "--out", "o", "--role", "r".repeat(41)], io), 0);
+  assert.equal(calls, 0, "the runner is not called");
+});
+
 test("cli codex: --job records the run's start and finish as agent events, with the stream's path", async () => {
   const root = tmpRepo();
   const stateDir = tmpDir("sf-cli-");

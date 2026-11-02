@@ -95,7 +95,7 @@ A run ends when nothing is left but `roadmap`, `external`, `pushed`, `merged` an
 2. **The brief.** Touch the card, then invoke the `sfactory:brainstorming` skill (Skill tool). Hand it JOB, kind, title, JOB_DIR, WORKTREE and BRIEF, PLAN and LOG. It works with the person, writes the brief (and the stories, when `record.stories` is set), commits them in WORKTREE, writes `plan/questionnaire.md` when questions remain, and hands back to you. It never invokes writing-plans itself.
 3. **The plan.** When brainstorming hands back, you run `sfactory:writing-plans` through the plan role (section 6):
    - **A Claude subagent** follows `${CLAUDE_PLUGIN_ROOT}/skills/writing-plans/SKILL.md`, with the same inputs.
-   - **In `codex` mode**, render a prompt into `<JOB_DIR>/plan/plan-prompt.md`. It names the brief, the plan path and that skill's Task Structure and What the Parser Refuses rules, and says that Codex never commits. Run `sfactory codex exec --cwd <WORKTREE> --profile <agents.codex.implement> --out <JOB_DIR>/plan/codex-plan --job <id> --stage planning < <JOB_DIR>/plan/plan-prompt.md`. Then do the skill's self-review check 4 yourself and commit the plan with `sfactory commit --cwd <WORKTREE> --holder <id> --m "docs: plan for <title>" -- <record.plan>`, unless the plan is in JOB_DIR.
+   - **In `codex` mode**, render a prompt into `<JOB_DIR>/plan/plan-prompt.md`. It names the brief, the plan path and that skill's Task Structure and What the Parser Refuses rules, and says that Codex never commits. Run `sfactory codex exec --cwd <WORKTREE> --profile <agents.codex.implement> --out <JOB_DIR>/plan/codex-plan --job <id> --stage planning --role planner --task plan < <JOB_DIR>/plan/plan-prompt.md`. Then do the skill's self-review check 4 yourself and commit the plan with `sfactory commit --cwd <WORKTREE> --holder <id> --m "docs: plan for <title>" -- <record.plan>`, unless the plan is in JOB_DIR.
    - **Hold the move back when the parallel check is due.** The check is due for a milestone in any of these cases:
      - its real-plan check (section 5) has not run yet (there is no `plan/parallel-check.md`), another milestone is active, and `parallel` is still null;
      - its real-plan check has not run yet and `parallel` is already `approved`;
@@ -155,7 +155,7 @@ A run ends when nothing is left but `roadmap`, `external`, `pushed`, `merged` an
 
 The sdd skill's whole-branch review, run in this order:
 
-1. The bug-hunt: `sfactory codex review --cwd <WORKTREE> --base <base.head> --profile <agents.codex.review> --out <JOB_DIR>/review/codex-bug-hunt --job <id> --stage reviewing`, or `sfactory:code-reviewer`, by mode.
+1. The bug-hunt: `sfactory codex review --cwd <WORKTREE> --base <base.head> --profile <agents.codex.review> --out <JOB_DIR>/review/codex-bug-hunt --job <id> --stage reviewing --role bug-hunter --task branch`, or `sfactory:code-reviewer`, by mode.
 2. The judge, `sfactory:judge`, against the brief's done-whens.
 3. One verdict rule:
    - **Move to `verifying`** (`sfactory job set <id> verifying`) only when the judge is ✅, no Critical or Important bug-hunt finding stands, and no scoped re-review says NOT ADDRESSED.

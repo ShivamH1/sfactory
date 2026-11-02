@@ -58,6 +58,17 @@ test("server: approve needs the header, the right stage, then writes the approva
   });
 });
 
+test("server: a \"by\" of more than 40 characters is a 400", async () => {
+  const c = mk();
+  const j = addJob(c, "milestone", "By");
+  toApproval(c, j.id);
+  await withBoard(c, {}, async (b) => {
+    const r = await post(b, `jobs/${j.id}/approve`, { by: "x".repeat(41) });
+    assert.equal(r.status, 400);
+    assert.equal((await post(b, `jobs/${j.id}/approve`, { by: "x".repeat(40) })).status, 200);
+  });
+});
+
 test("server: answer releases a parked job; parallel no queues; request-changes", async () => {
   const c = mk();
   const f = addJob(c, "fix", "Parked");
