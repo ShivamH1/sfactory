@@ -66,7 +66,7 @@ export function reply(c, { replyTo, text, now = new Date().toISOString() } = {})
   return append(c, { type: "reply", id: newId(), at: now, from: "session", replyTo, ...(m.card ? { card: m.card } : {}), text });
 }
 
-/** The channel handed this message to the session (which may not have channels enabled: not proof it was read). */
+/** A channel server offered this message to its session (which may not have the channel flag: not proof it was read). */
 export function markPushed(c, id, now = new Date().toISOString()) { return append(c, { type: "pushed", id, at: now }); }
 
 export function heartbeat(c, { pid = process.pid, now = new Date().toISOString() } = {}) {

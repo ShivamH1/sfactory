@@ -56,10 +56,24 @@ export function appendEvent(c, id, event, { now = new Date().toISOString(), warn
   }
 }
 
+/** The offset of the first newline at or after `pos` and before `size`, or null when there is none yet. */
+function nextNewline(fd, pos, size) {
+  const buf = Buffer.alloc(64 * 1024);
+  while (pos < size) {
+    const n = readSync(fd, buf, 0, Math.min(buf.length, size - pos), pos);
+    if (n <= 0) return null;
+    const i = buf.subarray(0, n).indexOf(0x0a);
+    if (i >= 0) return pos + i;
+    pos += n;
+  }
+  return null;
+}
+
 /**
  * Items of a JSON-lines file from byte offset `from`, reading at most `maxBytes`: complete lines only, each item with
- * `end`, the offset after its line; a line that does not parse is skipped. `next` is where the next read starts.
- * A missing file is empty; an offset past the end (the file was replaced) starts again from 0.
+ * `end`, the offset after its line; a line that does not parse is skipped, and so is a complete line longer than
+ * `maxBytes` (the reader always advances past it). `next` is where the next read starts; an unfinished last line,
+ * however long, is waited for. A missing file is empty; an offset past the end (the file was replaced) starts again from 0.
  */
 export function readJsonLines(f, { from = 0, maxBytes = 256 * 1024 } = {}) {
   if (!existsSync(f)) return { items: [], next: 0, size: 0 };
@@ -73,7 +87,11 @@ export function readJsonLines(f, { from = 0, maxBytes = 256 * 1024 } = {}) {
     const chunk = buf.subarray(0, n);
     const last = chunk.lastIndexOf(0x0a);
     const items = [];
-    if (last < 0) return { items, next: start, size };
+    if (last < 0) {
+      if (n === 0 || n < maxBytes) return { items, next: start, size }; // nothing read, or an unfinished last line: wait for its newline
+      const nl = nextNewline(fd, start + n, size); // one line longer than the window: skip past it, unread
+      return { items, next: nl === null ? start : nl + 1, size };
+    }
     let pos = 0;
     while (pos <= last) {
       const nl = chunk.indexOf(0x0a, pos);

@@ -7,7 +7,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { tmpDir, tmpRepo, writeConfig } from "./helpers.mjs";
 import { createChannel, INSTRUCTIONS, REPLY_TOOL } from "../src/channel/server.mjs";
-import { postMessage, messages } from "../src/chat.mjs";
+import { postMessage, messages, unread, reply } from "../src/chat.mjs";
 import { loadConfig } from "../src/config.mjs";
 
 const setup = () => {
@@ -43,6 +43,33 @@ test("channel: pushes each new message once, only after initialized, and marks i
   assert.deepEqual(sent.at(-1).params.meta, { message_id: g.id });
 });
 
+test("channel: a second channel server on the same thread still offers a pushed message to its own session, and neither writes a second mark", () => {
+  const { c, sent, ch } = setup();
+  const m = postMessage(c, { text: "for every open session" });
+  ch.handle({ jsonrpc: "2.0", method: "notifications/initialized" });
+  assert.equal(sent.length, 1);
+  assert.equal(messages(c)[0].status, "pushed");
+  const sent2 = [];
+  const ch2 = createChannel({ c, send: (x) => sent2.push(x), now: () => "2026-11-02T12:00:01.000Z" });
+  ch2.handle({ jsonrpc: "2.0", method: "notifications/initialized" });
+  assert.deepEqual(sent2, [{ jsonrpc: "2.0", method: "notifications/claude/channel", params: { content: "for every open session", meta: { message_id: m.id } } }]);
+  assert.equal(ch2.pushNew(), 0, "never twice from one process");
+  assert.equal(ch.pushNew(), 0);
+  const marks = readFileSync(join(c.stateDir, "chat", "thread.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)).filter((e) => e.type === "pushed");
+  assert.equal(marks.length, 1, "one pushed mark, written by the first server");
+});
+
+test("channel: a message already seen or answered is not offered", () => {
+  const { c, sent, ch } = setup();
+  const m = postMessage(c, { text: "taken" });
+  unread(c);
+  const a = postMessage(c, { text: "answered" });
+  reply(c, { replyTo: a.id, text: "done" });
+  ch.handle({ jsonrpc: "2.0", method: "notifications/initialized" });
+  assert.equal(sent.length, 0);
+  assert.equal(messages(c).find((x) => x.id === m.id).status, "seen");
+});
+
 test("channel: tools/list and the reply tool", () => {
   const { c, sent, ch } = setup();
   const m = postMessage(c, { text: "q" });
@@ -68,13 +95,25 @@ test("channel: ping, unknown methods and notifications", () => {
   assert.equal(sent.length, n);
 });
 
-test("channel: with no config it answers the protocol and pushes nothing", () => {
+test("channel: with no config it answers the protocol, gives no instructions, lists no tools and pushes nothing", () => {
   const sent = [];
   const ch = createChannel({ c: null, send: (m) => sent.push(m) });
   ch.handle({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].result.serverInfo.name, "sfactory");
+  assert.equal("instructions" in sent[0].result, false);
   ch.handle({ jsonrpc: "2.0", method: "notifications/initialized" });
   assert.equal(ch.pushNew(), 0);
   assert.equal(sent.length, 1);
+  ch.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+  assert.deepEqual(sent.at(-1), { jsonrpc: "2.0", id: 2, result: { tools: [] } });
+});
+
+test("channel: the instructions name the board as the source and both ways to answer", () => {
+  assert.match(INSTRUCTIONS, /They are written from the sfactory board on this machine, with the standing of the board's buttons\./);
+  assert.match(INSTRUCTIONS, /Answer every message, with the reply tool \(message_id and your text\) or `sfactory chat reply <id> "<text>"`\./);
+  assert.doesNotMatch(INSTRUCTIONS, /own words from their own machine/);
+  assert.match(INSTRUCTIONS, /never stands in for a gate/);
 });
 
 test("channel: the plugin manifest declares the server", () => {

@@ -38,3 +38,34 @@ test("cli chat: --card filters, --json prints objects, refusals exit non-zero", 
   assert.notEqual((await run(r0, ["chat", "reply", b.id])).code, 0);
   assert.notEqual((await run(r0, ["chat", "shout"])).code, 0);
 });
+
+test("cli chat: --card without a value is refused; reply does not resolve --card", async () => {
+  const r0 = repo();
+  const c = loadConfig(r0);
+  const m = postMessage(c, { text: "q" });
+  for (const args of [["chat", "unread", "--card"], ["chat", "unread", "--card="], ["chat", "list", "--card"], ["chat", "list", "--card="]]) {
+    const r = await run(r0, args);
+    assert.equal(r.code, 2, args.join(" "));
+    assert.equal(r.err, "error BAD_ARGS: --card needs a card id\n", args.join(" "));
+  }
+  assert.equal(messages(c)[0].status, "sent", "a refused unread marks nothing");
+  // M99 names no card: unread and list resolve it and fail, reply never looks
+  assert.match((await run(r0, ["chat", "list", "--card", "M99"])).err, /JOB_NOT_FOUND/);
+  const r = await run(r0, ["chat", "reply", m.id, "fine", "--card", "M99"]);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(messages(c)[0].replies[0].text, "fine");
+});
+
+test("cli chat: reply takes the text after -- as it is, so a reply may start with dashes", async () => {
+  const r0 = repo();
+  const c = loadConfig(r0);
+  const m = postMessage(c, { text: "q" });
+  let r = await run(r0, ["chat", "reply", m.id, "--", "--force is not needed"]);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(messages(c)[0].replies.at(-1).text, "--force is not needed");
+  r = await run(r0, ["chat", "reply", m.id, "use", "--", "--json", "here"]);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(messages(c)[0].replies.at(-1).text, "use --json here");
+  assert.equal((await run(r0, ["chat", "reply", m.id, "--"])).code, 2, "nothing after -- is no text");
+  assert.match((await run(r0, ["chat"])).err, /reply <id> \[--\] "<text>"/);
+});

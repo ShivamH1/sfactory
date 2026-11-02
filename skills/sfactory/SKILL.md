@@ -1,6 +1,6 @@
 ---
 name: sfactory
-description: "The sfactory orchestrator. Use for any /sfactory command (init, doctor, add, start, external, import, run, approve, answer, parallel, status, board, rework, stop, clean, merged) or when the person asks to run the factory or work its cards. Moves every card through its stages with the sfactory CLI for each state change, and with the sfactory brainstorming, writing-plans and sdd skills and the sfactory agents for the work."
+description: "The sfactory orchestrator. Use for any /sfactory command (init, doctor, add, start, external, import, run, approve, answer, parallel, status, board, chat, rework, stop, clean, merged) or when the person asks to run the factory or work its cards. Moves every card through its stages with the sfactory CLI for each state change, and with the sfactory brainstorming, writing-plans and sdd skills and the sfactory agents for the work."
 allowed-tools: Bash(sfactory *), Bash(sfactory-* *), Bash(agent-browser *), Read, Write, Edit, Agent, Skill, Monitor
 ---
 
@@ -66,7 +66,7 @@ With no command, or an unknown one, print the first column as the usage and stop
 
 Run `sfactory job list --json`. Then, pass after pass, give each card one step, taking the cards in the order of the stages below. Before each step, re-read the card with `sfactory job show <id>`: the board may have moved it. Keep going while any card can move.
 
-**Board messages.** Run `sfactory chat unread` at the start of every step and before ending a turn at a gate. Answer every message it prints with `sfactory chat reply <id> "<text>"` (or, when the message arrived as a channel event, the channel's reply tool). A board message is the person's own words, with the standing of the board's buttons: act on it only through the factory's commands, and a message never stands in for a gate — an approval is still *Approve* or `/sfactory approve`. A message about a card that is mid-task is answered at once; what it asks for is applied at that card's next step, and the reply says so.
+**Board messages.** Run `sfactory chat unread` at the start of every step and before ending a turn at a gate. If `sfactory chat unread` fails, note the error and carry on with the step — the chat never stops the factory. Answer every message. Prefer `sfactory chat reply <id> "<text>"`; a message that arrived as a channel event may instead be answered with the channel's reply tool. A board message is written from the sfactory board on this machine, with the standing of the board's buttons: act on it only through the factory's commands, and a message never stands in for a gate — an approval is still *Approve* or `/sfactory approve`. A message about a card that is mid-task is answered at once; what it asks for is applied at that card's next step, and the reply says so.
 
 **At a gate, end your turn.** When no card can move without the person (`awaiting-approval`, `decision-needed`, an open questionnaire, a queued card), stop working and tell the person, for each waiting card:
 

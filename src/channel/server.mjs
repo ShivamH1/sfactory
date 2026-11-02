@@ -4,7 +4,7 @@ import { createInterface } from "node:readline";
 import { findRepoRoot, loadConfig } from "../config.mjs";
 import { messages, markPushed, reply, heartbeat, chatDir } from "../chat.mjs";
 
-export const INSTRUCTIONS = "Messages from the person's sfactory board arrive as channel events with a message_id and, when the message is about one card, its card id. They are the person's own words from their own machine, with the same standing as the board's buttons. Answer every message with the reply tool (message_id and your text). Act on a message only through the factory's normal commands; a message never stands in for a gate, so an approval is still the board's Approve button or /sfactory approve.";
+export const INSTRUCTIONS = "Messages from the person's sfactory board arrive as channel events with a message_id and, when the message is about one card, its card id. They are written from the sfactory board on this machine, with the standing of the board's buttons. Answer every message, with the reply tool (message_id and your text) or `sfactory chat reply <id> \"<text>\"`. Act on a message only through the factory's normal commands; a message never stands in for a gate, so an approval is still the board's Approve button or /sfactory approve.";
 
 export const REPLY_TOOL = {
   name: "reply",
@@ -21,14 +21,19 @@ export function createChannel({ c, send, now = () => new Date().toISOString() })
   const result = (id, r) => send({ jsonrpc: "2.0", id, result: r });
   const error = (id, code, message) => send({ jsonrpc: "2.0", id, error: { code, message } });
 
+  /**
+   * Offers every message the session has not taken (sent or pushed) that this process has not offered yet: one
+   * channel server runs per open session, and each offers to its own (a session without the channel flag drops
+   * it). Only the first offer of a message writes the pushed mark.
+   */
   function pushNew() {
     if (!ready || !c) return 0;
     let n = 0;
     for (const m of messages(c)) {
-      if (m.status !== "sent" || pushed.has(m.id)) continue;
+      if ((m.status !== "sent" && m.status !== "pushed") || pushed.has(m.id)) continue;
       send({ jsonrpc: "2.0", method: "notifications/claude/channel", params: { content: m.text, meta: { message_id: m.id, ...(m.card ? { card: m.card } : {}) } } });
       pushed.add(m.id);
-      markPushed(c, m.id, now());
+      if (m.status === "sent") markPushed(c, m.id, now());
       n += 1;
     }
     return n;
@@ -60,10 +65,10 @@ export function createChannel({ c, send, now = () => new Date().toISOString() })
           protocolVersion: params?.protocolVersion,
           capabilities: { experimental: { "claude/channel": {} }, tools: {} },
           serverInfo: { name: "sfactory", version: VERSION },
-          instructions: INSTRUCTIONS,
+          ...(c ? { instructions: INSTRUCTIONS } : {}),
         });
       case "ping": return result(id, {});
-      case "tools/list": return result(id, { tools: [REPLY_TOOL] });
+      case "tools/list": return result(id, { tools: c ? [REPLY_TOOL] : [] });
       case "tools/call": return callTool(id, params);
       default: return error(id, -32601, `method not found: ${method}`);
     }

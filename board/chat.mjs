@@ -8,16 +8,19 @@
 const MAX_TEXT = 4000;               // the server's limit, src/chat.mjs MAX_TEXT
 const COUNT_FROM = 3600;             // the character count shows from here
 const MAX_WAIT_MS = 30000;           // the longest back-off after failed polls
-const REQUEST_TIMEOUT_MS = 15000;    // a request still out after this is abandoned, so a stuck one never stops the polling
+const REQUEST_TIMEOUT_MS = 15000;    // a request still out after this is abandoned, so a stuck one never stops the polling or the box
+const SENT_NOTE_MS = 3000;           // how long the quiet "Sent" note stays
 const NEAR_BOTTOM_PX = 24;
 const SEEN_KEY = "board-chat-seen";  // the newest reply this viewer has seen, per browser
 const CARD_RE = /^[mf]-\d+$/;
-const STATUS = { sent: "sent", pushed: "handed to the session", seen: "seen", answered: "answered" };
+const STATUS = { sent: "sent", pushed: "offered to the session", seen: "seen", answered: "answered" };
 const CHANNEL_ON = "Channel running";
 const CHANNEL_OFF = "Read at the factory's next step";
-const CHANNEL_ON_TITLE = "The channel hands each message to the session as you send it. Without it, the session reads messages at the factory's next step.";
-const CHANNEL_OFF_TITLE = "The session reads messages at the factory's next step. With the channel running, each message reaches the session as you send it.";
+const CHANNEL_ON_TITLE = "The plugin's channel server is running. Messages arrive in the session as you send them only if the session was started with the channel flag; otherwise the session reads them at the factory's next step.";
+const CHANNEL_OFF_TITLE = "The session reads messages at the factory's next step. With the channel server running and the session started with the channel flag, each message reaches the session as you send it.";
 const DEMO_NOTE = "Messages are off in the demo";
+const SENT_NOTE = "Sent";
+const UNSURE_NOTE = "The message may not have been sent.";
 
 const has = (v) => v !== undefined && v !== null && v !== "";
 const pad = (n) => String(n).padStart(2, "0");
@@ -44,7 +47,7 @@ export function mountChat(root, { getSnapshot, getContextCard } = {}) {
   let live = false, pollTimer = null, pollCtl = null, failures = 0, loaded = false;
   let thread = { messages: [], channel: { connected: false, at: null } };
   let open = false, sending = false, scrollNext = false, threadSig = "", noteText = "";
-  let seenAt = readSeen(), prevTotal = null, announceTimer = null;
+  let seenAt = readSeen(), prevTotal = null, announceTimer = null, sentTimer = null;
   let ctxCard = null, general = false;
   let resizeObs = null, scopeFrame = null, chanSig = "";
 
@@ -71,7 +74,8 @@ export function mountChat(root, { getSnapshot, getContextCard } = {}) {
   const scopeCard = () => (ctxCard && !general ? ctxCard : null);
   function paintScope() {
     const c = contextCard();
-    if (c !== ctxCard) { ctxCard = c; general = false; } // a new context card is the default scope again
+    // a new context card is the default scope again, but not under a draft: the message goes where the chip shows
+    if (c !== ctxCard && !ui.text.value.trim()) { ctxCard = c; general = false; }
     const card = scopeCard();
     const label = card ? pillOf(card) : "General";
     if (ui.scope.textContent !== label) ui.scope.textContent = label;
@@ -138,11 +142,13 @@ export function mountChat(root, { getSnapshot, getContextCard } = {}) {
   }
   ui.text.addEventListener("input", () => {
     grow();
-    if (noteText && noteText !== DEMO_NOTE) setNote("", false); // the last failure no longer describes this text
+    if (noteText && noteText !== DEMO_NOTE) setNote("", false); // the last failure, or "Sent", no longer describes this text
+    paintScope(); // an emptied box takes up the context card again
     paintBar();
   });
   ui.text.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+    if (e.repeat) { e.preventDefault(); return; } // a held Enter sends once, and adds no new lines to what is out
     e.preventDefault();
     send();
   });
@@ -154,27 +160,36 @@ export function mountChat(root, { getSnapshot, getContextCard } = {}) {
     if (isDemo() || sending || !text.trim() || text.length > MAX_TEXT) return;
     const card = scopeCard();
     sending = true;
+    clearTimeout(sentTimer); sentTimer = null;
     setNote("", false);
     paintBar();
     let failed = null;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), REQUEST_TIMEOUT_MS);
     try {
       const r = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Sfactory-Board": "1" },
         body: JSON.stringify(card ? { text, card } : { text }),
+        signal: ctl.signal,
       });
       const j = await r.json().catch(() => null);
       if (!r.ok) {
         const code = j && typeof j.code === "string" ? j.code : null;
         failed = code === "DEMO" ? DEMO_NOTE : (j && typeof j.message === "string" && j.message) || "The message was not sent (" + (code || "status " + r.status) + ").";
       }
-    } catch { failed = "The board could not be reached; the message was not sent."; }
-    sending = false;
+    } catch { failed = UNSURE_NOTE; } // a timeout or a network failure: it may have arrived, so the text stays to check against the thread
+    finally {
+      clearTimeout(timer);
+      sending = false;
+    }
     if (failed) { setNote(failed, true); paintBar(); return; }
     if (ui.text.value === text) ui.text.value = ""; // what was typed while it was out stays
     grow();
-    scrollNext = true;
-    if (!open) setOpen(true);
+    if (open) scrollNext = true; // the thread stays as the person left it; open, it keeps to the newest
+    setNote(SENT_NOTE, false);
+    announce(SENT_NOTE);
+    sentTimer = setTimeout(() => { sentTimer = null; if (noteText === SENT_NOTE) setNote("", false); }, SENT_NOTE_MS);
     paintBar();
     pollNow();
   }
@@ -259,13 +274,14 @@ export function mountChat(root, { getSnapshot, getContextCard } = {}) {
   function paintThread() {
     if (!open) return;
     const cards = thread.messages.map((m) => (has(m.card) ? m.card + ":" + pillOf(m.card) : "")).join(",");
-    const sig = JSON.stringify([loaded, thread.messages, cards, new Date().toDateString()]);
+    const demo = isDemo();
+    const sig = JSON.stringify([loaded, demo, thread.messages, cards, new Date().toDateString()]);
     const box = ui.thread;
     const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < NEAR_BOTTOM_PX;
     if (sig !== threadSig) {
       threadSig = sig;
       box.textContent = "";
-      if (!thread.messages.length) box.appendChild(h("p", "chat-empty", loaded ? "No messages yet. What you send appears here, and the session's replies under it." : "Loading the conversation…"));
+      if (!thread.messages.length) box.appendChild(h("p", "chat-empty", demo ? DEMO_NOTE + "." : loaded ? "No messages yet. What you send appears here, and the session's replies under it." : "Loading the conversation…"));
       else {
         const list = h("ol", "chat-list");
         for (const m of thread.messages) list.appendChild(messageNode(m));
@@ -349,8 +365,8 @@ export function mountChat(root, { getSnapshot, getContextCard } = {}) {
     document.removeEventListener("click", scopeSoon);
     document.removeEventListener("keyup", scopeSoon);
     if (resizeObs) { resizeObs.disconnect(); resizeObs = null; }
-    clearTimeout(pollTimer); clearTimeout(scopeFrame); clearTimeout(announceTimer);
-    pollTimer = null; scopeFrame = null; announceTimer = null;
+    clearTimeout(pollTimer); clearTimeout(scopeFrame); clearTimeout(announceTimer); clearTimeout(sentTimer);
+    pollTimer = null; scopeFrame = null; announceTimer = null; sentTimer = null;
     if (pollCtl) { pollCtl.abort(); pollCtl = null; }
   }
   return { start, stop };
