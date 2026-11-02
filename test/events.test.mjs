@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync, appendFileSync, readFileSync } from "node:fs";
+import { mkdirSync, appendFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers.mjs";
 import { EVENTS_FILE, MAX_LINE_BYTES, encodeEvent, appendEvent, eventsPath, readEvents, readAllEvents, runningAgents } from "../src/events.mjs";
@@ -43,6 +43,32 @@ test("events: a line over the cap is cut in its longest string fields, never spl
   assert.equal(e.kind, "note"); assert.equal(e.at, AT);
   assert.ok(e.text.endsWith("…") && e.other.endsWith("…"));
   assert.equal(encodeEvent({ kind: "note", text: "short" }), '{"kind":"note","text":"short"}\n');
+});
+
+test("events: an event that cannot be cut to fit returns null at once, and appendEvent warns and writes nothing", { timeout: 5000 }, () => {
+  const big = () => ({ kind: "suite", text: "a".repeat(40), files: Array.from({ length: 200 }, (_, i) => `f${i}`) });
+  const t0 = Date.now();
+  const r = encodeEvent(big());
+  assert.ok(Date.now() - t0 < 1000);
+  assert.equal(r, null);
+  const c = cfg(); card(c, "m-1"); const warned = [];
+  assert.equal(appendEvent(c, "m-1", big(), { warn: (m) => warned.push(m) }), false);
+  assert.equal(warned.length, 1);
+  assert.match(warned[0], /does not fit in 1024 bytes/);
+  assert.equal(existsSync(eventsPath(c, "m-1")), false);
+});
+
+test("events: at, by and kind are never cut", () => {
+  assert.equal(encodeEvent({ at: AT, by: "b".repeat(2000), kind: "note", text: "x" }), null);
+  const e = JSON.parse(encodeEvent({ at: AT, by: "session", kind: "note", text: "x".repeat(3000) }));
+  assert.equal(e.at, AT); assert.equal(e.by, "session"); assert.equal(e.kind, "note");
+});
+
+test("events: a cut never splits an emoji", () => {
+  const e = JSON.parse(encodeEvent({ at: AT, by: "session", kind: "note", text: "😀".repeat(600) }));
+  assert.ok(e.text.endsWith("…"));
+  const body = e.text.slice(0, -1);
+  assert.ok(body.length > 0 && /^(?:😀)+$/u.test(body));
 });
 
 test("events: readEvents reads complete lines from an offset, skips a corrupt one and waits for a partial one", () => {
