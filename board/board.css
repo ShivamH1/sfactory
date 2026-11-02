@@ -21,7 +21,7 @@
     --panel-solid: #f7f5f1;
     --card: rgba(255, 255, 255, .78); --card-line: rgba(31, 30, 27, .07);
     --pill: #1f1e1b; --pill-ink: #f6f3ed;
-    --ink: #1f1e1b; --ink-2: rgba(31, 30, 27, .58); --ink-3: rgba(31, 30, 27, .42);
+    --ink: #1f1e1b; --ink-2: rgba(31, 30, 27, .68); --ink-3: rgba(31, 30, 27, .42);
     --you: #8a5a17; --live: #2f6b4f; --danger: #b4493f;
     --pulse: rgba(47, 107, 79, .35); --focus: #2f4a6d;
     color-scheme: light;
@@ -52,7 +52,7 @@
     backdrop-filter: blur(22px) saturate(140%);
     border-radius: 14px;
   }
-  @supports not (backdrop-filter: blur(1px)) {
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .col, #drawer, #tabs, #activity { background: var(--panel-solid); }
   }
 
@@ -69,7 +69,7 @@
   .locks i, .conn::before { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--live); }
   .locks i.held { background: var(--you); }
   .locks .held-by { color: var(--you); }
-  .conn { font-family: var(--mono); font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .conn { font-family: var(--mono); font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
   .conn::before { content: ""; background: var(--ink-3); }
   .conn.ok::before { background: var(--live); }
   .conn.bad { color: var(--danger); }
@@ -85,7 +85,7 @@
   .col h2 { margin: 0; padding: 12px 14px 10px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--ink-2); display: flex; justify-content: space-between; align-items: baseline; }
   .col h2 .n { font-family: var(--mono); font-variant-numeric: tabular-nums; letter-spacing: 0; font-weight: 500; color: var(--ink-3); }
   .col[data-column="Needs you"] h2 { color: var(--you); }
-  .cards { padding: 0 8px 10px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+  .cards { padding: 4px 8px 10px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
   .empty { color: var(--ink-3); font-size: 12px; padding: 4px 6px 8px; margin: 0; }
   .more { width: 100%; padding: 8px; border-radius: 9px; border: 1px solid var(--panel-line); background: var(--panel); color: var(--ink-2); font-size: 12px; cursor: pointer; }
   .more:hover { color: var(--ink); }
@@ -108,7 +108,7 @@
   .card .title:hover { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--ink-3); }
   .card .m { font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .note { font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
-  .meta { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 10.5px; color: var(--ink-3); display: flex; gap: 10px; flex-wrap: wrap; }
+  .meta { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 10.5px; color: var(--ink-2); display: flex; gap: 10px; flex-wrap: wrap; }
   .bar { height: 2px; border-radius: 2px; overflow: hidden; background: var(--card-line); }
   .bar b { display: block; height: 100%; background: var(--live); }
   .live { font-size: 11.5px; color: var(--live); display: flex; align-items: flex-start; gap: 7px; font-variant-numeric: tabular-nums; }
@@ -124,7 +124,7 @@
   .chip { font-family: var(--mono); font-size: 10.5px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--card-line); background: none; cursor: pointer; }
   .chip.good { color: var(--live); border-color: color-mix(in srgb, var(--live) 50%, transparent); }
   .chip.bad { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 60%, transparent); }
-  .hint { color: var(--ink-3); font-size: 11.5px; }
+  .hint { color: var(--ink-2); font-size: 11.5px; }
   .hint:empty { display: none; }
   .q { white-space: pre-wrap; background: var(--panel); border: 1px solid var(--card-line); border-radius: 8px; padding: 8px; font-size: 12.5px; max-height: 180px; overflow: auto; overflow-wrap: anywhere; }
   .gate { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--card-line); padding-top: 8px; margin-top: 2px; }
@@ -149,7 +149,7 @@
   /* ---- drawer ---- */
   #drawer { position: fixed; top: 8px; right: 8px; bottom: 8px; width: min(560px, calc(100vw - 16px)); display: none; flex-direction: column; z-index: 10; }
   /* the drawer sits over cards, so it frosts harder than the columns do */
-  @supports (backdrop-filter: blur(1px)) { #drawer { -webkit-backdrop-filter: blur(48px) saturate(140%); backdrop-filter: blur(48px) saturate(140%); } }
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { #drawer { -webkit-backdrop-filter: blur(48px) saturate(140%); backdrop-filter: blur(48px) saturate(140%); } }
   #drawer.open { display: flex; }
   #drawer header { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--panel-line); }
   #drawer header .t { flex: 1; font-weight: 600; overflow-wrap: anywhere; }

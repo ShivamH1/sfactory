@@ -38,7 +38,7 @@ test("page: smoked glass is the default, porcelain the light theme, no OS switch
   const light = css.split(':root[data-theme="light"] {')[1].split("}")[0];
   for (const t of ["--bg:", "--panel:", "--card:", "--ink:", "--you:", "--live:", "--danger:", "--pulse:", "--focus:"]) assert.ok(light.includes(t), `light theme defines ${t}`);
   assert.match(css, /backdrop-filter: blur\(22px\)/);
-  assert.match(css, /@supports not \(backdrop-filter/);
+  assert.match(css, /@supports not \(\(?backdrop-filter/);
   assert.match(css, /:focus-visible/);
   assert.match(shell, /Instrument\+Serif/);
   assert.match(js, /board-theme/);
@@ -123,4 +123,20 @@ test("page: top bar, tabs, Done collapse and the running line", () => {
   assert.match(js, /board-view/);
   assert.match(js, /\.running/);
   assert.match(js, /view=activity|"activity"/);
+});
+
+test("page: review fixes — no live region on the clock, legible secondary text, the fallback names both prefixes", () => {
+  assert.equal(/id="conn"[^>]*role="status"/.test(shell), false, "#conn is not a live region");
+  assert.match(shell, /id="locks"[^>]*role="group"|role="group"[^>]*id="locks"/);
+  for (const sel of [".meta {", ".hint {", ".conn {"]) {
+    const rule = css.split(sel)[1].split("}")[0];
+    assert.match(rule, /color: var\(--ink-2\)/, `${sel} uses --ink-2`);
+  }
+  const light = css.split(':root[data-theme="light"] {')[1].split("}")[0];
+  assert.match(light, /--ink-2: rgba\(31, ?30, ?27, ?\.68\)/);
+  assert.match(css, /@supports not \(\(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\)\)/);
+  assert.match(js, /b\.classList\.toggle\("on", on\); b\.setAttribute\("aria-pressed", on \? "true" : "false"\);/);
+  assert.match(js, /b\.setAttribute\("aria-pressed", f === drawerFile \? "true" : "false"\)/);
+  assert.match(js, /var sinceAt = Date\.parse\(l\.since\);\s*if \(!Number\.isNaN\(sinceAt\)\)/);
+  assert.match(css, /\.cards \{ padding: 4px 8px 10px;/);
 });

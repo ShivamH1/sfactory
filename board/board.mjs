@@ -351,7 +351,10 @@
       dot.setAttribute("aria-hidden", "true");
       item.appendChild(dot);
       item.appendChild(document.createTextNode(held ? name + " · " + (l.holder || "held") : name + " free"));
-      if (held && l.since) item.title = name + " lock held since " + new Date(l.since).toLocaleTimeString();
+      if (held && l.since) {
+        var sinceAt = Date.parse(l.since);
+        if (!Number.isNaN(sinceAt)) item.title = name + " lock held since " + new Date(sinceAt).toLocaleTimeString();
+      }
       box.appendChild(item);
     });
   }
@@ -393,6 +396,7 @@
     job.files.forEach(function (f) {
       var b = h("button", "btn" + (f === drawerFile ? " on" : ""), f);
       b.type = "button";
+      b.setAttribute("aria-pressed", f === drawerFile ? "true" : "false");
       b.addEventListener("click", function () { loadFile(f); });
       box.appendChild(b);
     });
@@ -403,7 +407,7 @@
     var id = drawerJob;
     var started = snap && snap.jobs.filter(function (j) { return j.id === id; })[0];
     var updatedAtStart = started ? started.updated : null;
-    document.querySelectorAll("#files .btn").forEach(function (b) { b.classList.toggle("on", b.textContent === rel); });
+    document.querySelectorAll("#files .btn").forEach(function (b) { var on = b.textContent === rel; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
     fetch("/jobs/" + encodeURIComponent(id) + "/file?path=" + encodeURIComponent(rel))
       .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, t: t }; }); })
       .then(function (res) {

@@ -632,6 +632,8 @@ test("page: top bar, tabs, Done collapse and the running line", () => {
 
 - [ ] **Step 3: Implement** the "What to build" list in `board/board.css`, `board/dashboard.html` and `board/board.mjs`. Keep every existing behaviour the page tests pin (approve-after-viewing, verdict colouring, chips, the drawer, the gates, the empty-column rules, the pulse frames); change only what this task names. Then open the board in a browser against the demo (`node src/cli.mjs board --demo`, http://127.0.0.1:4317) in both themes and at 360 px width, and compare with `board-style.html`; report what you compared.
 
+*Dated 2026-11-02 (review fix, under the owner's standing OK; spec §6.5 accessibility):* functional small text (the card stats line, the Approve hint, the connection label) uses `--ink-2`, and porcelain glass's `--ink-2` rises to `rgba(31,30,27,.68)` so it reads at 4.5:1 on a card; `--ink-3` stays for counts and "Nothing here". The connection label is not a live region (a screen reader would read the time every poll). The `@supports` fallbacks also accept `-webkit-backdrop-filter`.
+
 - [ ] **Step 4: Run the page tests, then the full suite.** Expected: PASS.
 
 - [ ] **Step 5: Commit**
