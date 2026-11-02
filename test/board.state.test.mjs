@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { KEEP_EVENTS, foldActivity, foldTail, describe, matches } from "../board/activity-state.mjs";
+import {
+  KEEP_EVENTS, foldActivity, foldTail, describe, matches,
+  timelineGroups, dayKey, dayLabel, fmtElapsed, vendorName, taskLabel, reviewFor, reportPath, startNearEnd, dropPartialLine,
+} from "../board/activity-state.mjs";
 
 const ev = (i) => ({ id: "m-1", at: `2026-01-05T10:00:${String(i % 60).padStart(2, "0")}.000Z`, kind: "note", text: `n${i}` });
 
@@ -79,4 +82,114 @@ test("state: matches filters by card and by group", () => {
   assert.equal(matches(e, { card: "m-1", group: "Agents" }), true);
   assert.equal(matches(e, { card: "m-2", group: null }), false);
   assert.equal(matches(e, { card: null, group: "Gates" }), false);
+});
+
+const local = (d, h, m = 0) => new Date(2026, 0, d, h, m).toISOString(); // a local wall-clock time, so day labels hold in any zone
+const NOW = new Date(2026, 0, 6, 12, 0).getTime();
+
+test("state: timelineGroups orders by time, not arrival, newest first", () => {
+  const events = [
+    { id: "m-1", kind: "note", text: "a", at: local(6, 10) },
+    { id: "m-1", kind: "note", text: "b", at: local(6, 11) },
+    { id: "m-2", kind: "stage", text: "imported", at: local(6, 9) }, // arrived last, stamped earlier
+  ];
+  const g = timelineGroups(events, {}, NOW);
+  assert.equal(g.length, 1);
+  assert.equal(g[0].label, "Today");
+  assert.deepEqual(g[0].rows.map((r) => r.e.text), ["b", "a", "imported"]);
+  assert.deepEqual(g[0].rows.map((r) => r.key), ["e1", "e0", "e2"]); // keys are arrival positions
+  assert.deepEqual(timelineGroups(events, {}, NOW, 40)[0].rows.map((r) => r.key), ["e41", "e40", "e42"]);
+});
+
+test("state: timelineGroups gives one header per day when days arrive interleaved", () => {
+  const events = [
+    { id: "m-1", kind: "note", text: "today 1", at: local(6, 10) },
+    { id: "m-2", kind: "note", text: "old 1", at: local(2, 10) },
+    { id: "m-1", kind: "note", text: "yesterday", at: local(5, 10) },
+    { id: "m-1", kind: "note", text: "today 2", at: local(6, 11) },
+    { id: "m-2", kind: "note", text: "old 2", at: local(2, 11) },
+  ];
+  const g = timelineGroups(events, {}, NOW);
+  assert.deepEqual(g.map((x) => x.label.slice(0, 9)), ["Today", "Yesterday", g[2].label.slice(0, 9)]);
+  assert.equal(g.length, 3);
+  assert.deepEqual(g.map((x) => x.rows.map((r) => r.e.text)), [["today 2", "today 1"], ["yesterday"], ["old 2", "old 1"]]);
+  assert.notEqual(g[2].label, "Today"); assert.notEqual(g[2].label, "Yesterday");
+});
+
+test("state: timelineGroups breaks a tie by arrival (the later arrival above) and sorts an unparseable at last", () => {
+  const at = local(6, 10);
+  const events = [
+    { id: "m-1", kind: "gate", text: "first", at },
+    { id: "m-1", kind: "note", text: "bad", at: "not a time" },
+    { id: "m-1", kind: "stage", text: "second", at },
+    { id: "m-1", kind: "note", text: "missing" },
+  ];
+  const g = timelineGroups(events, {}, NOW);
+  assert.deepEqual(g.map((x) => x.label), ["Today", "Undated"]);
+  assert.deepEqual(g[0].rows.map((r) => r.e.text), ["second", "first"]);
+  assert.deepEqual(g[1].rows.map((r) => r.e.text), ["missing", "bad"]);
+});
+
+test("state: timelineGroups applies the filters and tolerates junk", () => {
+  const events = [{ id: "m-1", kind: "agent", at: local(6, 10) }, null, { id: "m-2", kind: "agent", at: local(6, 11) }, { id: "m-1", kind: "gate", at: local(6, 9) }];
+  assert.deepEqual(timelineGroups(events, { card: "m-1", group: "Agents" }, NOW)[0].rows.map((r) => r.key), ["e0"]);
+  assert.deepEqual(timelineGroups(null, {}, NOW), []);
+});
+
+test("state: dayKey and dayLabel use the local calendar", () => {
+  assert.equal(dayKey(new Date(2026, 0, 6, 23, 59).getTime()), "2026-01-06");
+  assert.equal(dayLabel(new Date(2026, 0, 6, 0, 1).getTime(), NOW), "Today");
+  assert.equal(dayLabel(new Date(2026, 0, 5, 23, 59).getTime(), NOW), "Yesterday");
+  const older = dayLabel(new Date(2026, 0, 2, 9).getTime(), NOW);
+  assert.ok(older && older !== "Today" && older !== "Yesterday");
+  assert.match(dayLabel(new Date(2025, 11, 30, 9).getTime(), NOW), /2025/);
+  assert.equal(dayLabel(NaN, NOW), "Undated");
+});
+
+test("state: fmtElapsed, vendorName and taskLabel", () => {
+  assert.equal(fmtElapsed(12000), "12s");
+  assert.equal(fmtElapsed(252000), "4m 12s");
+  assert.equal(fmtElapsed(3840000), "1h 4m");
+  assert.equal(fmtElapsed(51 * 3600000), "2d 3h");
+  assert.equal(fmtElapsed(-1), ""); assert.equal(fmtElapsed(NaN), ""); assert.equal(fmtElapsed(undefined), "");
+  assert.equal(vendorName("codex"), "Codex"); assert.equal(vendorName("claude"), "Claude");
+  assert.equal(vendorName("other"), "other"); assert.equal(vendorName(null), "Agent"); assert.equal(vendorName({}), "Agent");
+  assert.equal(taskLabel("3", { tasks: { done: 2, total: 9 } }), "task 3 of 9");
+  assert.equal(taskLabel(3, { tasks: { total: 9 } }), "task 3 of 9");
+  assert.equal(taskLabel("3", { tasks: 9 }), "task 3");
+  assert.equal(taskLabel("3a", { tasks: { total: 9 } }), "task 3a");
+  assert.equal(taskLabel("3", null), "task 3");
+  assert.equal(taskLabel(null, { tasks: { total: 9 } }), null); assert.equal(taskLabel("", null), null);
+});
+
+test("state: reviewFor matches a task's reviews, or a role's with no task", () => {
+  assert.equal(reviewFor("7-task-2-code.md", "2", "reviewer"), true);
+  assert.equal(reviewFor("7-task-12-code.md", "2", "reviewer"), false);
+  assert.equal(reviewFor("3-task-2-rereview-1.md", "2", null), true);
+  assert.equal(reviewFor("7-judge.md", null, "judge"), true);
+  assert.equal(reviewFor("8-bug-hunt.md", null, "bug hunt"), true);
+  assert.equal(reviewFor("8-bug-hunt.md", null, "judge"), false);
+  assert.equal(reviewFor("8-bug-hunt.md", null, ""), false);
+});
+
+test("state: reportPath picks the reviewer's own review, the implementer's report, and nothing of another kind", () => {
+  const job = { files: ["tasks/2/report.md", "reviews/4-task-2-spec.md", "reviews/5-task-2-code.md", "reviews/10-task-2-code.md", "reviews/6-task-3-code.md", "reviews/9-judge.md"] };
+  assert.equal(reportPath({ role: "spec-reviewer", task: "2" }, job), "reviews/4-task-2-spec.md");
+  assert.equal(reportPath({ role: "code-reviewer", task: "2" }, job), "reviews/10-task-2-code.md"); // by number, not by name
+  assert.equal(reportPath({ role: "implementer", task: "2" }, job), "tasks/2/report.md");
+  assert.equal(reportPath({ role: "reviewer", task: "2" }, job), "reviews/10-task-2-code.md");
+  assert.equal(reportPath({ role: "spec-reviewer", task: "3" }, job), null, "no spec review of task 3: not the code review");
+  assert.equal(reportPath({ role: "implementer", task: "3" }, job), "reviews/6-task-3-code.md");
+  assert.equal(reportPath({ role: "judge", task: null }, job), "reviews/9-judge.md");
+  assert.equal(reportPath({ role: "implementer", task: "4" }, job), null);
+  assert.equal(reportPath({ role: "implementer", task: "2" }, null), null);
+});
+
+test("state: startNearEnd and dropPartialLine open a long log near its end on a whole line", () => {
+  assert.equal(startNearEnd(100, 1000), 0);
+  assert.equal(startNearEnd(5000, 1000), 4000);
+  assert.equal(startNearEnd(undefined, 1000), 0);
+  assert.equal(dropPartialLine("tail of a line\nwhole\nlines\n"), "whole\nlines\n");
+  assert.equal(dropPartialLine("no newline yet"), null);
+  assert.equal(dropPartialLine("\nnext"), "next");
 });

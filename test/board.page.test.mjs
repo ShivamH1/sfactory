@@ -8,6 +8,7 @@ const shell = read("dashboard.html");
 const css = read("board.css");
 const js = read("board.mjs");
 const act = read("activity.mjs");
+const state = read("activity-state.mjs");
 const html = `${shell}\n${css}\n${js}`; // the page as the browser assembles it
 
 test("page: the shell links its stylesheet and module, and carries no style or inline script", () => {
@@ -48,7 +49,8 @@ test("page: smoked glass is the default, porcelain the light theme, no OS switch
 test("page: fix round 1 behaviours are in the source", () => {
   assert.match(html, /function portsText/);
   assert.match(html, /k !== "block"/);
-  assert.match(html, /hr >= 48/);
+  assert.match(state, /hr >= 48/); // fmtElapsed now lives in activity-state.mjs, shared by both views
+  assert.match(js, /import \{[^}]*fmtElapsed[^}]*\} from "\.\/activity-state\.mjs"/);
   assert.match(html, /#board\.has-cards \.col\.is-empty/);
   assert.match(html, /"tag you", "needs you"/);
   assert.match(html, /function required/);
@@ -156,4 +158,17 @@ test("activity: the view mounts from the board and uses the pure modules", () =>
   assert.match(act, /Following/);
   assert.equal(act.includes("innerHTML"), false);
   assert.match(css, /@media \(max-width: 900px\)/);
+});
+
+test("activity: review fixes — time-ordered timeline, shared helpers, unclipped focus rings, paced tails", () => {
+  assert.match(act, /timelineGroups\(feed\.events, filter, now, dropped\)/);
+  for (const name of ["function fmtElapsed", "function elapsed(", "function dayLabel", "function reviewFor", "function reportPath", "function vendorName", "const vendorName ="]) {
+    assert.equal(act.includes(name) || js.includes(name), false, `${name} is not duplicated in the views`);
+  }
+  assert.match(js, /import \{[^}]*taskLabel[^}]*\} from "\.\/activity-state\.mjs"/);
+  assert.match(css, /\.act-out:focus-visible \{ outline-offset: -2px; \}/);
+  assert.match(css, /\.act-running \{[^}]*padding: 4px; margin: -4px;/);
+  assert.match(act, /function tailEvery/);
+  assert.match(act, /startNearEnd\(body\.size, KEEP_LOG_BYTES\)/);
+  assert.match(act, /createTextNode\(text\.slice\(plainLen\)\)/);
 });

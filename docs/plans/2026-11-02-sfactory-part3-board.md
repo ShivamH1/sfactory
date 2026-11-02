@@ -702,6 +702,8 @@ Append to `test/board.render.test.mjs` a smoke test that `board/activity.mjs` pa
 
 - [ ] **Step 3: Implement** the "What to build" list. Then run the demo board and look at the Activity view in both themes and at 360 px; report what you compared with `activity-view.html`.
 
+*Dated 2026-11-02 (review fix, under the owner's standing OK):* the timeline orders by each event's `at` (newest first, arrival order breaking ties), not by arrival, so an import's back-dated events never sit above Today; ordering, day grouping, the report-path choice and the shared formatting helpers live in `activity-state.mjs` with tests, and `board.mjs` imports the shared ones; a finished or non-running log is tailed at `pollMs`, not every second; a long log opens near its end; the suite tile only follows a log started after the suite lock was taken; a reviewer with no report of its own shows "No report yet"; focus rings are never clipped.
+
 - [ ] **Step 4: Run the touched tests, then the full suite.** Expected: PASS.
 
 - [ ] **Step 5: Commit**

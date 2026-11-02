@@ -5,12 +5,17 @@
  * Every string reaches the page through textContent.
  */
 import { renderCodexStream, splitOutput } from "./codex-render.mjs";
-import { foldActivity, foldTail, describe, GROUPS, matches } from "./activity-state.mjs";
+import {
+  foldActivity, foldTail, describe, GROUPS,
+  timelineGroups, fmtElapsed, vendorName, taskLabel, dayKey, reportPath, startNearEnd, dropPartialLine,
+} from "./activity-state.mjs";
 
 const PAGE = 200;                    // the server's page size: a full page means more is waiting
-const TAIL_MS = 1000;                // the open log is asked for every second
+const TAIL_MS = 1000;                // a running agent's log is asked for every second; any other at the feed's pace
 const MAX_WAIT_MS = 30000;           // the longest back-off after failed requests
+const REQUEST_TIMEOUT_MS = 15000;    // a request still out after this is abandoned, so a stuck one never stops the polling
 const MAX_LOG_CHARS = 1024 * 1024;   // a longer log keeps its last three quarters of this
+const KEEP_LOG_BYTES = 768 * 1024;   // a log longer than MAX_LOG_CHARS opens this far from its end
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NEAR_BOTTOM_PX = 24;
 const CHANGE = { add: "added", update: "updated", delete: "deleted" };
@@ -19,58 +24,10 @@ const TABS = [["live", "Live output"], ["brief", "Brief"], ["report", "Report"],
 const has = (v) => v !== undefined && v !== null && v !== "";
 const enc = encodeURIComponent;
 const pad = (n) => String(n).padStart(2, "0");
-const vendorName = (v) => (v === "codex" ? "Codex" : v === "claude" ? "Claude" : has(v) ? String(v) : "Agent");
 const taskOf = (v) => (has(v) ? String(v) : null);
-
-function elapsed(ms) {
-  if (!(ms >= 0)) return "";
-  const s = Math.floor(ms / 1000), m = Math.floor(s / 60), hr = Math.floor(m / 60);
-  if (hr >= 48) return Math.floor(hr / 24) + "d " + (hr % 24) + "h";
-  if (hr > 0) return hr + "h " + (m % 60) + "m";
-  if (m > 0) return m + "m " + (s % 60) + "s";
-  return s + "s";
-}
+const elapsed = fmtElapsed;
 function clock(t) { const d = new Date(t); return pad(d.getHours()) + ":" + pad(d.getMinutes()); }
-function dayKey(t) { const d = new Date(t); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
-function dayLabel(t, now) {
-  if (Number.isNaN(t)) return "Undated";
-  const k = dayKey(t);
-  if (k === dayKey(now)) return "Today";
-  if (k === dayKey(now - DAY_MS)) return "Yesterday";
-  const d = new Date(t);
-  const opts = { weekday: "short", day: "numeric", month: "short" };
-  if (d.getFullYear() !== new Date(now).getFullYear()) opts.year = "numeric";
-  return d.toLocaleDateString([], opts);
-}
 const count = (n) => (Number.isFinite(n) ? n.toLocaleString() : "");
-
-/** A review file belongs to an agent's task (`<k>-task-<n>-…`), or, with no task, to its role (`<k>-judge`). */
-function reviewFor(name, task, role) {
-  const parts = name.replace(/\.md$/, "").split("-");
-  if (task !== null) return parts.some((p, i) => p === "task" && parts[i + 1] === task);
-  const slug = String(role ?? "").trim().toLowerCase().split(/\s+/).join("-");
-  const rest = parts.slice(1).join("-");
-  return slug !== "" && (rest === slug || rest.startsWith(slug + "-"));
-}
-
-/**
- * The file the Report tab shows: the newest review of the agent's task (reviews are numbered in order) or the
- * task's report.md. A reviewer's own work is the review, so it comes first for a reviewer; the report for anyone else.
- */
-function reportPath(sel, job) {
-  const files = job && Array.isArray(job.files) ? job.files : [];
-  const task = taskOf(sel.task);
-  const num = (f) => parseInt(f.slice("reviews/".length), 10) || 0;
-  const reviews = files.filter((f) => /^reviews\/[^/]+\.md$/.test(f) && reviewFor(f.slice("reviews/".length), task, sel.role))
-    .sort((a, b) => num(a) - num(b));
-  // a spec reviewer's own file is the task's spec review, a code reviewer's the code review: the role's other words pick it
-  const words = String(sel.role ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w && w !== "review" && w !== "reviewer");
-  const own = reviews.filter((f) => f.slice("reviews/".length).replace(/\.md$/, "").split("-").some((p) => words.includes(p)));
-  const pick = own.length ? own : reviews;
-  const review = pick.length ? pick[pick.length - 1] : null;
-  const report = task !== null && files.includes("tasks/" + task + "/report.md") ? "tasks/" + task + "/report.md" : null;
-  return /review|judge|hunt/i.test(String(sel.role ?? "")) ? review || report : report || review;
-}
 
 /** Mount the view on `root` (the #activity section); nothing is fetched until start(). */
 export function mountActivity(root, { getSnapshot } = {}) {
@@ -94,13 +51,13 @@ export function mountActivity(root, { getSnapshot } = {}) {
 
   // ---- state ----
   let feed = { events: [], cursor: null, running: [] }, loaded = false, dropped = 0, failures = 0;
-  let live = false, pollTimer = null, pollCtl = null, tickTimer = null, tickBusy = false, tickSoon = false;
+  let live = false, pollTimer = null, pollCtl = null, tickTimer = null;
   let skew = 0, skewFrom = null;
   const filter = { card: null, group: null };
   let sel = null, tab = "live", following = true, prevTop = 0;
   let log = null, logPath = null, tailCtl = null, tailGen = 0, tailFails = 0, tailNote = "", tailStopped = false;
   let doc = null, reportShown = false;
-  let blockNodes = [], expanded = new Set(), outKey = "", outMode = "";
+  let blockNodes = [], expanded = new Set(), outKey = "", outMode = "", plainLen = 0, tailTimer = null;
   let tileSig = "", chipSig = "", feedSig = "", headSig = "";
   const rows = new Map();   // a timeline event's key -> its row
   const days = new Map();   // a day's key -> its label
@@ -134,14 +91,20 @@ export function mountActivity(root, { getSnapshot } = {}) {
     if (lock && lock.held) out.push({ key: "suite|" + (lock.holder ?? "") + "|" + (lock.since ?? ""), tile: true, suite: true, id: lock.holder ?? "", startedAt: lock.since ?? null, log: null });
     return out;
   }
-  /** The log an agent writes: its own, or for the suite, the latest suite run's log on the holder's card. */
+  /**
+   * The log an agent writes: its own, or for the suite, the log of the holder card's latest suite run that started
+   * at or after the lock was taken (an older run's log is not this run's).
+   */
   function logOf(s) {
     if (!s) return null;
     if (has(s.log)) return s.log;
     if (s.suite) {
+      const since = Date.parse(s.startedAt);
       for (let i = feed.events.length - 1; i >= 0; i--) {
         const e = feed.events[i];
-        if (e.kind === "suite" && e.id === s.id && e.phase === "start" && typeof e.log === "string" && e.log) return e.log;
+        if (e.kind !== "suite" || e.id !== s.id || e.phase !== "start" || typeof e.log !== "string" || !e.log) continue;
+        if (!Number.isNaN(since) && !(Date.parse(e.at) >= since)) continue;
+        return e.log;
       }
     }
     return null;
@@ -158,9 +121,7 @@ export function mountActivity(root, { getSnapshot } = {}) {
   }
   function whoOf(s) {
     if (s.suite) return "Suite";
-    const job = jobOf(s.id);
-    const total = job && job.tasks && typeof job.tasks.total === "number" && job.tasks.total > 0 && /^\d+$/.test(String(s.task)) ? " of " + job.tasks.total : "";
-    return [vendorName(s.vendor), s.role, s.task !== null ? "task " + s.task + total : null].filter(has).join(" · ");
+    return [vendorName(s.vendor), s.role, taskLabel(s.task, jobOf(s.id))].filter(has).join(" · ");
   }
   function metaOf(s) {
     const el = elapsed(nowMs() - Date.parse(s.startedAt));
@@ -268,10 +229,9 @@ export function mountActivity(root, { getSnapshot } = {}) {
     rows.set(key, n);
     return n;
   }
-  function dayNode(key, t, now) {
+  function dayNode(key, label) {
     let n = days.get(key);
     if (!n) { n = h("h3", "act-day"); days.set(key, n); }
-    const label = dayLabel(t, now);
     if (n.textContent !== label) n.textContent = label;
     return n;
   }
@@ -292,20 +252,18 @@ export function mountActivity(root, { getSnapshot } = {}) {
     if (sig !== feedSig) {
       feedSig = sig;
       const want = [], keep = new Set(), keepDays = new Set();
-      let day = null;
-      for (let i = feed.events.length - 1; i >= 0; i--) {
-        const e = feed.events[i];
-        if (!matches(e, filter)) continue;
-        const t = Date.parse(e.at);
-        const dk = Number.isNaN(t) ? "undated" : dayKey(t);
-        if (dk !== day) { day = dk; keepDays.add(dk); want.push(dayNode(dk, t, now)); }
-        const key = "e" + (dropped + i);
-        const row = rowNode(key, e);
-        const pill = row.querySelector(".num");
-        const text = pillOf(e.id);
-        if (pill.textContent !== text) pill.textContent = text;
-        keep.add(key);
-        want.push(row);
+      // ordered by `at`, not by arrival (an imported card's history arrives late); keys stay arrival positions
+      for (const g of timelineGroups(feed.events, filter, now, dropped)) {
+        keepDays.add(g.day);
+        want.push(dayNode(g.day, g.label));
+        for (const { key, e } of g.rows) {
+          const row = rowNode(key, e);
+          const pill = row.querySelector(".num");
+          const text = pillOf(e.id);
+          if (pill.textContent !== text) pill.textContent = text;
+          keep.add(key);
+          want.push(row);
+        }
       }
       if (!want.length) {
         feedEmpty.textContent = !loaded ? "Loading the timeline…" : filter.card !== null || filter.group !== null ? "No events match these filters." : "No events yet.";
@@ -344,6 +302,7 @@ export function mountActivity(root, { getSnapshot } = {}) {
     tailGen += 1;
     if (tailCtl) { tailCtl.abort(); tailCtl = null; }
     log = null; logPath = null; tailFails = 0; tailNote = ""; tailStopped = false;
+    clearTimeout(tailTimer); tailTimer = null;
     doc = null; reportShown = false; tab = "live"; following = true;
     resetBlocks();
     if (byPerson) { render(); kick(); }
@@ -387,6 +346,7 @@ export function mountActivity(root, { getSnapshot } = {}) {
       if (tab === key && key !== "brief" && key !== "report") return;
       tab = key;
       if (key === "brief" || key === "report") doc = null; // a press reads the file again
+      else tailNow();                                      // back on the log: read it now, at its own pace after
       following = true;
       render();
     });
@@ -521,7 +481,7 @@ export function mountActivity(root, { getSnapshot } = {}) {
   /** One quiet line under a log: loading, a problem, or that the agent is still at work. */
   function waitLine(running, fin, empty) {
     if (tailNote) return h("p", "act-wait", tailNote);
-    if (!log) return h("p", "act-wait", "Loading the log…");
+    if (!log || log.partial) return h("p", "act-wait", "Loading the log…");
     if (running) { const p = h("p", "act-wait live"); p.appendChild(dot("on")); p.appendChild(document.createTextNode("Waiting for output…")); return p; }
     if (empty) return h("p", "act-wait", "The log is empty.");
     if (fin) return h("p", "act-wait", "Finished.");
@@ -539,7 +499,7 @@ export function mountActivity(root, { getSnapshot } = {}) {
     const key = [modeKey, log ? log.text.length + ":" + log.next : "-", tailNote, doc ? doc.key + doc.state : "", running, fin ? fin.at : "", isClaude(sel), loaded].join("|");
     if (key === outKey) return;
     outKey = key;
-    if (modeKey !== outMode) { outMode = modeKey; ui.out.textContent = ""; blockNodes = []; prevTop = 0; }
+    if (modeKey !== outMode) { outMode = modeKey; ui.out.textContent = ""; blockNodes = []; prevTop = 0; plainLen = 0; }
     const out = ui.out;
     out.classList.toggle("is-empty", mode === "none");
     if (mode === "none") {
@@ -554,9 +514,14 @@ export function mountActivity(root, { getSnapshot } = {}) {
       const w = waitLine(running, fin, !!log && !blocks.length);
       if (w) out.appendChild(w);
     } else if (mode === "plain" || mode === "raw") {
-      out.textContent = "";
-      if (log && log.text) out.appendChild(h("pre", "act-plain", log.text));
-      const w = waitLine(running, fin, !!log && !log.text);
+      // new text is appended as a text node; a restart or a trim cleared the pane above (resetBlocks), so it starts again
+      const text = log ? log.text : "";
+      let pre = out.querySelector(".act-plain");
+      if (pre && text.length < plainLen) { pre.textContent = ""; plainLen = 0; }
+      if (!pre && text) { pre = h("pre", "act-plain"); out.insertBefore(pre, out.firstChild); plainLen = 0; }
+      if (pre && text.length > plainLen) { pre.appendChild(document.createTextNode(text.slice(plainLen))); plainLen = text.length; }
+      for (const old of out.querySelectorAll(".act-wait")) old.remove();
+      const w = waitLine(running, fin, !!log && !text);
       if (w) out.appendChild(w);
     } else if (mode === "nolog") {
       out.textContent = "";
@@ -570,7 +535,7 @@ export function mountActivity(root, { getSnapshot } = {}) {
       } else out.appendChild(h("p", "act-empty", sel.suite ? "The suite's log is not known yet." : "This agent writes no log in the card's folder."));
     } else {
       out.textContent = "";
-      if (!doc || doc.state === "none") out.appendChild(h("p", "act-empty", tab === "brief" ? "This agent has no task brief." : "No report for this agent yet."));
+      if (!doc || doc.state === "none") out.appendChild(h("p", "act-empty", tab === "brief" ? "This agent has no task brief." : "No report yet."));
       else {
         out.appendChild(h("p", "act-cap", doc.path));
         if (doc.state === "loading") out.appendChild(h("p", "act-wait", "Loading…"));
@@ -590,11 +555,13 @@ export function mountActivity(root, { getSnapshot } = {}) {
     const ctl = new AbortController();
     pollCtl = ctl;
     let body = null, code = null;
+    const timer = setTimeout(() => ctl.abort(), REQUEST_TIMEOUT_MS); // a request that never answers counts as a failure
     try {
       const r = await fetch("/activity.json" + (feed.cursor ? "?cursor=" + enc(feed.cursor) : ""), { cache: "no-store", signal: ctl.signal });
       const j = await r.json().catch(() => null);
       if (r.ok && j && typeof j === "object") body = j; else code = (j && typeof j.code === "string" && j.code) || "HTTP " + r.status;
     } catch { code = null; }
+    clearTimeout(timer);
     if (pollCtl !== ctl) return; // stopped, or started again, while it was out
     pollCtl = null;
     let wait = pollMs();
@@ -618,49 +585,72 @@ export function mountActivity(root, { getSnapshot } = {}) {
   }
 
   function scheduleTick(ms) { clearTimeout(tickTimer); tickTimer = setTimeout(tick, ms); }
-  function kick() { if (tickBusy) tickSoon = true; else if (live) scheduleTick(0); }
-  async function tick() {
+  function kick() { if (live) scheduleTick(0); }
+  /**
+   * The tick repaints every second (elapsed times, the suite tile) and starts a read of the open log when one is
+   * due: every second while its agent runs and the log is on screen, at the feed's pace otherwise (finished, or
+   * Brief/Report shown). The read runs beside the tick, so a slow answer never holds the repaint back.
+   */
+  function tick() {
     tickTimer = null;
-    if (!live || tickBusy || document.hidden) return;
-    tickBusy = true;
-    let wait = TAIL_MS;
-    try {
-      render();
-      wait = await tailOnce();
-    } finally {
-      tickBusy = false;
-      if (live) scheduleTick(tickSoon ? 0 : wait);
-      tickSoon = false;
-    }
+    if (!live || document.hidden) return; // a hidden tab picks up again on visibilitychange
+    try { render(); } finally { if (live) scheduleTick(TAIL_MS); }
+    if (!tailCtl && !tailTimer) runTail();
+  }
+  /** One read of the open log, then the next one timed from its answer (not from the tick, which would alias it). */
+  async function runTail() {
+    const after = await tailOnce();
+    clearTimeout(tailTimer);
+    tailTimer = live ? setTimeout(() => { tailTimer = null; if (live && !document.hidden && !tailCtl) runTail(); }, after) : null;
+  }
+  /** Read the open log now: the selection or the tab changed. */
+  function tailNow() { clearTimeout(tailTimer); tailTimer = null; kick(); }
+  function tailEvery() {
+    const running = !!sel && tilesNow().some((t) => sameRun(t, sel));
+    return running && (tab === "live" || tab === "raw") ? TAIL_MS : pollMs();
   }
   async function tailOnce() {
     const s = sel, path = logOf(s);
-    if (!s || !path || tailStopped || tailCtl) return TAIL_MS;
+    if (!s || !path || tailStopped || tailCtl) return tailEvery();
     if (logPath !== path) { log = null; logPath = path; resetBlocks(); }
     const gen = tailGen;
     const asked = log && Number.isInteger(log.next) ? log.next : 0;
     const ctl = new AbortController();
     tailCtl = ctl;
-    let body = null, code = null;
+    let body = null, code = null, timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, REQUEST_TIMEOUT_MS);
     try {
       const r = await fetch("/jobs/" + enc(s.id) + "/tail?path=" + enc(path) + "&from=" + asked, { cache: "no-store", signal: ctl.signal });
       const j = await r.json().catch(() => null);
       if (r.ok && j && typeof j === "object") body = j; else code = (j && typeof j.code === "string" && j.code) || "HTTP " + r.status;
     } catch { code = "UNREACHABLE"; }
+    clearTimeout(timer);
     if (tailCtl === ctl) tailCtl = null;
-    if (gen !== tailGen || ctl.signal.aborted || !live) return TAIL_MS; // the selection changed, or the view stopped
+    if (gen !== tailGen || (ctl.signal.aborted && !timedOut) || !live) return 0; // the selection changed, or the view stopped: the next tick decides
     if (!body) {
       tailFails += 1;
       if (code === "FORBIDDEN_FILE") { tailStopped = true; tailNote = "This log cannot be shown here."; }
       else if (code === "FILE_NOT_FOUND") tailNote = "Waiting for the log to appear.";
       else tailNote = "The log could not be read; retrying.";
       paintOut();
-      return Math.min(10000, TAIL_MS * 2 ** Math.min(tailFails, 4));
+      return Math.max(tailEvery(), Math.min(10000, TAIL_MS * 2 ** Math.min(tailFails, 4)));
     }
     tailFails = 0;
     tailNote = "";
     const restarted = log !== null && body.from !== asked;
+    // a long log opens near its end: skip to its last KEEP_LOG_BYTES instead of reading every chunk from the start
+    if ((log === null || restarted) && body.from === 0 && Number.isInteger(body.size) && body.size > MAX_LOG_CHARS) {
+      log = { text: "", next: startNearEnd(body.size, KEEP_LOG_BYTES), size: body.size, partial: true };
+      resetBlocks();
+      paintOut();
+      return 0;
+    }
+    const partial = !!log && !!log.partial && !restarted;
     log = foldTail(log, asked, body);
+    if (partial) { // read from the middle of a line: keep only what follows its first newline
+      const cut = dropPartialLine(log.text);
+      log = cut === null ? { ...log, text: "", partial: true } : { ...log, text: cut };
+    }
     if (restarted) resetBlocks(); // the file was replaced: its text starts again
     if (log.text.length > MAX_LOG_CHARS) {
       const from = log.text.length - Math.floor(MAX_LOG_CHARS * 0.75);
@@ -669,7 +659,7 @@ export function mountActivity(root, { getSnapshot } = {}) {
       resetBlocks();
     }
     paintOut();
-    return Number.isInteger(body.next) && Number.isInteger(body.size) && body.next < body.size ? 0 : TAIL_MS;
+    return Number.isInteger(body.next) && Number.isInteger(body.size) && body.next < body.size ? 0 : tailEvery();
   }
 
   function render() {
@@ -686,7 +676,7 @@ export function mountActivity(root, { getSnapshot } = {}) {
     paintOut();
   }
 
-  const onVisibility = () => { if (live && !document.hidden) { schedulePoll(0); kick(); } };
+  const onVisibility = () => { if (live && !document.hidden) { schedulePoll(0); tailNow(); } };
   function start() {
     if (live) return;
     live = true;
@@ -699,8 +689,8 @@ export function mountActivity(root, { getSnapshot } = {}) {
     if (!live) return;
     live = false;
     document.removeEventListener("visibilitychange", onVisibility);
-    clearTimeout(pollTimer); clearTimeout(tickTimer);
-    pollTimer = null; tickTimer = null;
+    clearTimeout(pollTimer); clearTimeout(tickTimer); clearTimeout(tailTimer);
+    pollTimer = null; tickTimer = null; tailTimer = null;
     if (pollCtl) { pollCtl.abort(); pollCtl = null; }
     if (tailCtl) { tailCtl.abort(); tailCtl = null; }
   }

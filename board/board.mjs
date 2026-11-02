@@ -1,4 +1,5 @@
 import { mountActivity } from "./activity.mjs";
+import { fmtElapsed, vendorName, taskLabel } from "./activity-state.mjs";
 
 (function () {
   "use strict";
@@ -14,14 +15,6 @@ import { mountActivity } from "./activity.mjs";
     if (cls) e.className = cls;
     if (text !== undefined && text !== null) e.textContent = String(text);
     return e;
-  }
-  function fmtElapsed(ms) {
-    if (!(ms >= 0)) return "";
-    var s = Math.floor(ms / 1000), m = Math.floor(s / 60), hr = Math.floor(m / 60);
-    if (hr >= 48) return Math.floor(hr / 24) + "d " + (hr % 24) + "h";
-    if (hr > 0) return hr + "h " + (m % 60) + "m";
-    if (m > 0) return m + "m " + (s % 60) + "s";
-    return s + "s";
   }
   function usd(n) { return "$" + (Number(n) || 0).toFixed(2); }
 
@@ -154,7 +147,6 @@ import { mountActivity } from "./activity.mjs";
   }
   // stages the column's name does not already say, so the card names them
   var LABELLED_STAGES = ["awaiting-approval", "decision-needed", "fixing", "verifying", "pushing", "pushed", "stopped"];
-  function vendorName(v) { return v === "codex" ? "Codex" : v === "claude" ? "Claude" : String(v || "agent"); }
   function fmtShort(ms) {
     if (!(ms >= 0)) return "";
     var m = Math.floor(ms / 60000);
@@ -164,10 +156,8 @@ import { mountActivity } from "./activity.mjs";
   }
   function runLine(r, job, genAt) {
     var parts = [vendorName(r.vendor), r.role];
-    if (r.task !== null && r.task !== undefined && r.task !== "") {
-      var total = job.tasks && typeof job.tasks.total === "number" && job.tasks.total > 0 && /^\d+$/.test(String(r.task)) ? " of " + job.tasks.total : "";
-      parts.push("task " + r.task + total);
-    }
+    var task = taskLabel(r.task, job);
+    if (task) parts.push(task);
     var el = fmtShort(genAt - Date.parse(r.startedAt));
     if (el) parts.push(el);
     return parts.join(" · ");
