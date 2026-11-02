@@ -38,7 +38,25 @@
 </main>
 
 <section id="activity" aria-label="Activity" hidden>
-  <p class="empty">Activity loads here</p>
+  <div class="act-running" data-act="running" role="group" aria-label="Running now"></div>
+  <p class="act-status" data-act="status" hidden></p>
+  <div class="act-split">
+    <section class="act-panel act-timeline" aria-labelledby="act-timeline-label">
+      <header class="act-ph">
+        <h2 class="act-label" id="act-timeline-label">Timeline</h2>
+        <div class="act-chips" data-act="chips" role="group" aria-label="Filter the timeline"></div>
+      </header>
+      <div class="act-feed" data-act="feed"></div>
+    </section>
+    <section class="act-panel act-output" aria-label="Output">
+      <header class="act-oh">
+        <div class="act-head" data-act="head"></div>
+        <div class="act-seg" data-act="tabs" role="group" aria-label="Output views"></div>
+        <button type="button" class="act-follow" data-act="follow" aria-pressed="true"></button>
+      </header>
+      <div class="act-out" data-act="out" tabindex="0" role="region" aria-label="Agent output"></div>
+    </section>
+  </div>
 </section>
 
 <footer id="footer"></footer>

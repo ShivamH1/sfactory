@@ -74,3 +74,8 @@ test("render: splitOutput collapses after max lines", () => {
   assert.deepEqual(splitOutput("a\nb", 12), { shown: "a\nb", hidden: 0 });
   assert.deepEqual(splitOutput("a\nb\n", 12), { shown: "a\nb", hidden: 0 });
 });
+
+test("render: the Activity view parses as a module and touches no document at import", async () => {
+  const mod = await import(new URL("../board/activity.mjs", import.meta.url));
+  assert.equal(typeof mod.mountActivity, "function");
+});

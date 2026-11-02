@@ -7,6 +7,7 @@ const read = (name) => readFileSync(new URL(`../board/${name}`, import.meta.url)
 const shell = read("dashboard.html");
 const css = read("board.css");
 const js = read("board.mjs");
+const act = read("activity.mjs");
 const html = `${shell}\n${css}\n${js}`; // the page as the browser assembles it
 
 test("page: the shell links its stylesheet and module, and carries no style or inline script", () => {
@@ -139,4 +140,20 @@ test("page: review fixes — no live region on the clock, legible secondary text
   assert.match(js, /b\.setAttribute\("aria-pressed", f === drawerFile \? "true" : "false"\)/);
   assert.match(js, /var sinceAt = Date\.parse\(l\.since\);\s*if \(!Number\.isNaN\(sinceAt\)\)/);
   assert.match(css, /\.cards \{ padding: 4px 8px 10px;/);
+});
+
+test("activity: the view mounts from the board and uses the pure modules", () => {
+  assert.match(js, /from "\.\/activity\.mjs"/);
+  assert.match(act, /export function mountActivity/);
+  assert.match(act, /from "\.\/codex-render\.mjs"/);
+  assert.match(act, /from "\.\/activity-state\.mjs"/);
+  assert.match(act, /\/activity\.json/);
+  assert.match(act, /\/tail\?path=/);
+  assert.match(act, /foldTail\(/);
+  assert.match(act, /document\.hidden/);
+  assert.match(act, /Claude subagents report when they finish\./);
+  assert.match(act, /Nothing running\./);
+  assert.match(act, /Following/);
+  assert.equal(act.includes("innerHTML"), false);
+  assert.match(css, /@media \(max-width: 900px\)/);
 });

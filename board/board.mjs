@@ -1,3 +1,4 @@
+import { mountActivity } from "./activity.mjs";
 
 (function () {
   "use strict";
@@ -478,6 +479,8 @@
   });
 
   // ---- views: Board and Activity ----
+  // the Activity view polls only while it is shown; it reads card names and locks from this view's snapshot
+  var activityView = mountActivity($("activity"), { getSnapshot: function () { return snap; } });
   function viewFromUrl() {
     try {
       var v = new URLSearchParams(location.search).get("view");
@@ -488,6 +491,7 @@
     $("board").hidden = v !== "board";
     $("activity").hidden = v !== "activity";
     document.querySelectorAll("#tabs [data-view]").forEach(function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-view") === v ? "true" : "false"); });
+    if (v === "activity") activityView.start(); else activityView.stop();
     try {
       var u = new URL(location.href);
       if (v === "activity") u.searchParams.set("view", "activity"); else u.searchParams.delete("view");
