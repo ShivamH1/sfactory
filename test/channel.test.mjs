@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, symlinkSync } from "node:fs";
+import { readFileSync, symlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -124,5 +124,6 @@ test("channel: the program part also runs when launched through a directory link
   const link = join(tmpDir("sf-chan-link-"), "src-link");
   try { symlinkSync(fileURLToPath(new URL("../src", import.meta.url)), link, "junction"); }
   catch (e) { t.skip(`cannot make a directory link here (${e.code})`); return; }
-  await runProgram(join(link, "channel", "server.mjs"));
+  try { await runProgram(join(link, "channel", "server.mjs")); }
+  finally { unlinkSync(link); }
 });
