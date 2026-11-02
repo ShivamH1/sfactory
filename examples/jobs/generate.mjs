@@ -1,6 +1,7 @@
 // Regenerates the demo jobs: `node examples/jobs/generate.mjs [outDir]` (default: this folder).
 // Every job.json is built through src/job.mjs, with fixed timestamps, so the output is the same everywhere.
-import { mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, realpathSync, readFileSync } from "node:fs";
+import { encodeEvent } from "../../src/events.mjs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { newJob, transition, park, stop } from "../../src/job.mjs";
@@ -81,6 +82,30 @@ export function jobs() {
   f2 = walk(f2, [["planning", T(8, 55)], ["building", T(9, 10)]]);
   f2 = stop(f2, { by: "user", reason: "superseded by a larger change", now: T(10, 10) });
   out.push({ job: finish(f2, { branch: "fix/retry-404", base: BASE, tasks: { total: 2, done: 1, parallel: [] } }), files: {} });
+
+  // m-7 is the demo's latest moment and holds a Codex agent started a few minutes before it, so `board --demo`
+  // shows a running tile; its log is the test fixture's stream minus the closing line (the turn is still going).
+  let m7 = start("m-7", "milestone", "Saved searches", T(13));
+  m7 = walk(m7, [["planning", T(13, 5)], ["awaiting-approval", T(13, 20)], ["building", T(13, 30)]]);
+  const ev = (at, kind, rest) => encodeEvent({ kind, at, by: kind === "gate" ? "board" : "session", ...rest });
+  const codexLog = "tasks/3/codex-0/codex.jsonl";
+  const events = [
+    ev(T(13, 5), "stage", { from: "backlog", to: "planning", reason: "" }),
+    ev(T(13, 20), "stage", { from: "planning", to: "awaiting-approval", reason: "" }),
+    ev(T(13, 30), "gate", { action: "approve" }),
+    ev(T(13, 30), "stage", { from: "awaiting-approval", to: "building", reason: "approved" }),
+    ev(T(14, 5), "agent", { phase: "start", vendor: "claude", role: "spec-reviewer", task: "2" }),
+    ev(T(14, 20), "agent", { phase: "finish", vendor: "claude", role: "spec-reviewer", task: "2", verdict: "ok" }),
+    ev(T(14, 25), "commit", { sha: "a1b2c3d", files: 4 }),
+    ev(T(14, 30), "suite", { phase: "start" }),
+    ev("2026-01-05T14:32:41.000Z", "suite", { phase: "finish", ok: true, exit: 0, durationMs: 161000 }),
+    ev(T(14, 50), "agent", { phase: "start", vendor: "codex", role: "implementer", task: "3", model: "implement", log: codexLog }),
+  ].join("");
+  const stream = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../test/fixtures/codex-stream.jsonl"), "utf8").replace(/\r\n/g, "\n").trimEnd().split("\n");
+  out.push({
+    job: finish(m7, { number: "6", branch: "feature/saved-searches", base: BASE, worktree: "../wt/saved-searches", tasks: { total: 5, done: 2, parallel: [] }, updated: T(15) }),
+    files: { "events.jsonl": events, [codexLog]: stream.slice(0, -1).join("\n") + "\n" },
+  });
 
   return out;
 }

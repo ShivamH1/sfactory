@@ -1,0 +1,12 @@
+Reading prompt from stdin...
+{"type":"thread.started","thread_id":"0000-demo"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Reading the task brief and the existing search module first."}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"rg -n \"searchIndex\" src","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"rg -n \"searchIndex\" src","aggregated_output":"src/search/index.mjs:12:export function searchIndex(items) {\nsrc/search/query.mjs:4:import { searchIndex } from \"./index.mjs\";\n","exit_code":0,"status":"completed"}}
+2026-01-05T10:00:00.000000Z ERROR codex_core: a transient warning line the CLI printed
+{"type":"item.started","item":{"id":"item_2","type":"file_change","changes":[{"path":"src/search/saved.mjs","kind":"add"}],"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_2","type":"file_change","changes":[{"path":"src/search/saved.mjs","kind":"add"},{"path":"src/search/index.mjs","kind":"update"}],"status":"completed"}}
+{"type":"item.started","item":{"id":"item_3","type":"command_execution","command":"npm test -- saved","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_3","type":"command_execution","command":"npm test -- saved","aggregated_output":"1 failing\n","exit_code":1,"status":"failed"}}
+{"type":"item.completed","item":{"id":"item_4","type":"todo_list","items":[]}}

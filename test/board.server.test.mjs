@@ -8,6 +8,7 @@ import { addJob, readJob, readJobFile, writeJobFile, withJobLock, writeJob, jobD
 import { actions } from "../src/job-actions.mjs";
 import { appendEvent } from "../src/events.mjs";
 import { startBoard } from "../src/board/server.mjs";
+import { fileURLToPath } from "node:url";
 
 const H = { "X-Sfactory-Board": "1", "Content-Type": "application/json" };
 const mk = () => ({ stateDir: tmpDir("sf-srv-"), project: "proj", board: { pollMs: 1500, port: 0 } });
@@ -251,4 +252,16 @@ test("server: /jobs.json and /activity.json agree on the agents running now, in 
       assert.deepEqual(a.running, s.running);
     });
   }
+});
+
+test("server: the demo board shows a running Codex agent with a log it can tail", async () => {
+  // demoDir is a state dir (it holds jobs/). The agent counts as running only by the demo clock, the demo's latest
+  // stamp: the committed stamps are fixed in 2026, far more than 6 h before the real clock.
+  await withBoard(mk(), { demoDir: fileURLToPath(new URL("../examples/", import.meta.url)) }, async (b) => {
+    const a = await (await fetch(`${b.url}activity.json`)).json();
+    const r = a.running.find((x) => x.vendor === "codex");
+    assert.ok(r, "a running Codex agent");
+    const t = await (await fetch(`${b.url}jobs/${r.id}/tail?path=${encodeURIComponent(r.log)}&from=0`)).json();
+    assert.match(t.text, /"type":"item\.completed"/);
+  });
 });
