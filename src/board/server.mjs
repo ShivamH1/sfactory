@@ -4,10 +4,11 @@ import { buildSnapshot, jobView } from "./snapshot.mjs";
 import { actions } from "../job-actions.mjs";
 import { readJobFile, readJob } from "../store.mjs";
 import { SfactoryError } from "../errors.mjs";
+import { activity, tail } from "./activity.mjs";
 
 const MAX_BODY = 64 * 1024;
 const ROUTES = { approve: "approve", answer: "answer", parallel: "parallel", merged: "merged", stop: "stop", rework: "rework", "request-changes": "requestChanges", start: "start" };
-const STATUS = { ILLEGAL_TRANSITION: 409, FIX_ROUNDS_EXHAUSTED: 409, ANSWER_REQUIRED: 409, APPROVAL_REQUIRED: 409, BAD_KIND: 400, JOB_BUSY: 409, JOB_NOT_FOUND: 404, BAD_ARGS: 400, BAD_ID: 400, BAD_PATH: 400, BAD_NUMBER: 400, NUMBER_TAKEN: 409, AMBIGUOUS: 409 };
+const STATUS = { ILLEGAL_TRANSITION: 409, FIX_ROUNDS_EXHAUSTED: 409, ANSWER_REQUIRED: 409, APPROVAL_REQUIRED: 409, BAD_KIND: 400, JOB_BUSY: 409, JOB_NOT_FOUND: 404, BAD_ARGS: 400, BAD_ID: 400, BAD_PATH: 400, BAD_NUMBER: 400, NUMBER_TAKEN: 409, AMBIGUOUS: 409, FORBIDDEN_FILE: 403, FILE_NOT_FOUND: 404 };
 const PLACEHOLDER = "<!doctype html><html><head><meta charset=\"utf-8\"><title>board</title></head><body><p>The board page is not installed.</p></body></html>";
 
 function loadPage() {
@@ -59,6 +60,19 @@ export function startBoard(c, { port = c.board.port, host = "127.0.0.1", demoDir
 
       if (req.method === "GET" && url.pathname === "/") return send(res, 200, page, "text/html; charset=utf-8");
       if (req.method === "GET" && url.pathname === "/jobs.json") return sendJson(res, 200, buildSnapshot(view, { demo: !!demoDir }));
+
+      if (req.method === "GET" && url.pathname === "/activity.json") {
+        const raw = url.searchParams.get("limit");
+        const limit = raw === null ? undefined : Number(raw);
+        if (limit !== undefined && !Number.isInteger(limit)) throw new SfactoryError("BAD_ARGS", "limit must be a whole number");
+        return sendJson(res, 200, activity(view, { cursor: url.searchParams.get("cursor") ?? undefined, limit }));
+      }
+      if (req.method === "GET" && parts.length === 3 && parts[0] === "jobs" && parts[2] === "tail") {
+        const raw = url.searchParams.get("from") ?? "0";
+        const from = Number(raw);
+        if (!Number.isInteger(from) || from < 0) throw new SfactoryError("BAD_ARGS", "from must be a whole number of bytes");
+        return sendJson(res, 200, tail(view, parts[1], url.searchParams.get("path") ?? "", from));
+      }
 
       if (req.method === "GET" && parts.length === 3 && parts[0] === "jobs" && parts[2] === "file") {
         const rel = url.searchParams.get("path") ?? "";

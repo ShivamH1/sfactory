@@ -193,3 +193,20 @@ test("server: POST start moves a roadmap card to backlog", async () => {
     assert.equal((await post(b, "jobs/m-1/start")).status, 409);
   });
 });
+
+test("server: GET /activity.json and /jobs/:id/tail", async () => {
+  const c = mk();
+  actions.add(c, { kind: "milestone", title: "One" });
+  writeJobFile(c, "m-1", "verify/suite.log", "green\n");
+  await withBoard(c, {}, async (b) => {
+    const a = await (await fetch(`${b.url}activity.json`)).json();
+    assert.ok(a.events.some((e) => e.kind === "stage" && e.to === "backlog" && e.id === "m-1"));
+    assert.equal(typeof a.cursor, "string"); assert.deepEqual(a.running, []);
+    assert.equal((await fetch(`${b.url}activity.json?cursor=nope`)).status, 400);
+    const t = await (await fetch(`${b.url}jobs/m-1/tail?path=verify/suite.log&from=0`)).json();
+    assert.equal(t.text, "green\n");
+    assert.equal((await fetch(`${b.url}jobs/m-1/tail?path=job.json`)).status, 403);
+    assert.equal((await fetch(`${b.url}jobs/m-1/tail?path=nope.log`)).status, 404);
+    assert.equal((await fetch(`${b.url}jobs/m-1/tail?path=verify/suite.log&from=-1`)).status, 400);
+  });
+});
