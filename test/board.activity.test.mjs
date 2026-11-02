@@ -7,7 +7,8 @@ import { appendEvent, eventsPath, encodeEvent } from "../src/events.mjs";
 import { activity, tail, TAIL_MAX } from "../src/board/activity.mjs";
 
 const cfg = () => ({ stateDir: tmpDir("sf-act-"), limits: { lockStaleMs: 60_000 } });
-const t = (m) => `2026-11-02T11:${String(m).padStart(2, "0")}:00.000Z`;
+// Far in the future: addJob stamps each card's creation event at the real clock, so every note must be later than that.
+const t = (m) => `2099-01-01T11:${String(m).padStart(2, "0")}:00.000Z`;
 const notes = (r) => r.events.filter((e) => e.kind === "note").map((e) => `${e.id} ${e.text}`);
 
 test("activity: first call gives the newest events oldest first and a cursor at the end", () => {
