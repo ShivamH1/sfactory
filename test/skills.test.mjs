@@ -224,6 +224,42 @@ test("brainstorming: the brief goes to record.brief, stories first, questionnair
   assert.ok(!/visual companion|visual-companion|start-server/i.test(t), "the visual companion is removed");
 });
 
+test("brainstorming: a milestone's agreed design is grilled in recorded rounds before the brief", () => {
+  const t = read(join(skillsRoot, "brainstorming", "SKILL.md"));
+  assert.match(t, /## Grill the Design/);
+  assert.match(t, /<JOB_DIR>\/plan\/grilling\.md/, "every round is recorded in the job folder");
+  assert.match(t, /frontier/);
+  assert.match(t, /Word each question so "yes" accepts your recommended answer/);
+  assert.match(t, /dispatch a subagent/, "facts are looked up, never asked");
+  assert.match(t, /Milestones are grilled in full/);
+  assert.match(t, /confirm the shared understanding/);
+  // A fix card: one short round only with a real decision, and it can never defer.
+  assert.match(t, /at most one short grilling round/);
+  assert.match(t, /A fix card cannot defer a question/);
+  assert.match(t, /carry it to `plan\/questionnaire\.md`/, "a milestone's deferred question goes to the questionnaire");
+  // A resumed or revised brief carries on the numbering and never edits an earlier round.
+  assert.match(t, /carry on its round numbers/);
+  assert.match(t, /never edit an earlier round/);
+  // The fact-finding subagent works under the factory's dispatch rules.
+  assert.match(t, /hand it the OFF_LIMITS description/);
+  assert.match(t, /--role explorer/);
+  const dot = t.slice(t.indexOf("```dot"), t.indexOf("```", t.indexOf("```dot") + 6));
+  assert.match(dot, /"Milestone\?" -> "Grill a round/, "the graph grills a milestone");
+  assert.match(dot, /"Fix with a real decision\?" -> "One short round/, "the graph gives a fix with a decision one round");
+  assert.match(dot, /\[label="no, next round"\]/, "the graph loops round by round");
+  assert.match(dot, /"Present design sections" \[label="an answer overturns the design"\]/);
+  const grill = t.indexOf("## Grill the Design"), brief = t.indexOf("## After the Design");
+  assert.ok(grill > 0 && grill < brief, "grilling comes before the brief is written");
+  const steps = t.slice(t.indexOf("## Checklist"), t.indexOf("## Process Flow"));
+  assert.ok(steps.indexOf("Grill the design") < steps.indexOf("Write the brief") && steps.indexOf("Present design") < steps.indexOf("Grill the design"), "the checklist grills after the design and before the brief");
+  const attr = read(join(skillsRoot, "brainstorming", "ATTRIBUTION.md"));
+  assert.match(attr, /Matt Pocock/);
+  assert.match(attr, /mattpocock\/skills/);
+  assert.match(attr, /Copyright \(c\) 2026 Matt Pocock/);
+  assert.match(read(join(skillsRoot, "brainstorming", "CHANGES.md")), /## Grilling/);
+  assert.match(read(join(skillsRoot, "sfactory", "SKILL.md")), /plan\/grilling\.md/, "the orchestrator says what brainstorming hands back");
+});
+
 test("planning happens in the card's worktree: brainstorming and writing-plans write and commit with --cwd <WORKTREE>", () => {
   for (const s of ["brainstorming", "writing-plans"]) {
     const t = read(join(skillsRoot, s, "SKILL.md"));

@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: "The sfactory planning stage, part one: turns a card into a brief at the card's record.brief path through a dialogue with the person, stories first when the project keeps stories. Used by the sfactory orchestrator for a card in the planning stage; ends by handing back to the orchestrator, which runs sfactory:writing-plans."
+description: "The sfactory planning stage, part one: turns a card into a brief at the card's record.brief path through a dialogue with the person, stories first when the project keeps stories, and grills a milestone's agreed design in rounds before the brief is written. Used by the sfactory orchestrator for a card in the planning stage; ends by handing back to the orchestrator, which runs sfactory:writing-plans."
 ---
 
 # Brainstorming Ideas Into Designs
@@ -37,10 +37,11 @@ You MUST create a task for each of these items and complete them in order:
 3. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria
 4. **Propose 2-3 approaches** — with trade-offs and your recommendation
 5. **Present design** — in sections scaled to their complexity, get the person's agreement after each section
-6. **Write the brief** — save to the card's `record.brief` path and commit it with `sfactory commit`
-7. **Brief self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
-8. **Open questions** — a milestone's open questions go to `plan/questionnaire.md` in the job folder (see Questions That Remain)
-9. **Hand back** — tell the orchestrator the brief (and any questionnaire) is written; it runs sfactory:writing-plans through its plan role. Never invoke sfactory:writing-plans yourself
+6. **Grill the design** — milestones in full; a fix card only when it carries a real decision, one short round. Once the person agrees with the design, interview them in rounds until every branch of the design tree is settled, recording each round in `plan/grilling.md` in the job folder; write no brief until they confirm a shared understanding (see Grill the Design below)
+7. **Write the brief** — save to the card's `record.brief` path and commit it with `sfactory commit`
+8. **Brief self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
+9. **Open questions** — a milestone's open questions go to `plan/questionnaire.md` in the job folder (see Questions That Remain)
+10. **Hand back** — tell the orchestrator the brief (and any questionnaire) is written; it runs sfactory:writing-plans through its plan role. Never invoke sfactory:writing-plans yourself
 
 ## Process Flow
 
@@ -52,6 +53,11 @@ digraph brainstorming {
     "Propose 2-3 approaches" [shape=box];
     "Present design sections" [shape=box];
     "Person agrees with the design?" [shape=diamond];
+    "Milestone?" [shape=diamond];
+    "Fix with a real decision?" [shape=diamond];
+    "One short round, append to plan/grilling.md" [shape=box];
+    "Grill a round: the whole frontier,\nappend to plan/grilling.md" [shape=box];
+    "Frontier empty and the person\nconfirms shared understanding?" [shape=diamond];
     "Write the brief to record.brief, sfactory commit" [shape=box];
     "Brief self-review\n(fix inline)" [shape=box];
     "Questions remain?" [shape=diamond];
@@ -64,7 +70,16 @@ digraph brainstorming {
     "Propose 2-3 approaches" -> "Present design sections";
     "Present design sections" -> "Person agrees with the design?";
     "Person agrees with the design?" -> "Present design sections" [label="no, revise"];
-    "Person agrees with the design?" -> "Write the brief to record.brief, sfactory commit" [label="yes"];
+    "Person agrees with the design?" -> "Milestone?" [label="yes"];
+    "Milestone?" -> "Grill a round: the whole frontier,\nappend to plan/grilling.md" [label="yes"];
+    "Milestone?" -> "Fix with a real decision?" [label="no (fix)"];
+    "Fix with a real decision?" -> "One short round, append to plan/grilling.md" [label="yes"];
+    "Fix with a real decision?" -> "Write the brief to record.brief, sfactory commit" [label="no"];
+    "One short round, append to plan/grilling.md" -> "Write the brief to record.brief, sfactory commit";
+    "Grill a round: the whole frontier,\nappend to plan/grilling.md" -> "Frontier empty and the person\nconfirms shared understanding?";
+    "Grill a round: the whole frontier,\nappend to plan/grilling.md" -> "Present design sections" [label="an answer overturns the design"];
+    "Frontier empty and the person\nconfirms shared understanding?" -> "Grill a round: the whole frontier,\nappend to plan/grilling.md" [label="no, next round"];
+    "Frontier empty and the person\nconfirms shared understanding?" -> "Write the brief to record.brief, sfactory commit" [label="yes"];
     "Write the brief to record.brief, sfactory commit" -> "Brief self-review\n(fix inline)";
     "Brief self-review\n(fix inline)" -> "Questions remain?";
     "Questions remain?" -> "Write plan/questionnaire.md" [label="yes (milestone)"];
@@ -124,11 +139,50 @@ When the config sets `record.stories`, the project writes user stories before br
 - Where existing code has problems that affect the work (e.g., a file that's grown too large, unclear boundaries, tangled responsibilities), include targeted improvements as part of the design - the way a good developer improves code they're working in.
 - Don't propose unrelated refactoring. Stay focused on what serves the current goal.
 
+## Grill the Design
+
+Adapted from the `grilling` skill by Matt Pocock (MIT; see ATTRIBUTION.md). It runs after the person has agreed with the design and before the brief is written. Brainstorming found the design; grilling stress-tests it until nothing is silently assumed.
+
+**Milestones are grilled in full.** A fix card stays light: if it carries a real decision, ask one short round; otherwise go straight to its brief. A fix card cannot defer a question, because it has no approval stop and nothing would hold the build for the answer: each decision in its round is answered in the session, or the card is refiled as a milestone (`sfactory job add milestone "<title>"`, then `sfactory job stop <JOB> --reason "refiled as <new id>: needs a decision"`, and tell the person).
+
+Interview the person relentlessly until you reach a shared understanding. Map the agreed design as a **design tree**: every decision branches into the decisions that hang off it. Cover what the design left open or took for granted: edge cases and failure paths, data and its migration, permissions and who may see what, interactions with existing behaviour, what is out of scope, and how each done-when will be checked.
+
+Work the tree in **rounds**. The **frontier** is every decision whose prerequisites are already settled: the questions you can ask *now* without guessing at answers you haven't heard yet. Ask the whole frontier in one round: number each question and give your recommended answer. Then wait for the person's answers before the next round. This batching applies to grilling only; the clarifying questions before the design stay one at a time.
+
+Format a round like so:
+
+```
+❓ **Q1** - **<question title>**: <question body, might be multiple paragraphs, including multiple choices>
+
+➡️ <your recommended answer>
+
+---
+
+❓ **Q2** - **<question title>**: <question body>
+
+➡️ <your recommended answer>
+```
+
+Word each question so "yes" accepts your recommended answer.
+
+Each round the person answers reshapes the tree: settled decisions push the frontier outward and unblock questions that depended on them. Recompute the frontier and ask the next round. A question whose answer depends on another question still open in this round belongs to a *later* round, not this one.
+
+Finding *facts* is your job, never the person's. When a frontier question needs a fact from the project (files, history, tools), dispatch a subagent with a fresh context window to find it; never ask the person for anything you could look up. Don't block on it: a running exploration is an unsettled prerequisite, so only the questions downstream of it wait for the subagent; ask the rest of the frontier now. The subagent reads only, inside WORKTREE, under the factory's dispatch rules: hand it the OFF_LIMITS description (as the sfactory:sdd skill defines it) and never a path from `secrets.neverHandToAgents`, pass a model alias from `agents.claude.*` (the `plan` value), and touch the job with `sfactory job touch <JOB> --agent <start|finish> --role explorer --vendor claude --model <alias>`. The *decisions* are the person's: put each to them and wait.
+
+**Record every round** in `<JOB_DIR>/plan/grilling.md`, the factory's file (written, never committed): a `## Round <r>` heading, then each question with your recommendation and the person's answer in their own words, appended after they answer. Touch the job each time you go back to work after a round. The board lists the file among the plan files the person reads before *Approve*.
+
+**When `plan/grilling.md` already exists** (a resumed session, or the brief revised after *Request changes*), read it first, carry on its round numbers, and grill only what is new or changed. When an answer is overturned, by a later round or by the person's notes in a `plan/changes-<k>.md`, append a line naming the superseded `R<r> Q<q>` and the answer that replaces it; never edit an earlier round. The brief cites the latest answer.
+
+**When the person defers a question** ("later", "I need to check with someone"), record it as deferred and carry it to `plan/questionnaire.md` (Questions That Remain); it does not hold the frontier open. A milestone only: a fix card cannot defer (above).
+
+Grilling is done when the frontier is empty: every branch visited, nothing silently assumed. Say so, list the decisions it settled, and ask the person to confirm the shared understanding. Write no brief until they do. If an answer overturns part of the agreed design, present the changed section again for agreement before grilling on.
+
 ## After the Design
 
 **The brief:**
 
 - Write the validated design (the brief) to the card's `record.brief` path — the project's brief location for this card, never a folder of the factory's own choosing. Follow the style of the project's existing briefs when it has some.
+- A brief that rests on grilling (a milestone's, or a fix card's after its round) states every settled grilling answer as a decision, not as an open choice, and cites the latest answer it rests on by round and question (`R2 Q3`). `plan/grilling.md` is never committed, so the brief says once that its `R<r> Q<q>` references are to the card's grilling record in the factory's job folder, and every decision reads whole without it.
 - State the done-whens: the checks a judge can verify against the code at the end. The `reviewing` stage judges the branch against them, done-when by done-when.
 - Use elements-of-style:writing-clearly-and-concisely skill if available
 - Commit the brief through the factory, naming the path, so the commit lock and the no-trailer rule apply:
@@ -157,11 +211,11 @@ The person's review of the written brief is not an in-session wait: it is the ca
 The move to `awaiting-approval` happens after sfactory:writing-plans has written the plan, through `sfactory job set <JOB> awaiting-approval --reason "brief and plan written"` — that skill does it, not this one.
 
 **Fix cards:**
-A card of kind `fix` takes the light path: a one-page brief at `record.brief` (what is wrong, where, the fix, the done-whens), no stories step, no questionnaire and no approval stop. A fix card's record is its own and takes no milestone number: its brief is the card's `record.brief`: by default an absolute path in the job folder (`<JOB_DIR>/plan/brief.md`), the factory's file, written and never committed; when the config's `record.fix` gives patterns it is a relative path in WORKTREE, and then it is committed like a milestone's brief. The orchestrator checks the plan with `sfactory fixcard <plan>` and refiles the card as a milestone on a hit.
+A card of kind `fix` takes the light path: a one-page brief at `record.brief` (what is wrong, where, the fix, the done-whens), no stories step, at most one short grilling round (only when it carries a real decision), no questionnaire and no approval stop. A fix card's record is its own and takes no milestone number: its brief is the card's `record.brief`: by default an absolute path in the job folder (`<JOB_DIR>/plan/brief.md`), the factory's file, written and never committed; when the config's `record.fix` gives patterns it is a relative path in WORKTREE, and then it is committed like a milestone's brief. The orchestrator checks the plan with `sfactory fixcard <plan>` and refiles the card as a milestone on a hit.
 
 **Implementation:**
 
-- Hand back to the orchestrator: say that the brief is committed (or, for a fix card whose `record.brief` is an absolute path in its job folder, written and not committed), and whether `plan/questionnaire.md` was written. The orchestrator then has sfactory:writing-plans write the plan at the card's `record.plan` path.
+- Hand back to the orchestrator: say that the brief is committed (or, for a fix card whose `record.brief` is an absolute path in its job folder, written and not committed), and whether `plan/grilling.md` and `plan/questionnaire.md` were written. The orchestrator then has sfactory:writing-plans write the plan at the card's `record.plan` path. A fix card refiled as a milestone hands back differently: say that it was refiled as `<new id>` and stopped, with no brief, and give the path of its `plan/grilling.md` so the new card's planning can start from the design and answers recorded there.
 - Do NOT invoke any skill. The orchestrator's plan role is the next step.
 
 ## Rules of the factory

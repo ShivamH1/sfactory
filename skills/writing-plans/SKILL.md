@@ -187,7 +187,7 @@ The plan offers no execution choice: the factory builds it with sfactory:sdd onc
 
 1. Commit the plan through the factory, on the card's branch: `sfactory commit --cwd <WORKTREE> --holder <JOB> --m "docs: plan for <title>" -- <record.plan>`. A fix card whose `record.plan` is an absolute path in its job folder (`<JOB_DIR>/plan/plan.md`, the default) has the factory's file: write it and commit nothing. A fix card whose `record.plan` is a relative path in WORKTREE (the config's `record.fix` patterns) is committed like a milestone's plan.
 2. Touch the job for the hand-over, `sfactory job touch <JOB> --note "finish writing-plans"`, then move the card:
-   - a milestone: `sfactory job set <JOB> awaiting-approval --reason "brief and plan written"`. The card parks at the approval stop; the person reads the brief, the plan and `plan/questionnaire.md` (when sfactory:brainstorming wrote one) and approves on the board or with `/sfactory approve`.
+   - a milestone: `sfactory job set <JOB> awaiting-approval --reason "brief and plan written"`. The card parks at the approval stop; the person reads the brief, the plan, `plan/grilling.md` and `plan/questionnaire.md` (each when sfactory:brainstorming wrote one) and approves on the board or with `/sfactory approve`.
    - a fix: `sfactory job set <JOB> building --reason "fix plan written"` once `sfactory fixcard` passed.
 3. Report the plan path and the batches `sfactory independence tasks` printed, and hand back to the orchestrator. Do not start building.
 

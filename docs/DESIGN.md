@@ -59,7 +59,7 @@ Only `bin/job` writes `job.json`, and only along these edges.
 | Stage | Column | What runs | Leaves behind | Next |
 |---|---|---|---|---|
 | `backlog` | Backlog | nothing | `job.json` | `planning` |
-| `planning` | Plan | the worktree is cut on entry; milestone: the adapted brainstorming skill with the person, then the adapted writing-plans skill; fix: a one-page brief | the record's brief and plan; `plan/questionnaire.md` | `awaiting-approval` (milestone) · `building` (fix) |
+| `planning` | Plan | the worktree is cut on entry; milestone: the adapted brainstorming skill with the person (the agreed design grilled in rounds before the brief), then the adapted writing-plans skill; fix: a one-page brief, after one short grilling round only when it carries a real decision | the record's brief and plan; `plan/grilling.md`; `plan/questionnaire.md` | `awaiting-approval` (milestone) · `building` (fix) |
 | `awaiting-approval` | Needs you | parked | `plan/approval.md` on release | `building` |
 | `building` | In process | the task loop (§5); one log entry per task; commits at each boundary | `tasks/<n>/*`; the record's log | `reviewing` |
 | `reviewing` | Review | whole-branch bug-hunt, then the judge against the brief's done-whens | `review/bug-hunt.md`, `review/judge.md` | `fixing` · `verifying` |
