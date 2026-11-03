@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, appendFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers.mjs";
-import { EVENTS_FILE, MAX_LINE_BYTES, encodeEvent, appendEvent, eventsPath, readEvents, readAllEvents, runningAgents } from "../src/events.mjs";
+import { EVENTS_FILE, MAX_LINE_BYTES, encodeEvent, appendEvent, eventsPath, readEvents, readAllEvents, runningAgents, readJsonLines, readAllJsonLines } from "../src/events.mjs";
 
 const cfg = () => ({ stateDir: tmpDir("sf-ev-") });
 const card = (c, id) => { mkdirSync(join(c.stateDir, "jobs", id), { recursive: true }); return id; };
@@ -104,6 +104,38 @@ test("events: readAllEvents reads past maxBytes", () => {
   const c = cfg(); card(c, "m-1");
   for (let i = 0; i < 400; i++) appendEvent(c, "m-1", { kind: "note", text: `n${i} ${"z".repeat(900)}` }, { now: AT });
   assert.equal(readAllEvents(c, "m-1").length, 400);
+});
+
+test("events: a line longer than maxBytes is skipped, so the reader always advances", () => {
+  const c = cfg();
+  const f = join(c.stateDir, "long.jsonl");
+  const long = JSON.stringify({ kind: "note", text: "x".repeat(300) });
+  appendFileSync(f, `${long}\n{"kind":"note","text":"after"}\n`);
+  const r = readJsonLines(f, { maxBytes: 100 });
+  assert.deepEqual(r.items, []);
+  assert.equal(r.next, Buffer.byteLength(long) + 1, "past the long line's newline");
+  const r2 = readJsonLines(f, { from: r.next, maxBytes: 100 });
+  assert.deepEqual(r2.items.map((x) => x.text), ["after"]);
+  assert.equal(r2.next, r2.size);
+  // a line longer than the default window, between two short ones: every short one is read
+  const g = join(c.stateDir, "huge.jsonl");
+  appendFileSync(g, `{"kind":"note","text":"before"}\n${JSON.stringify({ kind: "note", text: "y".repeat(300 * 1024) })}\n{"kind":"note","text":"after"}\n`);
+  assert.deepEqual(readAllJsonLines(g).map((x) => x.text), ["before", "after"]);
+});
+
+test("events: an unfinished last line is waited for, however long it is", () => {
+  const c = cfg();
+  const f = join(c.stateDir, "partial.jsonl");
+  appendFileSync(f, `{"kind":"note","text":"a"}\n{"kind":"note","text":"${"z".repeat(300)}`);
+  const r = readJsonLines(f, { maxBytes: 100 });
+  assert.deepEqual(r.items.map((x) => x.text), ["a"]);
+  const r2 = readJsonLines(f, { from: r.next, maxBytes: 100 });
+  assert.deepEqual(r2.items, []);
+  assert.equal(r2.next, r.next, "no newline yet: the line is not skipped");
+  appendFileSync(f, `"}\n{"kind":"note","text":"b"}\n`);
+  const r3 = readJsonLines(f, { from: r.next, maxBytes: 100 });
+  assert.ok(r3.next > r.next, "complete now, so it is skipped");
+  assert.deepEqual(readJsonLines(f, { from: r3.next, maxBytes: 100 }).items.map((x) => x.text), ["b"]);
 });
 
 test("events: runningAgents — an open start on a working card, within the stale window", () => {

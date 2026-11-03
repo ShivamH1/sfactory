@@ -598,6 +598,18 @@ test("sfactory skill: a person's M<n> is resolved with job show before any path 
   assert.ok(t.includes("sfactory job show M<n>"), "names the resolve step");
   assert.match(t, /every person-facing command accepts/);
   const desc = /^description: "(.*)"$/m.exec(t)[1];
-  for (const w of ["start", "external", "import"]) assert.ok(desc.includes(w), `description names ${w}`);
+  for (const w of ["start", "external", "import", "chat"]) assert.ok(desc.includes(w), `description names ${w}`);
   assert.match(t, /`BAD_NUMBER` or `NUMBER_TAKEN`/);
+});
+
+test("chat: the orchestrator reads and answers board messages; the build skill reads a card's between tasks", () => {
+  const o = read(join(skillsRoot, "sfactory", "SKILL.md"));
+  assert.match(o, /sfactory chat unread/);
+  assert.match(o, /sfactory chat reply <id> "<text>"/);
+  assert.match(o, /never stands in for a gate/);
+  assert.match(o, /reply tool/);
+  assert.match(o, /If `sfactory chat unread` fails, note the error and carry on with the step — the chat never stops the factory\./);
+  assert.match(o, /Prefer `sfactory chat reply <id> "<text>"`/);
+  const s = read(join(skillsRoot, "sdd", "SKILL.md"));
+  assert.match(s, /sfactory chat unread --card <JOB>/);
 });

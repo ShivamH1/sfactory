@@ -696,5 +696,7 @@ export function mountActivity(root, { getSnapshot } = {}) {
     if (pollCtl) { pollCtl.abort(); pollCtl = null; }
     if (tailCtl) { tailCtl.abort(); tailCtl = null; }
   }
-  return { start, stop };
+  /** The card of the agent selected in this view, or null (the composer's default scope). */
+  const selectedCard = () => (sel && has(sel.id) ? String(sel.id) : null);
+  return { start, stop, selectedCard };
 }

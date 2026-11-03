@@ -287,6 +287,8 @@ When the reviews come back clean — or every open finding is parked with a ruli
 - `Task <N>: complete (commits <base7>..<head7>, review clean)`
 - `Task <N>: complete (commits <base7>..<head7>, <K> parked)` after a tripped breaker
 
+Between tasks, run `sfactory chat unread --card <JOB>`; carry what a message asks for into the next dispatch, and answer it with `sfactory chat reply <id> "<text>"`.
+
 Then mark the todo complete and move on. Never move to the next task while a review has open Critical/Important issues that are neither fixed nor parked-with-ruling at the cap.
 
 ## Parallel Batches

@@ -61,6 +61,7 @@ export async function main(argv, io = {}) {
 await Promise.all([
   import("./commands/board.mjs"),
   import("./commands/brief.mjs"),
+  import("./commands/chat.mjs"),
   import("./commands/codex.mjs"),
   import("./commands/commit.mjs"),
   import("./commands/cost.mjs"),

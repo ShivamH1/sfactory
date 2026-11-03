@@ -225,3 +225,49 @@ test("page: cheap fixes: footer labels legible, the running line's time in mono,
   assert.match(act, /b\.setAttribute\("aria-label", \[pillOf\(t\.id\), name, whoOf\(t\)\]\.filter\(has\)\.join\(" · "\)\)/);
   assert.match(act, /const meta = h\("span", "act-meta"\);\s*meta\.setAttribute\("aria-hidden", "true"\);/);
 });
+
+test("chat: the composer mounts on both views and talks to the chat routes", () => {
+  const chat = read("chat.mjs");
+  assert.match(js, /from "\.\/chat\.mjs"/);
+  assert.match(chat, /export function mountChat/);
+  assert.match(chat, /\/chat\.json/);
+  assert.match(chat, /"\/chat"/);
+  assert.match(chat, /X-Sfactory-Board/);
+  assert.match(chat, /Channel running/);
+  assert.match(chat, /Read at the factory's next step/);
+  assert.match(chat, /offered to the session/);
+  assert.match(chat, /document\.hidden/);
+  assert.match(chat, /Messages are off in the demo/);
+  assert.equal(chat.includes("innerHTML"), false);
+  assert.match(shell, /id="chat"/);
+});
+
+test("chat: final fixes — honest delivery words, a send that leaves the thread alone, a held scope, a timed send", () => {
+  const chat = read("chat.mjs");
+  // the indicator: running is true, live delivery needs the session's channel flag
+  assert.match(chat, /const CHANNEL_ON_TITLE = "[^"]*running[^"]*only if the session was started with the channel flag[^"]*factory's next step[^"]*";/);
+  assert.equal(chat.includes("handed to the session"), false);
+  // 7: a successful send does not open the thread; a quiet "Sent" note, announced once
+  const sendBody = chat.slice(chat.indexOf("async function send()"), chat.indexOf("// ---- the thread ----"));
+  assert.equal(sendBody.includes("setOpen("), false, "a send never opens the thread");
+  assert.match(sendBody, /if \(open\) scrollNext = true;/);
+  assert.match(sendBody, /setNote\(SENT_NOTE, false\);/);
+  assert.match(sendBody, /announce\(SENT_NOTE\);/);
+  assert.match(chat, /const SENT_NOTE = "Sent";/);
+  assert.match(chat, /sentTimer = setTimeout\(\(\) => \{ sentTimer = null; if \(noteText === SENT_NOTE\) setNote\("", false\); \}, SENT_NOTE_MS\);/);
+  assert.match(chat, /clearTimeout\(sentTimer\)/);
+  // 8: a context-card change repaints the chip only when the box is empty
+  assert.match(chat, /if \(c !== ctxCard && !ui\.text\.value\.trim\(\)\) \{ ctxCard = c; general = false; \}/);
+  // 9: the send has a timeout; a timeout or a network failure keeps the text and says it may not have been sent
+  assert.match(sendBody, /new AbortController\(\)/);
+  assert.match(sendBody, /setTimeout\(\(\) => ctl\.abort\(\), REQUEST_TIMEOUT_MS\)/);
+  assert.match(sendBody, /signal: ctl\.signal/);
+  assert.match(chat, /const UNSURE_NOTE = "The message may not have been sent\.";/);
+  assert.match(sendBody, /catch \{ failed = UNSURE_NOTE; \}/);
+  assert.match(sendBody, /finally \{\s*clearTimeout\(timer\);\s*sending = false;\s*\}/);
+  // 10: a held Enter sends once
+  assert.match(chat, /if \(e\.repeat\) \{ e\.preventDefault\(\); return; \}/);
+  // 11: the demo's empty thread says messages are off
+  assert.match(chat, /const demo = isDemo\(\);\s*const sig = JSON\.stringify\(\[loaded, demo,/);
+  assert.match(chat, /h\("p", "chat-empty", demo \? DEMO_NOTE \+ "\." :/);
+});

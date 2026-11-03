@@ -5,10 +5,11 @@ import { actions } from "../job-actions.mjs";
 import { readJobFile, readJob } from "../store.mjs";
 import { SfactoryError } from "../errors.mjs";
 import { activity, tail } from "./activity.mjs";
+import { postMessage, messages, channelStatus } from "../chat.mjs";
 
 const MAX_BODY = 64 * 1024;
 const ROUTES = { approve: "approve", answer: "answer", parallel: "parallel", merged: "merged", stop: "stop", rework: "rework", "request-changes": "requestChanges", start: "start" };
-const STATUS = { ILLEGAL_TRANSITION: 409, FIX_ROUNDS_EXHAUSTED: 409, ANSWER_REQUIRED: 409, APPROVAL_REQUIRED: 409, BAD_KIND: 400, JOB_BUSY: 409, JOB_NOT_FOUND: 404, BAD_ARGS: 400, BAD_ID: 400, BAD_PATH: 400, BAD_NUMBER: 400, NUMBER_TAKEN: 409, AMBIGUOUS: 409, FORBIDDEN_FILE: 403, FILE_NOT_FOUND: 404 };
+const STATUS = { ILLEGAL_TRANSITION: 409, FIX_ROUNDS_EXHAUSTED: 409, ANSWER_REQUIRED: 409, APPROVAL_REQUIRED: 409, BAD_KIND: 400, JOB_BUSY: 409, JOB_NOT_FOUND: 404, BAD_ARGS: 400, BAD_ID: 400, BAD_PATH: 400, BAD_NUMBER: 400, NUMBER_TAKEN: 409, AMBIGUOUS: 409, FORBIDDEN_FILE: 403, FILE_NOT_FOUND: 404, MESSAGE_NOT_FOUND: 404 };
 const PLACEHOLDER = "<!doctype html><html><head><meta charset=\"utf-8\"><title>board</title></head><body><p>The board page is not installed.</p></body></html>";
 
 function loadPage() {
@@ -22,6 +23,7 @@ export const ASSETS = {
   "activity.mjs": "text/javascript; charset=utf-8",
   "codex-render.mjs": "text/javascript; charset=utf-8",
   "activity-state.mjs": "text/javascript; charset=utf-8",
+  "chat.mjs": "text/javascript; charset=utf-8",
 };
 function loadAssets() {
   const out = {};
@@ -104,6 +106,20 @@ export function startBoard(c, { port = c.board.port, host = "127.0.0.1", demoDir
         const text = readJobFile(view, parts[1], rel);
         if (text === null) return sendJson(res, 404, { code: "NOT_FOUND" });
         return send(res, 200, text, "text/plain; charset=utf-8");
+      }
+
+      if (req.method === "GET" && url.pathname === "/chat.json") {
+        return sendJson(res, 200, { messages: messages(view).slice(-200), channel: channelStatus(view) });
+      }
+      if (req.method === "POST" && url.pathname === "/chat") {
+        if (demoDir) return sendJson(res, 403, { code: "DEMO" });
+        if (req.headers["x-sfactory-board"] !== "1") return sendJson(res, 403, { code: "NO_HEADER" });
+        const body = await readBody(req);
+        if (body.card !== undefined && body.card !== null) {
+          if (typeof body.card !== "string") throw new SfactoryError("BAD_ARGS", '"card" must be a card id');
+          readJob(view, body.card);
+        }
+        return sendJson(res, 200, { message: postMessage(view, { text: body.text, card: body.card ?? null }) });
       }
 
       if (req.method === "POST" && parts.length === 3 && parts[0] === "jobs" && Object.hasOwn(ROUTES, parts[2])) {

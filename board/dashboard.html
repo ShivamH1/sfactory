@@ -68,6 +68,23 @@
   <pre id="content"></pre>
 </aside>
 
+<section id="chat" aria-label="Messages to the session" hidden>
+  <button type="button" class="chat-toggle" data-chat="toggle" aria-expanded="false" aria-controls="chat-thread">Conversation<span class="chat-new" data-chat="new"></span></button>
+  <div class="chat-thread" id="chat-thread" data-chat="thread" role="region" aria-label="Conversation" tabindex="0" hidden></div>
+  <p class="chat-sr" data-chat="announce" aria-live="polite"></p>
+  <form class="chat-bar" data-chat="form">
+    <button type="button" class="chat-scope" data-chat="scope" aria-pressed="false">General</button>
+    <label class="chat-sr" for="chat-text">Message to the session</label>
+    <textarea id="chat-text" class="chat-input" data-chat="text" rows="1" placeholder="Write to the session" aria-describedby="chat-note"></textarea>
+    <button type="submit" class="btn go chat-send" data-chat="send" disabled>Send</button>
+    <div class="chat-foot">
+      <span class="chat-note" id="chat-note" data-chat="note"></span>
+      <span class="chat-count" data-chat="count" hidden></span>
+      <span class="chat-chan" data-chat="channel" hidden></span>
+    </div>
+  </form>
+</section>
+
 <script type="module" src="/assets/board.mjs"></script>
 </body>
 </html>
