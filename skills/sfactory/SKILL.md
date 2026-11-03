@@ -95,7 +95,7 @@ A run ends when nothing is left but `roadmap`, `external`, `pushed`, `merged` an
 **planning**
 
 1. **A queued card already planned.** If the brief and the plan already exist at the job's `record` paths, skip to step 4.
-2. **The brief.** Touch the card, then invoke the `sfactory:brainstorming` skill (Skill tool). Hand it JOB, kind, title, JOB_DIR, WORKTREE and BRIEF, PLAN and LOG. It works with the person, writes the brief (and the stories, when `record.stories` is set), commits them in WORKTREE, writes `plan/questionnaire.md` when questions remain, and hands back to you. It never invokes writing-plans itself.
+2. **The brief.** Touch the card, then invoke the `sfactory:brainstorming` skill (Skill tool). Hand it JOB, kind, title, JOB_DIR, WORKTREE and BRIEF, PLAN and LOG. It works with the person to an agreed design, grills a milestone's design in rounds (recorded in `plan/grilling.md`) until they confirm a shared understanding, writes the brief (and the stories, when `record.stories` is set), commits them in WORKTREE, writes `plan/questionnaire.md` when questions remain, and hands back to you. It never invokes writing-plans itself. When it hands back a fix card refiled as a milestone and stopped, the card's step ends there: run no plan for it, and tell the person the new card's id and where the stopped card's `plan/grilling.md` is.
 3. **The plan.** When brainstorming hands back, you run `sfactory:writing-plans` through the plan role (section 6):
    - **A Claude subagent** follows `${CLAUDE_PLUGIN_ROOT}/skills/writing-plans/SKILL.md`, with the same inputs.
    - **In `codex` mode**, render a prompt into `<JOB_DIR>/plan/plan-prompt.md`. It names the brief, the plan path and that skill's Task Structure and What the Parser Refuses rules, and says that Codex never commits. Run `sfactory codex exec --cwd <WORKTREE> --profile <agents.codex.implement> --out <JOB_DIR>/plan/codex-plan --job <id> --stage planning --role planner --task plan < <JOB_DIR>/plan/plan-prompt.md`. Then do the skill's self-review check 4 yourself and commit the plan with `sfactory commit --cwd <WORKTREE> --holder <id> --m "docs: plan for <title>" -- <record.plan>`, unless the plan is in JOB_DIR.
@@ -120,6 +120,7 @@ A run ends when nothing is left but `roadmap`, `external`, `pushed`, `merged` an
 - **If `awaiting-approval` is not in `stops`** and no questionnaire is open: run `sfactory job approve <id> --by session`.
 - **Otherwise, tell the person** (then end your turn, as at every gate):
   - The brief and the plan are committed on branch `<branch>` in `<WORKTREE>`, at their record paths. The board shows only job-folder files.
+  - The grilling record is `<JOB_DIR>/plan/grilling.md`: every round, with their answers.
   - The questionnaire, when there is one, is `<JOB_DIR>/plan/questionnaire.md`.
   - They approve on the board or with `/sfactory approve <id>`.
   - They answer the questionnaire, numbered answer by numbered question, and ask for any change in the board's one **Request changes** box.
@@ -256,6 +257,7 @@ This table is the one place this skill decides who runs. The sdd skill's Roles b
 | Role | `claude` | `codex` | `mixed` |
 |---|---|---|---|
 | Brainstorm the brief (with the person) | the session | the session; it may draft sections through `sfactory codex exec` | the session |
+| Find a fact during grilling (role `explorer`) | a read-only subagent, model `agents.claude.plan` | a read-only subagent, model `agents.claude.plan` | a read-only subagent, model `agents.claude.plan` |
 | Write the plan | a subagent following writing-plans, model `agents.claude.plan` | `sfactory codex exec`, profile `agents.codex.implement` | a subagent, model `agents.claude.plan` |
 | Implement a task | `sfactory:implementer`, model `agents.claude.implement` | `sfactory codex exec`, profile `agents.codex.implement` | `sfactory codex exec`, profile `agents.codex.implement` |
 | Spec review of a task | `sfactory:spec-reviewer`, model `agents.claude.review` | `sfactory:spec-reviewer`, model `agents.claude.review` | `sfactory:spec-reviewer`, model `agents.claude.review` |

@@ -34,3 +34,16 @@ Source: superpowers `skills/brainstorming/` (see ATTRIBUTION.md). Every edit mad
 ## Plan C final review (2026-10-28)
 
 17. The terminal state is **handing back to the orchestrator**, never invoking `sfactory:writing-plans`: under `/sfactory` the plan is written by the orchestrator's plan role (a subagent or Codex, by mode), so the skill's checklist item 9, its flow's end node, its terminal-state paragraph and its Implementation section now hand back (supersedes 12). A fix card's brief in its job folder is written and never committed.
+
+## Grilling (2026-11-03)
+
+18. New section **Grill the Design**, adapted from the `grilling` skill by Matt Pocock (MIT; see ATTRIBUTION.md). It runs after the person agrees with the design and before the brief: the design tree and its frontier, rounds of numbered questions each with a recommended answer worded so "yes" accepts it, facts found by subagents and never asked, done only when the frontier is empty and the person confirms a shared understanding. Adaptations: "the user" became "the person"; it runs over the agreed design (the clarifying questions before the design stay one at a time); a list of what to probe; every round recorded in `<JOB_DIR>/plan/grilling.md` (never committed, read by the person before *Approve*); a deferred question goes to `plan/questionnaire.md`; an answer that overturns the design sends that section back for agreement; milestones are grilled in full, a fix card gets at most one short round.
+19. Checklist item 6, the process-flow graph (a milestone branch and the grilling loop), the description, the brief section (cite decisions as `R<r> Q<q>`), the Fix cards paragraph and the hand-back (names `plan/grilling.md`) updated to match.
+
+## Grilling review fixes (2026-11-03)
+
+20. A fix card's one short round is in the checklist (item 6) and the graph (a "Fix with a real decision?" branch), not only in the prose; a fix card cannot defer a question (it has no approval stop): each decision is answered in the session, or the card is refiled as a milestone.
+21. An existing `plan/grilling.md` (a resumed session, or a brief revised after *Request changes*) is read first: its round numbers carry on, only what is new or changed is grilled, an overturned answer gets an appended line naming the superseded `R<r> Q<q>`, an earlier round is never edited, and the brief cites the latest answer.
+22. The fact-finding subagent reads only, in WORKTREE, under the factory's dispatch rules: the OFF_LIMITS description, a model alias, a job touch as `explorer`.
+23. Smaller: the graph's "an answer overturns the design" edge back to the design; "write no brief" in place of "write nothing" (each round is still recorded); the brief bullet joins its list and says once that `R<r> Q<q>` refers to the uncommitted grilling record; a neutral deferral example.
+24. Re-review minors: a fix card refiled as a milestone hands back as refiled and stopped, naming its `plan/grilling.md` (the orchestrator then runs no plan for it); the brief citation rule covers a fix card after its round; the orchestrator's roles table gains the grilling `explorer` row.
